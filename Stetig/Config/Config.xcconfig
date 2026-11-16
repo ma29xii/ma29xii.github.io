@@ -1,0 +1,11 @@
+// Stetig – die eine Stelle, die du beim Sideloaden evtl. anpassen musst.
+//
+// APP_BUNDLE_ID: muss weltweit eindeutig sein. Meldet Xcode beim Signieren
+// einen Konflikt, haenge einfach etwas an (z. B. ".max").
+APP_BUNDLE_ID = io.github.ma29xii.stetig
+
+// Gemeinsamer Speicher von App und Widgets – ergibt sich automatisch.
+APP_GROUP_ID = group.$(APP_BUNDLE_ID)
+
+// Optional: deine Team-ID hier eintragen, statt sie in Xcode pro Target zu waehlen.
+DEVELOPMENT_TEAM =

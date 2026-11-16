@@ -13,15 +13,74 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DESTINATION: platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5
+
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: Stetig
     steps:
       - uses: actions/checkout@v4
-      - name: Toolchain
+
+      - name: Build (App, Widgets, Tests)
         run: |
-          ls /Applications | grep -i xcode || true
-          xcodebuild -version
-          swift --version
-          xcrun simctl list devices available | head -60
+          set +e
+          xcodebuild build-for-testing \
+            -project Stetig.xcodeproj -scheme Stetig \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/dd" > "$RUNNER_TEMP/build.log" 2>&1
+          status=$?
+          echo "=== ERRORS ==="
+          grep -E "error:|error :" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/Stetig/##" | sort -u | head -150
+          echo "=== WARNINGS ==="
+          grep -E "\.swift:[0-9]+:[0-9]+: warning:" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/Stetig/##" | sort -u | head -40
+          echo "=== TAIL ==="
+          tail -n 12 "$RUNNER_TEMP/build.log"
+          exit $status
+
+      - name: Unit-Tests
+        run: |
+          set +e
+          xcodebuild test-without-building \
+            -project Stetig.xcodeproj -scheme Stetig \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -only-testing:StetigTests > "$RUNNER_TEMP/unit.log" 2>&1
+          status=$?
+          echo "=== FAILURES ==="
+          grep -E "error:|failed|✘|recorded an issue|Fatal|crash" "$RUNNER_TEMP/unit.log" | sed "s#$GITHUB_WORKSPACE/Stetig/##" | sort -u | head -80
+          echo "=== SUMMARY ==="
+          grep -E "Test run with|Executed [0-9]+ tests|TEST (SUCCEEDED|FAILED|EXECUTE)" "$RUNNER_TEMP/unit.log" | tail -n 8
+          exit $status
+
+      - name: UI-Tests (mit Screenshots)
+        run: |
+          set +e
+          xcodebuild test-without-building \
+            -project Stetig.xcodeproj -scheme Stetig \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$RUNNER_TEMP/ui.xcresult" \
+            -only-testing:StetigUITests > "$RUNNER_TEMP/ui.log" 2>&1
+          status=$?
+          echo "=== FAILURES ==="
+          grep -E "error:|failed|Fatal|crash|Assertion" "$RUNNER_TEMP/ui.log" | sed "s#$GITHUB_WORKSPACE/Stetig/##" | sort -u | head -80
+          echo "=== SUMMARY ==="
+          grep -E "Executed [0-9]+ tests|TEST (SUCCEEDED|FAILED|EXECUTE)|Test Case .* (passed|failed)" "$RUNNER_TEMP/ui.log" | tail -n 30
+          mkdir -p "$RUNNER_TEMP/shots"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ui.xcresult" --output-path "$RUNNER_TEMP/shots" > /dev/null 2>&1 || true
+          ls "$RUNNER_TEMP/shots" | head -60
+          exit $status
+
+      - name: Screenshots hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+          retention-days: 14
