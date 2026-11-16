@@ -64,7 +64,8 @@ enum Store {
                 print("Stetig: Datenbank konnte nicht geöffnet werden – \(error)")
             }
         }
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+        // Eigener Name je Container, damit sich flüchtige Speicher (Tests) nie Daten teilen.
+        let configuration = ModelConfiguration(UUID().uuidString, schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         do {
             return try ModelContainer(for: schema, configurations: [configuration])
         } catch {
