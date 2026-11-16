@@ -1,0 +1,27 @@
+name: iOS Build & Test
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['Stetig/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          ls /Applications | grep -i xcode || true
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available | head -60
