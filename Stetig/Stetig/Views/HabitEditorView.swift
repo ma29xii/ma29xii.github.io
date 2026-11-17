@@ -93,6 +93,12 @@ struct HabitEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    KindChooser(kind: $draft.kind.animation(.snappy), tint: tint)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+
                 if habit == nil {
                     Section {
                         NavigationLink {
@@ -130,19 +136,6 @@ struct HabitEditorView: View {
                                 .foregroundStyle(tint.gradient)
                         }
                     }
-                }
-
-                Section {
-                    Picker("Art", selection: $draft.kind) {
-                        ForEach(HabitKind.allCases) { kind in
-                            Text(kind.title).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                } footer: {
-                    Text(draft.kind == .build
-                        ? "Etwas, das du regelmäßig tun möchtest."
-                        : "Etwas, das du lassen möchtest. Jeder Tag ohne Rückfall zählt automatisch.")
                 }
 
                 if draft.kind == .build {
@@ -338,73 +331,132 @@ struct HabitEditorView: View {
     }
 }
 
+// MARK: - Art
+
+/// Ganz oben im Editor: Gewohnheit aufbauen oder etwas abgewöhnen.
+struct KindChooser: View {
+    @Binding var kind: HabitKind
+    let tint: HabitColor
+
+    var body: some View {
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                tile(.build, symbol: "arrow.up.right", title: "Aufbauen", detail: "Etwas regelmäßig tun")
+                tile(.quit, symbol: "nosign", title: "Abgewöhnen", detail: "Etwas sein lassen")
+            }
+        }
+    }
+
+    private func tile(_ value: HabitKind, symbol: String, title: String, detail: String) -> some View {
+        let isSelected = kind == value
+        return Button {
+            kind = value
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.title3.weight(.semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.headline)
+                    Text(detail)
+                        .font(.caption)
+                        .opacity(0.75)
+                }
+            }
+            .foregroundStyle(isSelected ? tint.onColor : Color.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .contentShape(.rect(cornerRadius: 22))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(
+            isSelected ? Glass.regular.tint(tint.color).interactive() : Glass.regular.interactive(),
+            in: .rect(cornerRadius: 22, style: .continuous)
+        )
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 // MARK: - Symbole
 
 struct SymbolPickerView: View {
     @Binding var selection: String
     let tint: HabitColor
 
+    enum Mode: String, CaseIterable, Identifiable {
+        case symbols = "Symbole"
+        case emojis = "Emojis"
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State private var emoji = ""
+    @State private var mode: Mode
+
+    init(selection: Binding<String>, tint: HabitColor) {
+        _selection = selection
+        self.tint = tint
+        _mode = State(initialValue: HabitGlyph.isEmoji(selection.wrappedValue) ? .emojis : .symbols)
+    }
 
     static let groups: [(title: String, symbols: [String])] = [
-        ("Allgemein", ["checkmark", "star.fill", "heart.fill", "flame.fill", "bolt.fill", "sparkles", "flag.fill", "target", "trophy.fill", "leaf.fill", "sun.max.fill", "moon.fill"]),
-        ("Gesundheit", ["drop.fill", "pills.fill", "cross.case.fill", "bed.double.fill", "lungs.fill", "brain.head.profile", "eye.fill", "hand.raised.fill", "face.smiling", "stethoscope", "bandage.fill", "waterbottle.fill"]),
-        ("Bewegung", ["figure.walk", "figure.run", "figure.yoga", "figure.strengthtraining.traditional", "figure.pool.swim", "figure.outdoor.cycle", "dumbbell.fill", "bicycle", "sportscourt.fill", "soccerball", "tennis.racket", "figure.hiking"]),
-        ("Essen & Trinken", ["fork.knife", "cup.and.saucer.fill", "carrot.fill", "mug.fill", "wineglass.fill", "birthday.cake.fill", "takeoutbag.and.cup.and.straw.fill", "fish.fill"]),
-        ("Geist & Lernen", ["book.fill", "books.vertical.fill", "graduationcap.fill", "pencil", "text.book.closed.fill", "headphones", "music.note", "guitars.fill", "paintbrush.fill", "camera.fill", "globe", "character.bubble.fill", "figure.mind.and.body"]),
-        ("Produktivität", ["laptopcomputer", "desktopcomputer", "keyboard", "envelope.fill", "phone.fill", "calendar", "clock.fill", "timer", "alarm.fill", "list.bullet", "tray.full.fill", "briefcase.fill", "chart.line.uptrend.xyaxis", "lightbulb.fill"]),
-        ("Zuhause & Alltag", ["house.fill", "cart.fill", "washer.fill", "trash.fill", "shower.fill", "bathtub.fill", "pawprint.fill", "tree.fill", "creditcard.fill", "banknote.fill", "car.fill", "airplane"]),
-        ("Abgewöhnen", ["nosign", "smoke.fill", "iphone.slash", "play.slash.fill", "gamecontroller.fill", "bag.fill", "xmark.circle.fill", "hourglass"]),
+        ("Allgemein", ["checkmark", "star.fill", "heart.fill", "flame.fill", "bolt.fill", "sparkles", "sparkle", "flag.fill", "target", "trophy.fill", "crown.fill", "medal.fill", "rosette", "checkmark.seal.fill", "hand.thumbsup.fill", "gift.fill", "bell.fill", "infinity", "star.circle.fill", "wand.and.stars"]),
+        ("Gesundheit", ["drop.fill", "pills.fill", "pill.fill", "cross.case.fill", "bed.double.fill", "lungs.fill", "brain.head.profile", "brain", "eye.fill", "ear.fill", "hand.raised.fill", "face.smiling", "stethoscope", "bandage.fill", "waterbottle.fill", "syringe.fill", "heart.text.square.fill", "facemask.fill", "scalemass.fill", "zzz", "powersleep", "thermometer.medium", "allergens", "mouth.fill"]),
+        ("Bewegung", ["figure.walk", "figure.run", "figure.yoga", "figure.strengthtraining.traditional", "figure.pool.swim", "figure.outdoor.cycle", "figure.hiking", "figure.dance", "figure.boxing", "figure.climbing", "figure.skiing.downhill", "figure.martial.arts", "figure.pilates", "figure.rower", "figure.jumprope", "figure.core.training", "figure.cooldown", "figure.stairs", "dumbbell.fill", "bicycle", "sportscourt.fill", "soccerball", "basketball.fill", "football.fill", "volleyball.fill", "tennis.racket", "skateboard.fill"]),
+        ("Essen & Trinken", ["fork.knife", "cup.and.saucer.fill", "mug.fill", "carrot.fill", "wineglass.fill", "birthday.cake.fill", "takeoutbag.and.cup.and.straw.fill", "fish.fill", "frying.pan.fill", "popcorn.fill", "refrigerator.fill", "stove.fill", "oven.fill", "basket.fill"]),
+        ("Geist & Lernen", ["book.fill", "book.closed.fill", "books.vertical.fill", "text.book.closed.fill", "graduationcap.fill", "pencil", "pencil.and.outline", "magazine.fill", "newspaper.fill", "headphones", "music.note", "guitars.fill", "pianokeys", "mic.fill", "music.mic", "paintbrush.fill", "camera.fill", "film.fill", "theatermasks.fill", "puzzlepiece.fill", "globe", "translate", "character.bubble.fill", "quote.bubble.fill", "atom", "function", "figure.mind.and.body"]),
+        ("Produktivität", ["laptopcomputer", "desktopcomputer", "keyboard", "envelope.fill", "paperplane.fill", "phone.fill", "calendar", "calendar.badge.clock", "clock.fill", "timer", "alarm.fill", "list.bullet", "checklist", "doc.text.fill", "folder.fill", "tray.full.fill", "printer.fill", "briefcase.fill", "chart.line.uptrend.xyaxis", "chart.bar.fill", "chart.pie.fill", "lightbulb.fill", "flag.checkered", "person.2.fill", "bubble.left.and.bubble.right.fill"]),
+        ("Zuhause & Alltag", ["house.fill", "sofa.fill", "lamp.desk.fill", "cart.fill", "washer.fill", "dishwasher.fill", "trash.fill", "shower.fill", "bathtub.fill", "bubbles.and.sparkles", "tshirt.fill", "scissors", "hammer.fill", "wrench.and.screwdriver.fill", "fanblades.fill", "creditcard.fill", "banknote.fill", "car.fill", "airplane"]),
+        ("Natur & Tiere", ["leaf.fill", "tree.fill", "camera.macro", "sun.max.fill", "moon.fill", "sunrise.fill", "sunset.fill", "cloud.sun.fill", "snowflake", "wind", "mountain.2.fill", "water.waves", "beach.umbrella.fill", "tent.fill", "globe.europe.africa.fill", "pawprint.fill", "dog.fill", "cat.fill", "bird.fill", "tortoise.fill", "hare.fill", "ladybug.fill", "ant.fill", "teddybear.fill"]),
+        ("Miteinander", ["person.fill", "figure.2.and.child.holdinghands", "hands.sparkles.fill", "hand.wave.fill", "message.fill", "heart.circle.fill", "eyeglasses"]),
+        ("Abgewöhnen", ["nosign", "smoke.fill", "iphone.slash", "play.slash.fill", "gamecontroller.fill", "bag.fill", "xmark.circle.fill", "xmark.octagon.fill", "hourglass", "tv.fill", "bell.slash.fill", "moon.zzz.fill", "cart.badge.minus", "dice.fill", "speaker.slash.fill", "eye.slash.fill", "wifi.slash", "hand.raised.slash.fill", "exclamationmark.triangle.fill"]),
+    ]
+
+    static let emojiGroups: [(title: String, emojis: [String])] = [
+        ("Gefühl & Erfolg", ["😀", "😊", "😌", "🥰", "😎", "🤩", "🙏", "💪", "❤️", "🔥", "✨", "🌟", "💯", "🎯", "🏆", "🥇", "🎉", "🚀", "🌈", "☀️"]),
+        ("Gesundheit", ["💧", "🥤", "💊", "🩺", "🦷", "🛌", "😴", "🧴", "🧼", "🚿", "🛁", "🫁", "🧠", "👀", "🌞", "🌙", "⏰", "🧘", "🫀", "🩹"]),
+        ("Sport", ["🏃", "🚶", "🧗", "🏋️", "🚴", "🏊", "🤸", "⚽", "🏀", "🎾", "🏓", "🥊", "🥾", "⛷️", "🏄", "🛹", "🏐", "🤾", "🧘‍♀️", "🏸"]),
+        ("Essen & Trinken", ["🥗", "🍎", "🥦", "🥕", "🍌", "🥑", "🍳", "🥛", "☕", "🍵", "🫖", "🥜", "🍓", "🫐", "🍋", "🥣", "🍫", "🍰", "🍕", "🍷"]),
+        ("Lernen & Kreativ", ["📚", "📖", "✍️", "📝", "🎓", "🧩", "🎨", "🎸", "🎹", "🎻", "🥁", "🎧", "🎤", "📷", "🌍", "🗣️", "💡", "🔬", "♟️", "🧶"]),
+        ("Arbeit & Geld", ["💻", "📱", "📧", "📅", "✅", "📈", "💰", "💶", "🏦", "🧾", "📦", "🗂️", "⌛", "📞", "🗓️", "📊", "🖊️", "📌", "🧑‍💻", "🤝"]),
+        ("Zuhause & Natur", ["🏠", "🧹", "🧺", "🛒", "🪴", "🌱", "🌳", "🌻", "🌷", "🐶", "🐱", "🐴", "🚗", "🚲", "✈️", "🧳", "♻️", "🕯️", "🛏️", "🧸"]),
+        ("Miteinander", ["👨‍👩‍👧", "👫", "💬", "📲", "💌", "🎁", "🫶", "👋", "🙌", "😘", "🤗", "🥂"]),
+        ("Abgewöhnen", ["🚭", "🚫", "📵", "🍬", "🎮", "🛍️", "🍟", "🍔", "🥃", "🍺", "🎰", "📺", "😤", "💤", "⛔", "🙅"]),
     ]
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Eigenes Emoji")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        TextField("z. B. 🎯", text: $emoji)
-                            .onChange(of: emoji) { _, value in
-                                guard let last = value.last else { return }
-                                let single = String(last)
-                                if emoji != single { emoji = single }
-                                if HabitGlyph.isEmoji(single) {
-                                    selection = single
+                Picker("Art", selection: $mode.animation(.snappy)) {
+                    ForEach(Mode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                switch mode {
+                case .symbols:
+                    ForEach(Self.groups, id: \.title) { group in
+                        section(group.title) {
+                            ForEach(group.symbols, id: \.self) { symbol in
+                                tile(symbol) {
+                                    Image(systemName: symbol)
+                                        .font(.system(size: 19, weight: .semibold))
+                                        .foregroundStyle(selection == symbol ? AnyShapeStyle(tint.onColor) : AnyShapeStyle(tint.gradient))
                                 }
                             }
-                        if HabitGlyph.isEmoji(selection) {
-                            Text(selection).font(.title2)
                         }
                     }
-                    .card(padding: 14)
-                }
-
-                ForEach(Self.groups, id: \.title) { group in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(group.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
-                            ForEach(group.symbols, id: \.self) { symbol in
-                                let isSelected = selection == symbol
-                                Button {
-                                    selection = symbol
-                                    dismiss()
-                                } label: {
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(isSelected ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(tint.color.opacity(0.14)))
-                                        .aspectRatio(1, contentMode: .fit)
-                                        .overlay {
-                                            Image(systemName: symbol)
-                                                .font(.system(size: 19, weight: .semibold))
-                                                .foregroundStyle(isSelected ? AnyShapeStyle(tint.onColor) : AnyShapeStyle(tint.gradient))
-                                        }
+                case .emojis:
+                    customEmoji
+                    ForEach(Self.emojiGroups, id: \.title) { group in
+                        section(group.title) {
+                            ForEach(group.emojis, id: \.self) { item in
+                                tile(item) {
+                                    Text(item).font(.system(size: 24))
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(symbol)
                             }
                         }
                     }
@@ -415,6 +467,56 @@ struct SymbolPickerView: View {
         .ambientBackground(tint)
         .navigationTitle("Symbol")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var customEmoji: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Eigenes Emoji")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack {
+                TextField("Beliebiges Emoji eingeben, z. B. 🎯", text: $emoji)
+                    .onChange(of: emoji) { _, value in
+                        guard let last = value.last else { return }
+                        let single = String(last)
+                        if emoji != single { emoji = single }
+                        if HabitGlyph.isEmoji(single) {
+                            selection = single
+                        }
+                    }
+                if HabitGlyph.isEmoji(selection) {
+                    Text(selection).font(.title2)
+                }
+            }
+            .card(padding: 14)
+        }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+                content()
+            }
+        }
+    }
+
+    private func tile<Glyph: View>(_ value: String, @ViewBuilder label: () -> Glyph) -> some View {
+        let isSelected = selection == value
+        return Button {
+            selection = value
+            dismiss()
+        } label: {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isSelected ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(tint.color.opacity(0.14)))
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { label() }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(value)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

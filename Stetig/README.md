@@ -8,6 +8,7 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 
 **Erfassen**
 - Kachel-Raster pro Gewohnheit, Abhaken mit einem Tipp direkt auf der Karte
+- Beim Anlegen oben wählen: Gewohnheit **aufbauen** oder etwas **abgewöhnen**
 - Zähler mit Tagesziel, Einheit und Schrittweite (z. B. 8 Gläser, 20 min) – Teilmengen färben die Kachel heller
 - „Abgewöhnen“-Gewohnheiten: jeder Tag ohne Rückfall zählt automatisch, optional mit Tageslimit
 - Rhythmus: täglich, bestimmte Wochentage, x-mal pro Woche oder Monat
@@ -21,6 +22,7 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 - Erfolgsquote, Wochen- und Wochentags-Diagramme, Jahresraster
 - Tab „Heute“ mit Tagesfortschritt, auch für vergangene Tage
 - Tab „Statistik“ mit Gesamtbild, 30-Tage-Verlauf, Rangliste und 13 Erfolgen
+- Wochenrückblick (Quote, Vergleich zur Vorwoche, Tage Mo–So, jede Gewohnheit mit 7 Punkten) und Jahresrückblick (Jahresraster aller Gewohnheiten, Quote je Monat, bester Monat) – mit Blättern in vergangene Wochen und Jahre
 
 **Drumherum**
 - Widgets für Home- und Sperrbildschirm, interaktiv (Abhaken ohne die App zu öffnen)
@@ -31,7 +33,7 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 - Kategorien als Filter, drei Ansichten (Raster, Woche, Kompakt), Suche
 - Sortieren nach eigener Reihenfolge, Name, Serie oder Quote; Gewohnheiten duplizieren
 - iPad-Layout mit mehreren Spalten
-- 23 Vorlagen, rund 90 Symbole oder ein eigenes Emoji
+- 23 Vorlagen, über 200 Symbole in 10 Gruppen und über 160 Emojis in 9 Gruppen – oder ein beliebiges eigenes Emoji
 - 14 kuratierte Farb-Duos (z. B. Sonnenuntergang, Polarlicht, Lagune, Iris, Flamingo, Volt) plus „Mono“ (weiß im Dunkelmodus, schwarz im hellen Modus): Kacheln, Haken und Diagramme verlaufen von Farbe A nach B
 - Liquid-Glass-Oberfläche über einem dezent leuchtenden Hintergrund, eigene Akzentfarbe und eigene Farbe für die Kategorie-Leiste wählbar
 - Face-ID-Sperre, die auch offene Blätter und das Vorschaubild im App-Umschalter abdeckt

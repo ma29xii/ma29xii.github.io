@@ -9,10 +9,20 @@ struct SymbolTests {
     @Test func pickerAndTemplateSymbolsExist() {
         let picker = SymbolPickerView.groups.flatMap { $0.symbols }
         let templates = HabitTemplates.groups.flatMap { $0.templates.map(\.symbol) }
-        #expect(picker.count > 80)
+        #expect(picker.count > 180)
         #expect(Set(picker).count == picker.count, "Symbol doppelt in der Auswahl")
         for symbol in picker + templates {
             #expect(UIImage(systemName: symbol) != nil, "Symbol fehlt: \(symbol)")
+        }
+    }
+
+    @Test func emojiChoicesAreSingleEmojis() {
+        let emojis = SymbolPickerView.emojiGroups.flatMap { $0.emojis }
+        #expect(emojis.count > 120)
+        #expect(Set(emojis).count == emojis.count, "Emoji doppelt in der Auswahl")
+        for emoji in emojis {
+            #expect(emoji.count == 1, "Kein einzelnes Zeichen: \(emoji)")
+            #expect(HabitGlyph.isEmoji(emoji), "Wird nicht als Emoji erkannt: \(emoji)")
         }
     }
 
@@ -28,7 +38,7 @@ struct SymbolTests {
             "star.fill", "crown.fill", "medal.fill", "shield.fill", "bolt.fill", "figure.walk", "sun.max",
             "play.fill", "checkmark", "plus.circle.fill", "heart.fill", "brain.head.profile", "figure.run",
             "list.bullet", "lightbulb", "hand.tap", "hand.point.up.left", "nosign", "square.grid.2x2", "mic",
-            "mic.fill", "waveform", "lock.fill",
+            "mic.fill", "waveform", "lock.fill", "arrow.up.right", "arrow.down.right", "chevron.left", "chevron.right",
         ]
         for symbol in symbols {
             #expect(UIImage(systemName: symbol) != nil, "Symbol fehlt: \(symbol)")

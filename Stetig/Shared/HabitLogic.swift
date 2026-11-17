@@ -343,6 +343,45 @@ struct HabitSnapshot: Sendable {
         }
     }
 
+    /// Erledigt und fällig in einem Zeitraum – Grundlage für Wochen- und Jahresrückblick.
+    /// Heute zählt nur mit, wenn es schon erledigt ist (sonst ist der Tag ja nicht verpasst).
+    func tally(from start: Day, through end: Day) -> (done: Int, due: Int) {
+        let lower = max(start, rule.firstDay)
+        let upper = min(end, today, rule.lastDay ?? end)
+        guard lower <= upper else { return (0, 0) }
+        switch effectiveFrequency {
+        case .daily, .weekdays:
+            var done = 0
+            var due = 0
+            var day = lower
+            while day <= upper {
+                let entry = dayTally(day)
+                done += entry.done
+                due += entry.due
+                day = day.adding(1)
+            }
+            return (done, due)
+        case .perWeek, .perMonth:
+            let span = Double(lower.days(until: upper) + 1)
+            let periodLength = effectiveFrequency == .perWeek ? 7.0 : 30.0
+            let expected = max(1, Int((Double(rule.timesPerPeriod) * span / periodLength).rounded()))
+            return (min(doneCount(from: lower, through: upper), expected), expected)
+        }
+    }
+
+    /// Ein einzelner Tag: (1, 1) erledigt, (0, 1) verpasst, (0, 0) zählt nicht.
+    /// „x-mal pro Woche“ zählt nur an erledigten Tagen – ein freier Tag ist kein Fehler.
+    func dayTally(_ day: Day) -> (done: Int, due: Int) {
+        guard inRange(day) else { return (0, 0) }
+        if isDone(day) { return (1, 1) }
+        switch effectiveFrequency {
+        case .daily, .weekdays:
+            return isDue(day) && !isSkipped(day) && day != today ? (0, 1) : (0, 0)
+        case .perWeek, .perMonth:
+            return (0, 0)
+        }
+    }
+
     /// Erledigte Tage je Wochentag (Index 0 = Montag).
     func weekdayCounts() -> [Int] {
         var counts = Array(repeating: 0, count: 7)

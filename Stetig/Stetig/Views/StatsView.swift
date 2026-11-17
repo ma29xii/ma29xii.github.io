@@ -116,6 +116,8 @@ struct StatsView: View {
                 .init(value: "\(perfect.count)", label: "Perfekte Tage"),
             ])
 
+            ReviewLinks(habits: habits, weekStart: weekStart, tint: accent)
+
             trendCard(overview)
             heatmapCard(overview)
             weekdayCard(overview)

@@ -107,14 +107,25 @@ final class StetigUITests: XCTestCase {
         name.tap()
         name.typeText("Gitarre üben")
         dismissKeyboardTutorial()
+        if app.keyboards.firstMatch.exists {
+            let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Fertig", "Done", "Return", "return", "Zeilenschalter"])).firstMatch
+            if done.exists { done.tap() }
+        }
+        // Oben im Editor: aufbauen oder abgewöhnen.
+        waitFor("Abgewöhnen")
         shot("06-Editor")
 
-        // Symbolauswahl
+        // Symbolauswahl mit Symbolen und Emojis
         let symbolRow = element("Symbol")
         if symbolRow.waitForExistence(timeout: 5) {
+            if !symbolRow.isHittable { app.swipeUp() }
             symbolRow.tap()
-            if element("Eigenes Emoji").waitForExistence(timeout: 10) {
+            let emojis = element("Emojis")
+            if emojis.waitForExistence(timeout: 10) {
                 shot("06b-Symbole")
+                emojis.tap()
+                waitFor("Eigenes Emoji")
+                shot("06b2-Emojis")
                 goBack()
             }
         }
@@ -153,6 +164,19 @@ final class StetigUITests: XCTestCase {
         openTab("Statistik")
         waitFor("Letzte 30 Tage")
         shot("08-Statistik")
+
+        // Wochen- und Jahresrückblick
+        element("Wochenrückblick").tap()
+        waitFor("Tage")
+        shot("08b-Wochenrueckblick")
+        goBack()
+        element("Jahresrückblick").tap()
+        waitFor("Dein Jahr")
+        shot("08c-Jahresrueckblick")
+        app.swipeUp()
+        shot("08d-Jahresrueckblick-unten")
+        goBack()
+
         app.swipeUp()
         shot("09-Statistik-unten")
 
