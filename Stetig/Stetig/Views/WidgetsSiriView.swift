@@ -161,7 +161,10 @@ private struct WidgetFrame<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(height: height)
-            .background(WidgetBackdrop(tint: tint), in: .rect(cornerRadius: 24, style: .continuous))
+            .background {
+                WidgetBackdrop(tint: tint)
+                    .clipShape(.rect(cornerRadius: 24, style: .continuous))
+            }
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .allowsHitTesting(false)
             .accessibilityElement(children: .combine)
