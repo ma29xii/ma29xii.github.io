@@ -26,14 +26,15 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 - Widgets für Home- und Sperrbildschirm, interaktiv (Abhaken ohne die App zu öffnen)
 - Steuerelement fürs Kontrollzentrum: eine Gewohnheit mit einem Tipp abhaken
 - Siri: „Hey Siri, heute Lesen in Stetig gemacht“, „Wie läuft Lesen in Stetig?“, „Was ist heute in Stetig offen?“ – Siri antwortet mit Serie bzw. offenen Gewohnheiten
-- Eigene Siri-Sätze ohne App-Namen („Hey Siri, heute Lesen gemacht“) über einen Kurzbefehl – Anleitung und Direktknopf in der App unter Einstellungen › Widgets & Siri
+- Eigene Siri-Sätze ohne App-Namen („Hey Siri, heute Lesen gemacht“) mit einem Tipp: Einstellungen › Siri-Kurzbefehle › „Hinzufügen“ öffnet Apples Siri-Blatt mit fertig eingetragenem Satz. Dieser Satz öffnet Stetig kurz, hakt ab und zeigt eine Bestätigung
 - Lokale Erinnerungen pro Gewohnheit, mit „Erledigt“-Aktion in der Mitteilung, plus täglicher Tagesabschluss
 - Kategorien als Filter, drei Ansichten (Raster, Woche, Kompakt), Suche
 - Sortieren nach eigener Reihenfolge, Name, Serie oder Quote; Gewohnheiten duplizieren
 - iPad-Layout mit mehreren Spalten
 - 23 Vorlagen, rund 90 Symbole oder ein eigenes Emoji
-- 14 kuratierte Farb-Duos (z. B. Sonnenuntergang, Polarlicht, Lagune, Iris, Flamingo, Volt): Kacheln, Haken und Diagramme verlaufen von Farbe A nach B
-- Liquid-Glass-Oberfläche über einem dezent leuchtenden Hintergrund, eigene Akzentfarbe wählbar
+- 14 kuratierte Farb-Duos (z. B. Sonnenuntergang, Polarlicht, Lagune, Iris, Flamingo, Volt) plus „Mono“ (weiß im Dunkelmodus, schwarz im hellen Modus): Kacheln, Haken und Diagramme verlaufen von Farbe A nach B
+- Liquid-Glass-Oberfläche über einem dezent leuchtenden Hintergrund, eigene Akzentfarbe und eigene Farbe für die Kategorie-Leiste wählbar
+- Face-ID-Sperre, die auch offene Blätter und das Vorschaubild im App-Umschalter abdeckt
 - Backup als JSON (Export/Import mit Zusammenführen), Export als CSV
 - App-Sperre mit Face ID, heller/dunkler Modus, Wochenbeginn Montag oder Sonntag
 - Verlauf als Bild teilen
@@ -57,7 +58,7 @@ Voraussetzungen: ein Mac mit **Xcode 26** oder neuer, ein iPhone/iPad mit **iOS 
 | Fehler rund um „App Groups“ | Bei beiden Targets unter *Signing & Capabilities* die Capability „App Groups“ entfernen. Die App läuft dann normal weiter und speichert im eigenen App-Ordner; nur die Widgets bekommen keine Daten. |
 | App startet nach einigen Tagen nicht mehr | Mit kostenloser Apple-ID läuft die Signatur nach 7 Tagen ab. Einfach erneut aus Xcode starten (⌘R) – die Daten bleiben erhalten. |
 
-Hinweise zum kostenlosen Account (Quelle: [Apple – Choosing a Membership](https://developer.apple.com/support/compare-memberships)): Profile laufen 7 Tage nach Ausstellung ab, und es lassen sich höchstens 10 App-IDs je 7 Tage registrieren. Stetig braucht zwei (App + Widgets). iCloud-Sync und Push-Mitteilungen sind mit kostenloser Apple-ID nicht möglich und deshalb bewusst nicht eingebaut; Erinnerungen laufen lokal.
+Hinweise zum kostenlosen Account (Quellen: [Apple – Choosing a Membership](https://developer.apple.com/support/compare-memberships), [Apple – Supported capabilities (iOS)](https://developer.apple.com/help/account/reference/supported-capabilities-ios/)): Profile laufen 7 Tage nach Ausstellung ab, und es lassen sich höchstens 10 App-IDs je 7 Tage registrieren. Stetig braucht zwei (App + Widgets). App Groups sind mit kostenloser Apple-ID erlaubt, die Siri-Berechtigung (SiriKit) und Push-Mitteilungen nicht. Stetig verwendet deshalb keine SiriKit-Intents (die diese Berechtigung brauchen), sondern App Intents und `NSUserActivity`-Kurzbefehle; Erinnerungen laufen lokal. iCloud-Sync ist bewusst nicht eingebaut.
 
 ## Projektaufbau
 
