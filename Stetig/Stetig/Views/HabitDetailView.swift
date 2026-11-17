@@ -56,6 +56,7 @@ struct HabitDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Bearbeiten", systemImage: "pencil") { showEditor = true }
+                    .tint(tint.color)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -73,6 +74,7 @@ struct HabitDetailView: View {
                 } label: {
                     Label("Mehr", systemImage: "ellipsis")
                 }
+                .tint(tint.color)
             }
         }
         .sheet(isPresented: $showEditor) {
