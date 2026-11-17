@@ -195,9 +195,9 @@ final class StetigUITests: XCTestCase {
         shot("10c-Siri")
 
         // Apples „Zu Siri hinzufügen“-Blatt mit fertigem Satz (nur ansehen, nichts speichern).
-        let add = element("Lesen zu Siri hinzufügen")
-        if add.waitForExistence(timeout: 5) {
-            add.tap()
+        let addToSiri = element("Lesen zu Siri hinzufügen")
+        if addToSiri.waitForExistence(timeout: 5) {
+            addToSiri.tap()
             sleep(4)
             shot("10d-Siri-Blatt")
         }
