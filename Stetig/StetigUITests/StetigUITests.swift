@@ -134,8 +134,14 @@ final class StetigUITests: XCTestCase {
             waitFor("Gitarre üben")
             XCTAssertFalse(element("Wasser trinken").exists, "Suche filtert nicht")
             shot("06d-Suche")
-            let cancel = app.buttons["Abbrechen"]
-            if cancel.exists { cancel.tap() }
+            // iOS 26 schließt die Suche über ein „X“; Beschriftung je nach Version.
+            let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Abbrechen", "Schließen", "Cancel", "Close"])).firstMatch
+            if close.waitForExistence(timeout: 3) {
+                close.tap()
+            }
+            if app.keyboards.firstMatch.exists {
+                app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Suchen", "search", "Search"])).firstMatch.tap()
+            }
         }
 
         // Heute

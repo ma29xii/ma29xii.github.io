@@ -50,6 +50,7 @@ struct HabitDetailView: View {
             .readableWidth()
         }
         .ambientBackground(tint)
+        .tint(tint.color)
         .navigationTitle(habit.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

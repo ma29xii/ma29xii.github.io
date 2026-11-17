@@ -96,6 +96,8 @@ struct CompleteButton: View {
             ZStack {
                 if done || slipped {
                     Circle().fill(tint.gradient)
+                } else {
+                    Circle().fill(tint.color.opacity(0.12))
                 }
                 if partial > 0 {
                     Circle()
