@@ -24,6 +24,7 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 
 **Drumherum**
 - Widgets für Home- und Sperrbildschirm, interaktiv (Abhaken ohne die App zu öffnen)
+- Steuerelement fürs Kontrollzentrum: eine Gewohnheit mit einem Tipp abhaken
 - Kurzbefehle/Siri: „Gewohnheit abhaken“
 - Lokale Erinnerungen pro Gewohnheit, mit „Erledigt“-Aktion in der Mitteilung, plus täglicher Tagesabschluss
 - Kategorien als Filter, drei Ansichten (Raster, Woche, Kompakt), Suche

@@ -8,6 +8,62 @@ struct StetigWidgetsBundle: WidgetBundle {
     var body: some Widget {
         HabitGridWidget()
         TodayWidget()
+        LogHabitControl()
+    }
+}
+
+// MARK: - Kontrollzentrum
+
+/// Auswahl der Gewohnheit für das Steuerelement im Kontrollzentrum.
+struct SelectHabitControlIntent: ControlConfigurationIntent {
+    static let title: LocalizedStringResource = "Gewohnheit wählen"
+
+    @Parameter(title: "Gewohnheit")
+    var habit: HabitEntity?
+
+    init() {}
+}
+
+/// Wie `LogHabitIntent`, aber ohne Pflichtangabe – das Steuerelement kann
+/// angelegt werden, bevor eine Gewohnheit gewählt ist.
+struct LogSelectedHabitIntent: AppIntent {
+    static let title: LocalizedStringResource = "Gewählte Gewohnheit abhaken"
+    static let isDiscoverable = false
+
+    @Parameter(title: "Gewohnheit")
+    var habit: HabitEntity?
+
+    init() {}
+
+    init(habit: HabitEntity?) {
+        self.habit = habit
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard let habit else { return .result() }
+        let context = ModelContext(Store.shared)
+        if let model = Store.habit(uuid: habit.id, in: context) {
+            model.advance(on: .today, in: context)
+            AppGroup.noteExternalChange()
+        }
+        return .result()
+    }
+}
+
+struct LogHabitControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        AppIntentControlConfiguration(kind: "LogHabitControl", intent: SelectHabitControlIntent.self) { configuration in
+            ControlWidgetButton(action: LogSelectedHabitIntent(habit: configuration.habit)) {
+                Label(
+                    configuration.habit?.name ?? "Gewohnheit wählen",
+                    systemImage: configuration.habit.map { HabitGlyph.isEmoji($0.symbol) ? "checkmark.circle.fill" : $0.symbol } ?? "checkmark.circle.fill"
+                )
+            }
+        }
+        .displayName("Gewohnheit abhaken")
+        .description("Hakt die gewählte Gewohnheit für heute ab.")
+        .promptsForUserConfiguration()
     }
 }
 
