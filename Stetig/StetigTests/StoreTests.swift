@@ -187,6 +187,27 @@ struct StoreTests {
         #expect(Achievements.evaluate(overview).contains { $0.unlocked })
     }
 
+    @Test func duplicateCopiesSettingsButNotHistory() {
+        let context = makeContext()
+        let habit = makeHabit("Lesen", in: context) {
+            $0.dailyTarget = 20
+            $0.unit = "min"
+            $0.colorID = "amber"
+        }
+        habit.setAmount(20, on: .today, in: context)
+
+        HabitAdmin.duplicate(habit, in: context)
+        let all = Store.activeHabits(in: context)
+        #expect(all.count == 2)
+        let copy = all.first { $0.uuid != habit.uuid }
+        #expect(copy?.name == "Lesen (Kopie)")
+        #expect(copy?.dailyTarget == 20)
+        #expect(copy?.unit == "min")
+        #expect(copy?.colorID == "amber")
+        #expect(copy?.entries.isEmpty == true)
+        #expect(habit.entries.count == 1)
+    }
+
     @Test func deleteEverything() {
         let context = makeContext()
         DemoData.insert(into: context)

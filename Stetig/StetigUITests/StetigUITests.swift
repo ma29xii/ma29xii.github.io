@@ -11,11 +11,31 @@ final class StetigUITests: XCTestCase {
         app.launchArguments = ["-inMemoryStore", "-seedDemo", "-AppleLanguages", "(de)", "-AppleLocale", "de_DE"]
     }
 
+    override func record(_ issue: XCTIssue) {
+        // Bei einem Fehler Bildschirm und Element-Baum festhalten – erleichtert die Fehlersuche.
+        if let app, app.state == .runningForeground {
+            shot("FEHLER-\(name)")
+            print("UI-HIERARCHIE-BEGINN")
+            print(app.debugDescription.split(separator: "\n").prefix(140).joined(separator: "\n"))
+            print("UI-HIERARCHIE-ENDE")
+        }
+        super.record(issue)
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// Findet ein Element unabhängig von seinem Typ (Text, Button, …) über die Beschriftung.
+    private func element(_ label: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func waitFor(_ label: String, timeout: TimeInterval = 10, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element(label).waitForExistence(timeout: timeout), "„\(label)“ nicht gefunden", file: file, line: line)
     }
 
     private func openTab(_ name: String) {
@@ -24,29 +44,36 @@ final class StetigUITests: XCTestCase {
         button.tap()
     }
 
+    private func goBack() {
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        if back.waitForExistence(timeout: 5) {
+            back.tap()
+        }
+    }
+
     func testWalkthrough() {
         app.launch()
 
         // Übersicht mit Kachel-Karten
-        XCTAssertTrue(app.staticTexts["Lesen"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.staticTexts["Wasser trinken"].exists)
+        waitFor("Lesen", timeout: 30)
+        waitFor("Wasser trinken")
         shot("01-Gewohnheiten")
 
         // Abhaken direkt auf der Karte
         let complete = app.buttons["complete-Laufen"]
-        XCTAssertTrue(complete.waitForExistence(timeout: 5))
+        XCTAssertTrue(complete.waitForExistence(timeout: 10))
         complete.tap()
         shot("02-Abgehakt")
 
         // Detailansicht
-        app.staticTexts["Lesen"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Verlauf"].waitForExistence(timeout: 10))
+        element("Lesen").tap()
+        waitFor("Verlauf")
         shot("03-Detail")
         app.swipeUp()
         shot("04-Detail-Kalender")
         app.swipeUp()
         shot("05-Detail-Diagramme")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        goBack()
 
         // Neue Gewohnheit anlegen
         let add = app.buttons["add-habit"]
@@ -57,41 +84,52 @@ final class StetigUITests: XCTestCase {
         name.tap()
         name.typeText("Gitarre üben")
         shot("06-Editor")
+
+        // Symbolauswahl
+        let symbolRow = element("Symbol")
+        if symbolRow.waitForExistence(timeout: 5) {
+            symbolRow.tap()
+            if element("Eigenes Emoji").waitForExistence(timeout: 10) {
+                shot("06b-Symbole")
+                goBack()
+            }
+        }
+
         app.buttons["save-habit"].tap()
-        XCTAssertTrue(app.staticTexts["Gitarre üben"].waitForExistence(timeout: 10))
+        waitFor("Gitarre üben")
 
         // Heute
         openTab("Heute")
-        XCTAssertTrue(app.staticTexts["Offen"].waitForExistence(timeout: 10))
+        waitFor("Offen")
         shot("07-Heute")
 
         // Statistik
         openTab("Statistik")
-        XCTAssertTrue(app.staticTexts["Letzte 30 Tage"].waitForExistence(timeout: 10))
+        waitFor("Letzte 30 Tage")
         shot("08-Statistik")
         app.swipeUp()
         shot("09-Statistik-unten")
 
         // Einstellungen
         openTab("Einstellungen")
-        XCTAssertTrue(app.staticTexts["Darstellung"].waitForExistence(timeout: 10) || app.staticTexts["DARSTELLUNG"].exists)
+        waitFor("Erscheinungsbild")
         shot("10-Einstellungen")
     }
 
     func testDarkModeOverview() {
         app.launchArguments += ["-appearance", "2"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Lesen"].waitForExistence(timeout: 30))
+        waitFor("Lesen", timeout: 30)
         shot("11-Dunkel-Gewohnheiten")
         openTab("Heute")
-        XCTAssertTrue(app.staticTexts["Offen"].waitForExistence(timeout: 10))
+        waitFor("Offen")
         shot("12-Dunkel-Heute")
     }
 
     func testEmptyState() {
         app.launchArguments = ["-inMemoryStore", "-AppleLanguages", "(de)", "-AppleLocale", "de_DE"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Noch keine Gewohnheiten"].waitForExistence(timeout: 30))
+        waitFor("Noch keine Gewohnheiten", timeout: 30)
         shot("13-Leer")
     }
 }

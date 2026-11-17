@@ -58,6 +58,24 @@ enum Reminders {
         }
     }
 
+    static let summaryID = "summary.daily"
+
+    /// Eine tägliche Erinnerung, den Tag abzuschließen – unabhängig von einzelnen Gewohnheiten.
+    static func scheduleSummary(enabled: Bool, minutes: Int) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [summaryID])
+        guard enabled else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Tagesabschluss"
+        content.body = "Wirf einen Blick auf heute – ist noch etwas offen?"
+        content.sound = .default
+        var components = DateComponents()
+        components.hour = minutes / 60
+        components.minute = minutes % 60
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        center.add(UNNotificationRequest(identifier: summaryID, content: content, trigger: trigger))
+    }
+
     static func rescheduleAll(in context: ModelContext) {
         let habits = (try? context.fetch(FetchDescriptor<Habit>())) ?? []
         for habit in habits {

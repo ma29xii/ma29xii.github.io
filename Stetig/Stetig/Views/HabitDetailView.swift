@@ -46,6 +46,7 @@ struct HabitDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 24)
+            .readableWidth()
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(habit.name)

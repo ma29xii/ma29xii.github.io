@@ -10,6 +10,13 @@ extension String {
 }
 
 extension View {
+    /// Begrenzt Inhalte auf dem iPad auf eine angenehme Lesebreite.
+    func readableWidth() -> some View {
+        self
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+    }
+
     /// Ruhige Inhaltskarte. Liquid Glass bleibt den Bedienelementen vorbehalten.
     func card(padding: CGFloat = 16) -> some View {
         self

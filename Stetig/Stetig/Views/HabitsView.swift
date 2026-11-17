@@ -25,6 +25,24 @@ enum ViewMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum SortMode: String, CaseIterable, Identifiable {
+    case manual
+    case name
+    case streak
+    case rate
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .manual: "Eigene Reihenfolge"
+        case .name: "Name"
+        case .streak: "Längste Serie"
+        case .rate: "Beste Quote"
+        }
+    }
+}
+
 struct HabitsView: View {
     @Environment(\.modelContext) private var context
     @Query(filter: #Predicate<Habit> { !$0.isArchived }, sort: [SortDescriptor(\Habit.sortOrder), SortDescriptor(\Habit.createdAt)])
@@ -33,6 +51,7 @@ struct HabitsView: View {
 
     @AppStorage(SettingsKey.viewMode) private var viewModeRaw = ViewMode.grid.rawValue
     @AppStorage(SettingsKey.gridColumns) private var gridColumns = 26
+    @AppStorage(SettingsKey.sortMode) private var sortModeRaw = SortMode.manual.rawValue
 
     @State private var path: [Habit] = []
     @State private var selectedCategory: UUID?
@@ -45,26 +64,40 @@ struct HabitsView: View {
 
     private var mode: ViewMode { ViewMode(rawValue: viewModeRaw) ?? .grid }
 
+    private var sortMode: SortMode { SortMode(rawValue: sortModeRaw) ?? .manual }
+
     private var filtered: [Habit] {
-        habits.filter { habit in
+        let visible = habits.filter { habit in
             if let selectedCategory, habit.category?.uuid != selectedCategory { return false }
             let query = searchText.trimmed
             if !query.isEmpty, !habit.name.localizedCaseInsensitiveContains(query) { return false }
             return true
+        }
+        switch sortMode {
+        case .manual:
+            return visible
+        case .name:
+            return visible.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .streak:
+            let keyed = visible.map { (habit: $0, value: $0.snapshot().currentStreak) }
+            return keyed.sorted { $0.value > $1.value }.map(\.habit)
+        case .rate:
+            let keyed = visible.map { (habit: $0, value: $0.snapshot().rate(days: 30)) }
+            return keyed.sorted { $0.value > $1.value }.map(\.habit)
         }
     }
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(filtered) { habit in
                         HabitCard(habit: habit, mode: mode, columns: gridColumns)
                             .matchedTransitionSource(id: habit.persistentModelID, in: zoom)
                             .contentShape(.rect(cornerRadius: 22))
                             .onTapGesture { path.append(habit) }
                             .contextMenu { menu(for: habit) }
-                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction(named: "Öffnen") { path.append(habit) }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -105,8 +138,15 @@ struct HabitsView: View {
                                 Text("9 Monate").tag(39)
                             }
                         }
+                        Picker("Sortierung", selection: $sortModeRaw) {
+                            ForEach(SortMode.allCases) { mode in
+                                Text(mode.title).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
                         Divider()
                         Button("Reihenfolge ändern", systemImage: "arrow.up.arrow.down") {
+                            sortModeRaw = SortMode.manual.rawValue
                             showReorder = true
                         }
                         .disabled(habits.count < 2)
@@ -161,6 +201,10 @@ struct HabitsView: View {
                     .padding(.vertical, 2)
             }
             .buttonStyle(.glassProminent)
+            Button("Mit Beispieldaten ausprobieren") {
+                DemoData.insert(into: context)
+            }
+            .buttonStyle(.glass)
         }
     }
 
@@ -220,6 +264,9 @@ struct HabitsView: View {
         }
         Button(habit.isPaused ? "Fortsetzen" : "Pausieren", systemImage: habit.isPaused ? "play" : "pause") {
             HabitAdmin.setPaused(!habit.isPaused, habit: habit, in: context)
+        }
+        Button("Duplizieren", systemImage: "plus.square.on.square") {
+            HabitAdmin.duplicate(habit, in: context)
         }
         Button("Archivieren", systemImage: "archivebox") {
             HabitAdmin.setArchived(true, habit: habit, in: context)
@@ -358,6 +405,18 @@ enum HabitAdmin {
         Reminders.cancel(uuid: habit.uuid)
         context.delete(habit)
         Store.commit(context)
+    }
+
+    /// Legt eine Kopie mit denselben Einstellungen, aber ohne Verlauf an.
+    static func duplicate(_ habit: Habit, in context: ModelContext) {
+        var draft = HabitDraft(habit: habit)
+        draft.name = habit.name + " (Kopie)"
+        let copy = Habit(name: draft.name)
+        copy.sortOrder = nextSortOrder(in: context)
+        context.insert(copy)
+        draft.apply(to: copy, categories: habit.category.map { [$0] } ?? [])
+        Store.commit(context)
+        Reminders.reschedule(copy)
     }
 
     static func setArchived(_ archived: Bool, habit: Habit, in context: ModelContext) {

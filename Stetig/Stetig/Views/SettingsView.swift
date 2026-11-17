@@ -15,6 +15,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.haptics) private var haptics = true
     @AppStorage(SettingsKey.confetti) private var confetti = true
     @AppStorage(SettingsKey.appLock) private var appLock = false
+    @AppStorage(SettingsKey.summaryEnabled) private var summaryEnabled = false
+    @AppStorage(SettingsKey.summaryMinutes) private var summaryMinutes = 21 * 60
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var exportDocument: DataDocument?
@@ -96,10 +98,14 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    Toggle("Täglicher Tagesabschluss", isOn: $summaryEnabled.animation())
+                    if summaryEnabled {
+                        DatePicker("Uhrzeit", selection: summaryTime, displayedComponents: .hourAndMinute)
+                    }
                 } header: {
                     Text("Erinnerungen")
                 } footer: {
-                    Text("Die Uhrzeit legst du pro Gewohnheit beim Bearbeiten fest.")
+                    Text("Erinnerungen für einzelne Gewohnheiten stellst du beim Bearbeiten ein. Der Tagesabschluss erinnert einmal täglich an alles Offene.")
                 }
 
                 Section {
@@ -135,6 +141,11 @@ struct SettingsView: View {
                 }
 
                 Section("Über") {
+                    NavigationLink {
+                        TipsView()
+                    } label: {
+                        Label("Tipps & Gesten", systemImage: "lightbulb")
+                    }
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     Text("Stetig ist kostenlos und quelloffen – gebaut mit SwiftUI, SwiftData und Liquid Glass.")
                         .font(.footnote)
@@ -145,6 +156,18 @@ struct SettingsView: View {
             .task { await refreshNotificationStatus() }
             .onChange(of: weekStart) { _, _ in
                 WidgetCenter.shared.reloadAllTimelines()
+            }
+            .onChange(of: summaryEnabled) { _, enabled in
+                Task {
+                    if enabled {
+                        await Reminders.requestAuthorization()
+                        await refreshNotificationStatus()
+                    }
+                    Reminders.scheduleSummary(enabled: enabled, minutes: summaryMinutes)
+                }
+            }
+            .onChange(of: summaryMinutes) { _, minutes in
+                Reminders.scheduleSummary(enabled: summaryEnabled, minutes: minutes)
             }
             .fileExporter(
                 isPresented: $showExporter,
@@ -178,6 +201,15 @@ struct SettingsView: View {
             } message: {
                 Text(message ?? "")
             }
+        }
+    }
+
+    private var summaryTime: Binding<Date> {
+        Binding {
+            Calendar.current.date(bySettingHour: summaryMinutes / 60, minute: summaryMinutes % 60, second: 0, of: Date()) ?? Date()
+        } set: { date in
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+            summaryMinutes = (parts.hour ?? 21) * 60 + (parts.minute ?? 0)
         }
     }
 
@@ -352,6 +384,48 @@ struct ArchiveView: View {
             }
         }
         .navigationTitle("Archiv")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Tipps
+
+struct TipsView: View {
+    private struct Tip: Identifiable {
+        let symbol: String
+        let title: String
+        let text: String
+        var id: String { title }
+    }
+
+    private let tips: [Tip] = [
+        Tip(symbol: "checkmark", title: "Abhaken", text: "Ein Tipp auf den Haken trägt den heutigen Tag ein. Bei Zählern geht es pro Tipp einen Schritt weiter, nach dem Ziel wieder auf null."),
+        Tip(symbol: "hand.tap", title: "Vergangene Tage", text: "Öffne eine Gewohnheit und tippe im Monatskalender auf einen Tag, um ihn nachzutragen."),
+        Tip(symbol: "hand.point.up.left", title: "Gedrückt halten", text: "Auf Karten, Kalendertagen und in „Heute“ öffnet langes Drücken ein Menü: überspringen, Menge und Notiz bearbeiten, pausieren, archivieren."),
+        Tip(symbol: "forward.end", title: "Überspringen", text: "Übersprungene Tage unterbrechen die Serie nicht – gedacht für Krankheit, Urlaub oder Ruhetage."),
+        Tip(symbol: "pause", title: "Pausieren", text: "Friert eine Gewohnheit ein. Beim Fortsetzen gelten die pausierten Tage als übersprungen."),
+        Tip(symbol: "nosign", title: "Abgewöhnen", text: "Bei diesen Gewohnheiten zählt jeder Tag automatisch. Tippe nur dann auf den Haken, wenn es einen Rückfall gab."),
+        Tip(symbol: "square.grid.2x2", title: "Widgets", text: "Halte den Home-Bildschirm gedrückt, tippe auf „Bearbeiten“ und füge ein Stetig-Widget hinzu. Der Haken im Widget funktioniert direkt."),
+        Tip(symbol: "mic", title: "Kurzbefehle & Siri", text: "In der Kurzbefehle-App findest du „Gewohnheit abhaken“ – ideal für Automationen."),
+    ]
+
+    var body: some View {
+        List(tips) { tip in
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: tip.symbol)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tip.title).font(.headline)
+                    Text(tip.text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .navigationTitle("Tipps & Gesten")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

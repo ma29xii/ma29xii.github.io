@@ -70,6 +70,7 @@ struct TodayView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
+                .readableWidth()
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(day == today ? "Heute" : day.weekdayLong)

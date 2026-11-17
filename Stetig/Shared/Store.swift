@@ -43,7 +43,9 @@ enum SettingsKey {
     static let haptics = "haptics"
     static let appLock = "appLock"
     static let confetti = "confetti"
-    static let showStreakOnCard = "showStreakOnCard"
+    static let sortMode = "sortMode"
+    static let summaryEnabled = "summaryEnabled"
+    static let summaryMinutes = "summaryMinutes"
 }
 
 enum Store {
