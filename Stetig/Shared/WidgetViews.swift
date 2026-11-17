@@ -143,14 +143,20 @@ struct WidgetCheck: View {
 // MARK: - Widget „Gewohnheit“ (klein / mittel)
 
 struct HabitWidgetContent: View {
+    enum Size {
+        case small
+        case medium
+        case large
+    }
+
     let habit: HabitWidgetData?
-    let compact: Bool
+    let size: Size
 
     var body: some View {
         if let habit {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: size == .large ? 14 : 10) {
                 HStack(spacing: 8) {
-                    if !compact {
+                    if size != .small {
                         HabitIcon(symbol: habit.symbol, tint: habit.tint, size: 30)
                     }
                     VStack(alignment: .leading, spacing: 1) {
@@ -169,7 +175,16 @@ struct HabitWidgetContent: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(habit.name) abhaken")
                 }
-                HeatmapGrid(snapshot: habit.snapshot, tint: habit.tint)
+                if size == .large {
+                    HeatmapGrid(snapshot: habit.snapshot, tint: habit.tint, showMonths: true)
+                    HStack(spacing: 0) {
+                        WidgetMetric(value: "\(habit.snapshot.currentStreak)", label: "Serie")
+                        WidgetMetric(value: "\(habit.snapshot.bestStreak)", label: "Rekord")
+                        WidgetMetric(value: Format.percent(habit.snapshot.rate(days: 30)), label: "Quote 30 T.")
+                    }
+                } else {
+                    HeatmapGrid(snapshot: habit.snapshot, tint: habit.tint)
+                }
             }
         } else {
             VStack(spacing: 6) {
@@ -253,5 +268,106 @@ struct TodayWidgetContent: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Widget „Mehrere Gewohnheiten“ (mittel / groß)
+
+struct MultiHabitWidgetContent: View {
+    let habits: [HabitWidgetData]
+    let limit: Int
+    var days: Int = 14
+
+    var body: some View {
+        if habits.isEmpty {
+            HabitWidgetContent(habit: nil, size: .medium)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(habits.prefix(limit).enumerated()), id: \.element.id) { index, habit in
+                    if index > 0 {
+                        Spacer(minLength: 6)
+                    }
+                    HStack(spacing: 10) {
+                        HabitIcon(symbol: habit.symbol, tint: habit.tint, size: 28)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 4) {
+                                Text(habit.name)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(habit.streakText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            DayStrip(habit: habit, days: days)
+                        }
+                        Button(intent: LogHabitIntent(habit: habit.entity)) {
+                            WidgetCheck(habit: habit, size: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(habit.name) abhaken")
+                    }
+                }
+                if habits.count < limit {
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+}
+
+/// Die letzten Tage als eine Reihe kleiner Kacheln, im Farbverlauf der Gewohnheit.
+struct DayStrip: View {
+    let habit: HabitWidgetData
+    let days: Int
+
+    var body: some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<days, id: \.self) { index in
+                let day = habit.snapshot.today.adding(index - (days - 1))
+                let level = habit.snapshot.cell(day).level
+                let shade = habit.tint.color.mix(with: habit.tint.endColor, by: days > 1 ? Double(index) / Double(days - 1) : 1)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(level > 0 ? shade.opacity(0.3 + 0.7 * level) : Color.primary.opacity(0.08))
+                    .aspectRatio(1, contentMode: .fit)
+            }
+        }
+    }
+}
+
+private struct WidgetMetric: View {
+    let value: String
+    let label: String
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(value)
+                .font(.system(.headline, design: .rounded, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Hintergrund der Widgets: zart getönt wie das Leuchten in der App. Bei der
+/// iOS-Darstellung „Klar“ ersetzt das System ihn automatisch durch Liquid Glass.
+struct WidgetBackdrop: View {
+    let tint: HabitColor
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.background)
+            LinearGradient(
+                colors: [tint.color.opacity(0.2), tint.color.opacity(0.04), tint.endColor.opacity(0.16)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 }

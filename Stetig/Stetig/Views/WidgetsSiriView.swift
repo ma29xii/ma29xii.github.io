@@ -18,25 +18,32 @@ struct WidgetsSiriView: View {
                 SectionHeader(title: "Widgets", symbol: "square.grid.2x2")
 
                 HStack(spacing: 14) {
-                    WidgetFrame(height: 170) {
-                        HabitWidgetContent(habit: first, compact: true)
+                    WidgetFrame(height: 170, tint: first.tint) {
+                        HabitWidgetContent(habit: first, size: .small)
                     }
                     WidgetFrame(height: 170) {
                         TodayWidgetContent(summary: summary, size: .small)
                     }
                 }
+                WidgetFrame(height: 170, tint: first.tint) {
+                    HabitWidgetContent(habit: first, size: .medium)
+                }
                 WidgetFrame(height: 170) {
-                    HabitWidgetContent(habit: first, compact: false)
+                    MultiHabitWidgetContent(habits: data.isEmpty ? [.sample] : data, limit: 3)
                 }
                 WidgetFrame(height: 170) {
                     TodayWidgetContent(summary: summary, size: .medium)
+                }
+                WidgetFrame(height: 380, tint: first.tint) {
+                    HabitWidgetContent(habit: first, size: .large)
                 }
 
                 StepsCard(title: "Widget zum Home-Bildschirm hinzufügen", steps: [
                     "Home-Bildschirm an einer freien Stelle gedrückt halten.",
                     "Oben links auf „Bearbeiten“ und dann „Widget hinzufügen“ tippen.",
-                    "„Stetig“ suchen und „Gewohnheit“ oder „Heute“ wählen – klein, mittel oder groß.",
-                    "Gewohnheit wechseln: Widget gedrückt halten › „Widget bearbeiten“.",
+                    "„Stetig“ suchen und „Gewohnheit“, „Mehrere Gewohnheiten“ oder „Heute“ wählen – klein, mittel oder groß.",
+                    "Gewohnheiten wechseln: Widget gedrückt halten › „Widget bearbeiten“.",
+                    "Für Liquid Glass: Home-Bildschirm gedrückt halten › „Bearbeiten“ › „Anpassen“ › „Klar“.",
                 ], footnote: "Der Haken im Widget funktioniert direkt, ohne die App zu öffnen. Es gibt die Widgets auch für den Sperrbildschirm, und im Kontrollzentrum ein Steuerelement zum Abhaken.")
 
                 SectionHeader(title: "Siri", symbol: "mic.fill")
@@ -146,6 +153,7 @@ struct StepsCard: View {
 /// Rahmen, der wie ein Widget auf dem Home-Bildschirm aussieht.
 private struct WidgetFrame<Content: View>: View {
     let height: CGFloat
+    var tint: HabitColor = WidgetLoader.accent
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -153,7 +161,7 @@ private struct WidgetFrame<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(height: height)
-            .background(Color(.systemBackground), in: .rect(cornerRadius: 24, style: .continuous))
+            .background(WidgetBackdrop(tint: tint), in: .rect(cornerRadius: 24, style: .continuous))
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .allowsHitTesting(false)
             .accessibilityElement(children: .combine)

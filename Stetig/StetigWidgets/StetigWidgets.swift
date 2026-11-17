@@ -7,6 +7,7 @@ import WidgetKit
 struct StetigWidgetsBundle: WidgetBundle {
     var body: some Widget {
         HabitGridWidget()
+        MultiHabitWidget()
         TodayWidget()
         LogHabitControl()
     }
@@ -101,7 +102,7 @@ struct HabitGridWidget: Widget {
         }
         .configurationDisplayName("Gewohnheit")
         .description("Das Kachel-Raster einer Gewohnheit – mit Haken zum direkten Abhaken.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
 }
 
@@ -116,13 +117,19 @@ struct HabitGridWidgetView: View {
                 case .accessoryCircular: circular(habit)
                 case .accessoryRectangular: rectangular(habit)
                 case .accessoryInline: Text("\(habit.name): \(habit.streakText)")
-                default: HabitWidgetContent(habit: habit, compact: family == .systemSmall)
+                default:
+                    HabitWidgetContent(
+                        habit: habit,
+                        size: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium
+                    )
                 }
             } else {
-                HabitWidgetContent(habit: nil, compact: true)
+                HabitWidgetContent(habit: nil, size: .small)
             }
         }
-        .containerBackground(.background, for: .widget)
+        .containerBackground(for: .widget) {
+            WidgetBackdrop(tint: entry.habit?.tint ?? WidgetLoader.accent)
+        }
     }
 
     private func rectangular(_ habit: HabitWidgetData) -> some View {
@@ -189,7 +196,7 @@ struct TodayWidget: Widget {
         }
         .configurationDisplayName("Heute")
         .description("Dein Tagesfortschritt und die offenen Gewohnheiten.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryCircular, .accessoryRectangular])
     }
 }
 
@@ -212,6 +219,17 @@ struct TodayWidgetView: View {
                         .padding(8)
                 }
                 .widgetAccentable()
+            case .accessoryRectangular:
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Heute \(summary.done)/\(summary.total)")
+                        .font(.headline)
+                        .widgetAccentable()
+                    let open = summary.ordered.filter { !$0.isDone }.map(\.name)
+                    Text(open.isEmpty ? "Alles erledigt" : "Offen: " + open.joined(separator: ", "))
+                        .font(.caption)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             case .systemSmall:
                 TodayWidgetContent(summary: summary, size: .small)
             case .systemLarge:
@@ -220,6 +238,71 @@ struct TodayWidgetView: View {
                 TodayWidgetContent(summary: summary, size: .medium)
             }
         }
-        .containerBackground(.background, for: .widget)
+        .containerBackground(for: .widget) {
+            WidgetBackdrop(tint: WidgetLoader.accent)
+        }
+    }
+}
+
+// MARK: - Widget: mehrere Gewohnheiten
+
+/// Auswahl der Gewohnheiten für das Mehrfach-Widget. Ohne Auswahl werden die ersten
+/// Gewohnheiten in der Reihenfolge der App gezeigt.
+struct SelectHabitsIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Gewohnheiten wählen"
+    static let description = IntentDescription("Wähle, welche Gewohnheiten das Widget zeigt.")
+
+    @Parameter(title: "Gewohnheiten", size: [.systemMedium: 3, .systemLarge: 6])
+    var habits: [HabitEntity]?
+
+    init() {}
+}
+
+struct MultiHabitEntry: TimelineEntry {
+    let date: Date
+    let habits: [HabitWidgetData]
+}
+
+struct MultiHabitProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> MultiHabitEntry {
+        MultiHabitEntry(date: Date(), habits: [.sample])
+    }
+
+    func snapshot(for configuration: SelectHabitsIntent, in context: Context) async -> MultiHabitEntry {
+        entry(for: configuration, preview: context.isPreview)
+    }
+
+    func timeline(for configuration: SelectHabitsIntent, in context: Context) async -> Timeline<MultiHabitEntry> {
+        Timeline(entries: [entry(for: configuration, preview: false)], policy: .after(WidgetLoader.nextRefresh()))
+    }
+
+    private func entry(for configuration: SelectHabitsIntent, preview: Bool) -> MultiHabitEntry {
+        let all = WidgetLoader.habits()
+        let chosen = (configuration.habits ?? []).compactMap { choice in all.first { $0.id == choice.id } }
+        let list = chosen.isEmpty ? all : chosen
+        return MultiHabitEntry(date: Date(), habits: list.isEmpty && preview ? [.sample] : list)
+    }
+}
+
+struct MultiHabitWidget: Widget {
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: "MultiHabitWidget", intent: SelectHabitsIntent.self, provider: MultiHabitProvider()) { entry in
+            MultiHabitWidgetView(entry: entry)
+        }
+        .configurationDisplayName("Mehrere Gewohnheiten")
+        .description("Bis zu sechs Gewohnheiten mit den letzten zwei Wochen – direkt abhaken.")
+        .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
+
+struct MultiHabitWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: MultiHabitEntry
+
+    var body: some View {
+        MultiHabitWidgetContent(habits: entry.habits, limit: family == .systemLarge ? 6 : 3)
+            .containerBackground(for: .widget) {
+                WidgetBackdrop(tint: WidgetLoader.accent)
+            }
     }
 }

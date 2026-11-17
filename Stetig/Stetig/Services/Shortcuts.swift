@@ -10,6 +10,8 @@ struct StetigShortcuts: AppShortcutsProvider {
             intent: CompleteHabitIntent(),
             phrases: [
                 "Heute \(\.$habit) in \(.applicationName) gemacht",
+                "Heute \(\.$habit) in \(.applicationName) eintragen",
+                "\(\.$habit) in \(.applicationName) eintragen",
                 "\(\.$habit) in \(.applicationName) erledigt",
                 "\(\.$habit) in \(.applicationName) abhaken",
                 "Hake \(\.$habit) in \(.applicationName) ab",
