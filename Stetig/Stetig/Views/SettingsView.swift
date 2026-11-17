@@ -32,6 +32,14 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    NavigationLink {
+                        WidgetsSiriView()
+                    } label: {
+                        Label("Widgets & Siri", systemImage: "square.grid.2x2")
+                    }
+                }
+
                 Section("Darstellung") {
                     Picker("Erscheinungsbild", selection: $appearance) {
                         Text("System").tag(0)
@@ -416,7 +424,7 @@ struct TipsView: View {
         Tip(symbol: "pause", title: "Pausieren", text: "Friert eine Gewohnheit ein. Beim Fortsetzen gelten die pausierten Tage als übersprungen."),
         Tip(symbol: "nosign", title: "Abgewöhnen", text: "Bei diesen Gewohnheiten zählt jeder Tag automatisch. Tippe nur dann auf den Haken, wenn es einen Rückfall gab."),
         Tip(symbol: "square.grid.2x2", title: "Widgets", text: "Halte den Home-Bildschirm gedrückt, tippe auf „Bearbeiten“ und füge ein Stetig-Widget hinzu. Der Haken im Widget funktioniert direkt."),
-        Tip(symbol: "mic", title: "Kurzbefehle & Siri", text: "In der Kurzbefehle-App findest du „Gewohnheit abhaken“ – ideal für Automationen."),
+        Tip(symbol: "mic", title: "Siri", text: "Sag „Hey Siri, heute Lesen in Stetig gemacht“. Für einen kürzeren Satz ohne „in Stetig“ lege einen eigenen Kurzbefehl an – Anleitung unter Widgets & Siri."),
     ]
 
     var body: some View {

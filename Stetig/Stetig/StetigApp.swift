@@ -64,6 +64,7 @@ enum AppTab: Hashable {
 struct RootView: View {
     @Environment(AppLock.self) private var lock
     @State private var tab: AppTab = .habits
+    @Query(filter: #Predicate<Habit> { !$0.isArchived }) private var habits: [Habit]
 
     var body: some View {
         TabView(selection: $tab) {
@@ -89,5 +90,9 @@ struct RootView: View {
         }
         .animation(.default, value: lock.isLocked)
         .task { lock.unlock() }
+        .task(id: habits.map(\.name).sorted().joined(separator: "|")) {
+            // Neue oder umbenannte Gewohnheiten sofort für Siri-Sätze bekannt machen.
+            SiriSync.refresh()
+        }
     }
 }

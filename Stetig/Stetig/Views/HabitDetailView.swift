@@ -14,6 +14,7 @@ struct HabitDetailView: View {
     @State private var showEditor = false
     @State private var showShare = false
     @State private var showTimer = false
+    @State private var showSiri = false
     @State private var confirmDelete = false
 
     private var tint: HabitColor { Palette.entry(habit.colorID) }
@@ -61,6 +62,7 @@ struct HabitDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Als Bild teilen", systemImage: "square.and.arrow.up") { showShare = true }
+                    Button("Mit Siri verwenden", systemImage: "mic") { showSiri = true }
                     Button("Heutigen Eintrag bearbeiten", systemImage: "square.and.pencil") { entryDay = .today }
                     Button(habit.isPaused ? "Fortsetzen" : "Pausieren", systemImage: habit.isPaused ? "play" : "pause") {
                         HabitAdmin.setPaused(!habit.isPaused, habit: habit, in: context)
@@ -88,6 +90,9 @@ struct HabitDetailView: View {
         }
         .sheet(isPresented: $showTimer) {
             TimerSheet(habit: habit)
+        }
+        .sheet(isPresented: $showSiri) {
+            SiriHabitSheet(habit: habit)
         }
         .confirmationDialog("Gewohnheit wirklich löschen?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Löschen", role: .destructive) {

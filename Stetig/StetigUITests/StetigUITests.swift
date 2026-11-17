@@ -160,6 +160,15 @@ final class StetigUITests: XCTestCase {
         openTab("Einstellungen")
         waitFor("Erscheinungsbild")
         shot("10-Einstellungen")
+
+        // Widgets & Siri
+        element("Widgets & Siri").tap()
+        waitFor("Widget zum Home-Bildschirm hinzufügen")
+        shot("10b-Widgets")
+        app.swipeUp()
+        app.swipeUp()
+        waitFor("Eigener Satz ohne „in Stetig“")
+        shot("10c-Siri")
     }
 
     func testDarkModeOverview() {

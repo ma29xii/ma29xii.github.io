@@ -25,7 +25,8 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 **Drumherum**
 - Widgets für Home- und Sperrbildschirm, interaktiv (Abhaken ohne die App zu öffnen)
 - Steuerelement fürs Kontrollzentrum: eine Gewohnheit mit einem Tipp abhaken
-- Kurzbefehle/Siri: „Gewohnheit abhaken“
+- Siri: „Hey Siri, heute Lesen in Stetig gemacht“, „Wie läuft Lesen in Stetig?“, „Was ist heute in Stetig offen?“ – Siri antwortet mit Serie bzw. offenen Gewohnheiten
+- Eigene Siri-Sätze ohne App-Namen („Hey Siri, heute Lesen gemacht“) über einen Kurzbefehl – Anleitung und Direktknopf in der App unter Einstellungen › Widgets & Siri
 - Lokale Erinnerungen pro Gewohnheit, mit „Erledigt“-Aktion in der Mitteilung, plus täglicher Tagesabschluss
 - Kategorien als Filter, drei Ansichten (Raster, Woche, Kompakt), Suche
 - Sortieren nach eigener Reihenfolge, Name, Serie oder Quote; Gewohnheiten duplizieren
