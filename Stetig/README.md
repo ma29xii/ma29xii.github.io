@@ -1,6 +1,6 @@
 # Stetig
 
-Ein kostenloser Gewohnheits-Tracker für iPhone und iPad: jede Gewohnheit bekommt ein Kachel-Raster, das sich Tag für Tag füllt. Gebaut mit SwiftUI, SwiftData und Liquid Glass (iOS 26). Kein Konto, keine Werbung, kein Abo – alle Daten bleiben auf dem Gerät.
+Ein kostenloser Gewohnheits-Tracker für iPhone und iPad: jede Gewohnheit bekommt ein Kachel-Raster, das sich Tag für Tag füllt. Gebaut mit SwiftUI, SwiftData und Liquid Glass (iOS 26), mit hellem und dunklem Modus. Kein Konto, keine Werbung, kein Abo – alle Daten bleiben auf dem Gerät.
 
 Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raster-Prinzip kennt man von Beitragsgrafiken und anderen Habit-Trackern; Code, Assets und Gestaltung hier sind neu geschrieben.
 
@@ -30,7 +30,9 @@ Stetig ist eine eigenständige App mit eigenem Namen, Icon und Design. Das Raste
 - Kategorien als Filter, drei Ansichten (Raster, Woche, Kompakt), Suche
 - Sortieren nach eigener Reihenfolge, Name, Serie oder Quote; Gewohnheiten duplizieren
 - iPad-Layout mit mehreren Spalten
-- 23 Vorlagen, 16 Farben, rund 90 Symbole oder ein eigenes Emoji
+- 23 Vorlagen, rund 90 Symbole oder ein eigenes Emoji
+- 14 kuratierte Farb-Duos (z. B. Sonnenuntergang, Polarlicht, Lagune, Iris, Flamingo, Volt): Kacheln, Haken und Diagramme verlaufen von Farbe A nach B
+- Liquid-Glass-Oberfläche über einem dezent leuchtenden Hintergrund, eigene Akzentfarbe wählbar
 - Backup als JSON (Export/Import mit Zusammenführen), Export als CSV
 - App-Sperre mit Face ID, heller/dunkler Modus, Wochenbeginn Montag oder Sonntag
 - Verlauf als Bild teilen

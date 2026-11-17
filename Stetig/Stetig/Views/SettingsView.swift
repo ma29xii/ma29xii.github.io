@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Query private var categories: [HabitCategory]
 
     @AppStorage(SettingsKey.appearance) private var appearance = 0
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
     @AppStorage(SettingsKey.weekStart, store: AppGroup.defaults) private var weekStart = 0
     @AppStorage(SettingsKey.haptics) private var haptics = true
     @AppStorage(SettingsKey.confetti) private var confetti = true
@@ -36,6 +37,10 @@ struct SettingsView: View {
                         Text("System").tag(0)
                         Text("Hell").tag(1)
                         Text("Dunkel").tag(2)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Akzentfarbe", value: Palette.entry(accentID).name)
+                        ColorGrid(selection: $accentID)
                     }
                     Picker("Wochenbeginn", selection: $weekStart) {
                         Text("Montag").tag(0)
@@ -152,9 +157,14 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .ambientBackground()
             .navigationTitle("Einstellungen")
             .task { await refreshNotificationStatus() }
             .onChange(of: weekStart) { _, _ in
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+            .onChange(of: accentID) { _, _ in
                 WidgetCenter.shared.reloadAllTimelines()
             }
             .onChange(of: summaryEnabled) { _, enabled in
@@ -352,7 +362,7 @@ struct ArchiveView: View {
         List {
             ForEach(habits) { habit in
                 HStack(spacing: 12) {
-                    HabitIcon(symbol: habit.symbol, color: Palette.color(habit.colorID), size: 34)
+                    HabitIcon(symbol: habit.symbol, colorID: habit.colorID, size: 34)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(habit.name)
                         Text("\(habit.entries.filter { $0.amount > 0 }.count) Einträge")
@@ -414,7 +424,7 @@ struct TipsView: View {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: tip.symbol)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.tint)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tip.title).font(.headline)

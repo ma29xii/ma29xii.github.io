@@ -84,6 +84,9 @@ struct StatsView: View {
     @Query(filter: #Predicate<Habit> { !$0.isArchived }, sort: [SortDescriptor(\Habit.sortOrder), SortDescriptor(\Habit.createdAt)])
     private var habits: [Habit]
     @AppStorage(SettingsKey.weekStart, store: AppGroup.defaults) private var weekStart = 0
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
+
+    private var accent: HabitColor { Palette.entry(accentID) }
 
     var body: some View {
         NavigationStack {
@@ -99,20 +102,19 @@ struct StatsView: View {
                     content(Overview(habits: habits, weekStart: weekStart))
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .ambientBackground()
             .navigationTitle("Statistik")
         }
     }
 
     private func content(_ overview: Overview) -> some View {
         let perfect = overview.perfectDays(lookback: 365)
-        return VStack(spacing: 14) {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                StatTile(title: "Aktive Gewohnheiten", value: "\(overview.items.count)", symbol: "square.grid.3x3.fill", color: .accentColor)
-                StatTile(title: "Ø Quote (30 Tage)", value: Format.percent(overview.averageRate), symbol: "percent", color: .accentColor)
-                StatTile(title: "Erledigte Tage gesamt", value: "\(overview.totalDone)", symbol: "checkmark.seal.fill", color: .accentColor)
-                StatTile(title: "Perfekte Tage (1 Jahr)", value: "\(perfect.count)", symbol: "star.fill", color: .accentColor)
-            }
+        return VStack(spacing: 16) {
+            MetricsRow(items: [
+                .init(value: Format.percent(overview.averageRate), label: "Ø Quote 30 T."),
+                .init(value: "\(overview.totalDone)", label: "Erledigt"),
+                .init(value: "\(perfect.count)", label: "Perfekte Tage"),
+            ])
 
             trendCard(overview)
             heatmapCard(overview)
@@ -126,7 +128,7 @@ struct StatsView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "trophy.fill")
                         .font(.title3)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(accent.gradient)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Erfolge")
                             .font(.headline)
@@ -140,7 +142,7 @@ struct StatsView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .card()
+                .card(padding: 18)
             }
             .buttonStyle(.plain)
         }
@@ -163,13 +165,14 @@ struct StatsView: View {
             return Point(day: day, value: (overview.dayFraction(day) ?? 0) * 100)
         }
         return VStack(alignment: .leading, spacing: 12) {
-            CardTitle("Letzte 30 Tage", subtitle: "Anteil erledigter Gewohnheiten pro Tag")
+            CardTitle("Letzte 30 Tage")
             Chart(points) { point in
                 BarMark(
                     x: .value("Tag", point.day.date(), unit: .day),
                     y: .value("Erledigt", point.value)
                 )
-                .foregroundStyle(Color.accentColor.opacity(point.value >= 100 ? 1 : 0.55))
+                .foregroundStyle(accent.gradient)
+                .opacity(point.value >= 100 ? 1 : 0.55)
                 .cornerRadius(3)
             }
             .chartYScale(domain: 0...100)
@@ -185,18 +188,18 @@ struct StatsView: View {
             }
             .frame(height: 150)
         }
-        .card()
+        .card(padding: 18)
     }
 
     private func heatmapCard(_ overview: Overview) -> some View {
         let snapshots = overview.items.map(\.snapshot)
         return VStack(alignment: .leading, spacing: 12) {
-            CardTitle("Gesamtbild", subtitle: "Je kräftiger, desto mehr wurde an dem Tag erledigt")
-            HeatmapGrid(today: overview.today, weekStart: weekStart, color: .accentColor, columns: 26, showMonths: true) { day in
+            CardTitle("Gesamtbild")
+            HeatmapGrid(today: overview.today, weekStart: weekStart, color: accent.color, endColor: accent.endColor, columns: 26, showMonths: true) { day in
                 HeatCell(level: Overview.dayFraction(day, snapshots: snapshots) ?? 0)
             }
         }
-        .card()
+        .card(padding: 18)
     }
 
     private func weekdayCard(_ overview: Overview) -> some View {
@@ -221,14 +224,15 @@ struct StatsView: View {
                     x: .value("Tag", Day.weekdaySymbolsShort[index]),
                     y: .value("Quote", averages[index])
                 )
-                .foregroundStyle(Color.accentColor.opacity(averages[index] == best && best > 0 ? 1 : 0.45))
-                .cornerRadius(4)
+                .foregroundStyle(accent.gradient)
+                .opacity(averages[index] == best && best > 0 ? 1 : 0.4)
+                .cornerRadius(5)
             }
             .chartYScale(domain: 0...100)
             .chartYAxis(.hidden)
             .frame(height: 120)
         }
-        .card()
+        .card(padding: 18)
     }
 
     private func rankingCard(_ overview: Overview) -> some View {
@@ -236,11 +240,11 @@ struct StatsView: View {
             .map { (item: $0, rate: $0.snapshot.rate(days: 30)) }
             .sorted { $0.rate > $1.rate }
         return VStack(alignment: .leading, spacing: 14) {
-            CardTitle("Rangliste", subtitle: "Erfolgsquote der letzten 30 Tage")
+            CardTitle("Rangliste · 30 Tage")
             ForEach(ranked, id: \.item.id) { entry in
-                let color = Palette.color(entry.item.habit.colorID)
+                let tint = Palette.entry(entry.item.habit.colorID)
                 HStack(spacing: 12) {
-                    HabitIcon(symbol: entry.item.habit.symbol, color: color, size: 32)
+                    HabitIcon(symbol: entry.item.habit.symbol, tint: tint, size: 32)
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
                             Text(entry.item.habit.name)
@@ -251,13 +255,20 @@ struct StatsView: View {
                                 .font(.subheadline.weight(.semibold))
                                 .monospacedDigit()
                         }
-                        ProgressView(value: min(1, max(0, entry.rate)))
-                            .tint(color)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.primary.opacity(0.08))
+                                Capsule()
+                                    .fill(tint.gradient)
+                                    .frame(width: max(6, geo.size.width * min(1, max(0, entry.rate))))
+                            }
+                        }
+                        .frame(height: 6)
                     }
                 }
             }
         }
-        .card()
+        .card(padding: 18)
     }
 }
 
@@ -308,6 +319,8 @@ enum Achievements {
 struct AchievementsView: View {
     let achievements: [Achievement]
 
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
+
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
@@ -315,10 +328,10 @@ struct AchievementsView: View {
                     VStack(spacing: 10) {
                         ZStack {
                             Circle()
-                                .fill(achievement.unlocked ? Color.accentColor : Color(.tertiarySystemFill))
+                                .fill(achievement.unlocked ? AnyShapeStyle(Palette.entry(accentID).gradient) : AnyShapeStyle(Color.primary.opacity(0.08)))
                             Image(systemName: achievement.symbol)
                                 .font(.title2.weight(.semibold))
-                                .foregroundStyle(achievement.unlocked ? Color.white : Color.secondary)
+                                .foregroundStyle(achievement.unlocked ? Palette.entry(accentID).onColor : Color.secondary)
                         }
                         .frame(width: 60, height: 60)
                         Text(achievement.title)
@@ -332,10 +345,10 @@ struct AchievementsView: View {
                         if achievement.unlocked {
                             Label("Geschafft", systemImage: "checkmark")
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Palette.entry(accentID).color)
                         } else {
                             ProgressView(value: achievement.progress)
-                                .tint(Color.accentColor)
+                                .tint(Palette.entry(accentID).color)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -345,7 +358,7 @@ struct AchievementsView: View {
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .ambientBackground()
         .navigationTitle("Erfolge")
         .navigationBarTitleDisplayMode(.inline)
     }

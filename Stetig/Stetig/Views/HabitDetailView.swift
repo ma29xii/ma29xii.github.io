@@ -16,7 +16,8 @@ struct HabitDetailView: View {
     @State private var showTimer = false
     @State private var confirmDelete = false
 
-    private var color: Color { Palette.color(habit.colorID) }
+    private var tint: HabitColor { Palette.entry(habit.colorID) }
+    private var color: Color { tint.color }
 
     private var supportsTimer: Bool {
         habit.kind == .build && ["min", "min.", "minuten"].contains(habit.unit.lowercased())
@@ -26,7 +27,7 @@ struct HabitDetailView: View {
         let snapshot = habit.snapshot(weekStart: weekStart)
 
         ScrollView {
-            VStack(spacing: 14) {
+            VStack(spacing: 16) {
                 header(snapshot)
                 if habit.isPaused {
                     pausedBanner
@@ -34,12 +35,12 @@ struct HabitDetailView: View {
                 if habit.isCounter || (habit.kind == .quit && habit.dailyTarget > 0) {
                     todayCounter(snapshot)
                 }
-                statTiles(snapshot)
+                metrics(snapshot)
                 yearCard(snapshot)
                 MonthCalendar(habit: habit, snapshot: snapshot, month: $month) { day in
                     entryDay = day
                 }
-                .card()
+                .card(padding: 18)
                 chartsCard(snapshot)
                 notesCard
             }
@@ -48,7 +49,7 @@ struct HabitDetailView: View {
             .padding(.bottom, 24)
             .readableWidth()
         }
-        .background(Color(.systemGroupedBackground))
+        .ambientBackground(tint)
         .navigationTitle(habit.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -99,11 +100,11 @@ struct HabitDetailView: View {
 
     private func header(_ snapshot: HabitSnapshot) -> some View {
         HStack(spacing: 14) {
-            HabitIcon(symbol: habit.symbol, color: color, size: 56)
+            HabitIcon(symbol: habit.symbol, tint: tint, size: 52)
             VStack(alignment: .leading, spacing: 3) {
                 Text(habit.name)
                     .font(.title3.weight(.bold))
-                Text(habit.goalDescription)
+                Text([habit.goalDescription, habit.category?.name].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if !habit.details.isEmpty {
@@ -111,19 +112,11 @@ struct HabitDetailView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                if let category = habit.category {
-                    Text(category.name)
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(color.opacity(0.15), in: .capsule)
-                        .foregroundStyle(color)
-                }
             }
             Spacer(minLength: 8)
             CompleteButton(habit: habit, snapshot: snapshot, day: snapshot.today, size: 52)
         }
-        .card()
+        .card(padding: 18)
     }
 
     private var pausedBanner: some View {
@@ -154,8 +147,18 @@ struct HabitDetailView: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
-            ProgressView(value: min(1, habit.dailyTarget > 0 ? amount / habit.dailyTarget : 0))
-                .tint(color)
+            GeometryReader { geo in
+                let fraction = min(1, habit.dailyTarget > 0 ? amount / habit.dailyTarget : 0)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(tint.gradient)
+                        .frame(width: max(8, geo.size.width * fraction))
+                        .opacity(fraction > 0 ? 1 : 0)
+                }
+            }
+            .frame(height: 8)
+            .animation(.snappy, value: amount)
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
                     Button {
@@ -188,22 +191,27 @@ struct HabitDetailView: View {
 
     // MARK: Kennzahlen
 
-    private func statTiles(_ snapshot: HabitSnapshot) -> some View {
+    private func metrics(_ snapshot: HabitSnapshot) -> some View {
         let streak = snapshot.currentStreak
         let best = snapshot.bestStreak
-        let weekStartDay = snapshot.weekStart(of: snapshot.today)
-        let thisWeek = snapshot.doneCount(from: weekStartDay, through: snapshot.today)
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatTile(title: "Aktuelle Serie", value: "\(streak) \(snapshot.streakUnit(streak))", symbol: "flame.fill", color: color)
-            StatTile(title: "Beste Serie", value: "\(best) \(snapshot.streakUnit(best))", symbol: "trophy.fill", color: color)
-            StatTile(title: habit.kind == .quit ? "Tage geschafft" : "Tage erledigt", value: "\(snapshot.totalDone)", symbol: "checkmark.seal.fill", color: color)
-            StatTile(title: "Quote (30 Tage)", value: Format.percent(snapshot.rate(days: 30)), symbol: "percent", color: color)
-            StatTile(title: "Diese Woche", value: "\(thisWeek)×", symbol: "calendar", color: color)
-            if habit.kind == .build, habit.isCounter || !habit.unit.isEmpty {
-                StatTile(title: "Summe", value: Format.amount(snapshot.totalAmount, unit: habit.unit), symbol: "sum", color: color)
-            } else {
-                StatTile(title: "Dabei seit", value: snapshot.rule.firstDay.shortTitle, symbol: "clock.fill", color: color)
-            }
+        var second: [MetricsRow.Item] = [
+            .init(value: "\(snapshot.totalDone)", label: habit.kind == .quit ? "Tage geschafft" : "Erledigt"),
+        ]
+        if habit.kind == .build, habit.isCounter || !habit.unit.isEmpty {
+            second.append(.init(value: Format.amount(snapshot.totalAmount, unit: habit.unit), label: "Summe"))
+        } else {
+            let weekStartDay = snapshot.weekStart(of: snapshot.today)
+            second.append(.init(value: "\(snapshot.doneCount(from: weekStartDay, through: snapshot.today))×", label: "Diese Woche"))
+        }
+        second.append(.init(value: snapshot.rule.firstDay.shortTitle, label: "Seit"))
+
+        return VStack(spacing: 10) {
+            MetricsRow(items: [
+                .init(value: "\(streak)", label: "Serie (\(snapshot.streakUnit(streak)))"),
+                .init(value: "\(best)", label: "Rekord"),
+                .init(value: Format.percent(snapshot.rate(days: 30)), label: "Quote 30 T."),
+            ])
+            MetricsRow(items: second)
         }
     }
 
@@ -211,27 +219,15 @@ struct HabitDetailView: View {
 
     private func yearCard(_ snapshot: HabitSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            CardTitle("Verlauf", subtitle: "Die letzten 12 Monate")
+            CardTitle("Verlauf")
             ScrollView(.horizontal) {
-                HeatmapGrid(snapshot: snapshot, color: color, columns: 53, showMonths: true)
+                HeatmapGrid(snapshot: snapshot, tint: tint, columns: 53, showMonths: true)
                     .frame(height: 138)
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.trailing)
-            HStack(spacing: 5) {
-                Spacer()
-                Text(habit.kind == .quit ? "Rückfall" : "Offen")
-                ForEach([0.0, 0.4, 0.7, 1.0], id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(color.opacity(0.14 + 0.86 * level))
-                        .frame(width: 11, height: 11)
-                }
-                Text("Erledigt")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         }
-        .card()
+        .card(padding: 18)
     }
 
     // MARK: Diagramme
@@ -245,14 +241,14 @@ struct HabitDetailView: View {
 
         return VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
-                CardTitle("Wochen", subtitle: "Erledigte Tage in den letzten 12 Wochen")
+                CardTitle("Letzte 12 Wochen")
                 Chart(weeks, id: \.offset) { item in
                     BarMark(
                         x: .value("Woche", String(item.offset)),
                         y: .value("Tage", item.element.count)
                     )
-                    .foregroundStyle(color)
-                    .cornerRadius(4)
+                    .foregroundStyle(tint.gradient)
+                    .cornerRadius(5)
                 }
                 .chartXAxis(.hidden)
                 .chartYScale(domain: 0...7)
@@ -263,13 +259,6 @@ struct HabitDetailView: View {
                     }
                 }
                 .frame(height: 110)
-                HStack {
-                    Text("vor 12 Wochen")
-                    Spacer()
-                    Text("diese Woche")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -281,14 +270,15 @@ struct HabitDetailView: View {
                         x: .value("Tag", Day.weekdaySymbolsShort[index]),
                         y: .value("Anzahl", weekdays[index])
                     )
-                    .foregroundStyle(color.opacity(weekdays[index] == best && best > 0 ? 1 : 0.45))
-                    .cornerRadius(4)
+                    .foregroundStyle(tint.gradient)
+                    .opacity(weekdays[index] == best && best > 0 ? 1 : 0.4)
+                    .cornerRadius(5)
                 }
                 .chartYAxis(.hidden)
                 .frame(height: 110)
             }
         }
-        .card()
+        .card(padding: 18)
     }
 
     // MARK: Notizen
@@ -394,13 +384,11 @@ struct MonthCalendar: View {
                 }
             }
 
-            Text("Tippen zum Abhaken · Gedrückt halten für Menge, Notiz und Überspringen")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
     }
 
     private func dayCell(_ day: Day, color: Color, hasNote: Bool) -> some View {
+        let tint = Palette.entry(habit.colorID)
         let cell = snapshot.cell(day)
         let isFuture = day > snapshot.today
         let isToday = day == snapshot.today
@@ -412,8 +400,14 @@ struct MonthCalendar: View {
             }
         } label: {
             ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(color.opacity(isFuture ? 0.05 : 0.14 + 0.86 * cell.level))
+                if cell.level > 0 {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(tint.gradient)
+                        .opacity(0.3 + 0.7 * cell.level)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(isFuture ? 0.03 : 0.07))
+                }
                 if cell.skipped {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(color.opacity(0.6), lineWidth: 1.5)
@@ -424,7 +418,7 @@ struct MonthCalendar: View {
                 }
                 Text("\(day.dayOfMonth)")
                     .font(.footnote.weight(isToday ? .bold : .medium))
-                    .foregroundStyle(cell.level > 0.6 ? Color.white : (isFuture ? Color.secondary.opacity(0.5) : Color.primary))
+                    .foregroundStyle(cell.level > 0.6 ? tint.onColor : (isFuture ? Color.secondary.opacity(0.5) : Color.primary))
                 if cell.slipped {
                     Image(systemName: "xmark")
                         .font(.system(size: 7, weight: .black))
@@ -433,7 +427,7 @@ struct MonthCalendar: View {
                 }
                 if hasNote {
                     Circle()
-                        .fill(cell.level > 0.6 ? Color.white : color)
+                        .fill(cell.level > 0.6 ? tint.onColor : color)
                         .frame(width: 4, height: 4)
                         .offset(x: 12, y: -12)
                 }
@@ -554,14 +548,14 @@ struct EntrySheet: View {
 struct ShareCard: View {
     let name: String
     let symbol: String
-    let color: Color
+    let tint: HabitColor
     let snapshot: HabitSnapshot
 
     var body: some View {
         let streak = snapshot.currentStreak
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                HabitIcon(symbol: symbol, color: color, size: 44)
+                HabitIcon(symbol: symbol, tint: tint, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name).font(.headline)
                     Text("\(streak) \(snapshot.streakUnit(streak)) in Serie · \(snapshot.totalDone) Tage gesamt")
@@ -570,7 +564,7 @@ struct ShareCard: View {
                 }
                 Spacer(minLength: 0)
             }
-            HeatmapGrid(snapshot: snapshot, color: color, columns: 26)
+            HeatmapGrid(snapshot: snapshot, tint: tint, columns: 26)
             Text("Stetig")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
@@ -607,7 +601,7 @@ struct ShareSheetView: View {
             }
             .padding(.top, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
+            .ambientBackground(Palette.entry(habit.colorID))
             .navigationTitle("Teilen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -621,7 +615,7 @@ struct ShareSheetView: View {
     }
 
     private var card: ShareCard {
-        ShareCard(name: habit.name, symbol: habit.symbol, color: Palette.color(habit.colorID), snapshot: habit.snapshot())
+        ShareCard(name: habit.name, symbol: habit.symbol, tint: Palette.entry(habit.colorID), snapshot: habit.snapshot())
     }
 
     @MainActor
@@ -629,7 +623,7 @@ struct ShareSheetView: View {
         let content = card
             .frame(width: 380)
             .padding(16)
-            .background(Color(.systemGroupedBackground))
+            .ambientBackground(Palette.entry(habit.colorID))
             .environment(\.colorScheme, colorScheme)
         let renderer = ImageRenderer(content: content)
         renderer.scale = 3
@@ -655,14 +649,14 @@ struct TimerSheet: View {
     }
 
     var body: some View {
-        let color = Palette.color(habit.colorID)
+        let tint = Palette.entry(habit.colorID)
         NavigationStack {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 let seconds = Int(elapsed(at: timeline.date))
                 let goal = max(1, habit.dailyTarget * 60)
                 VStack(spacing: 28) {
                     ZStack {
-                        ProgressRing(progress: Double(seconds) / goal, color: color, lineWidth: 14)
+                        ProgressRing(progress: Double(seconds) / goal, color: tint.color, endColor: tint.endColor, lineWidth: 14)
                         VStack(spacing: 4) {
                             Text(String(format: "%02d:%02d", seconds / 60, seconds % 60))
                                 .font(.system(size: 52, weight: .bold, design: .rounded))

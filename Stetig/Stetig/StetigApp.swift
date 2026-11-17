@@ -5,6 +5,7 @@ import SwiftUI
 struct StetigApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage(SettingsKey.appearance) private var appearance = 0
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var context: ModelContext
@@ -24,6 +25,7 @@ struct StetigApp: App {
                 .modelContext(context)
                 .environment(lock)
                 .preferredColorScheme(appearance == 1 ? .light : appearance == 2 ? .dark : nil)
+                .tint(Palette.entry(accentID).color)
                 .onReceive(NotificationCenter.default.publisher(for: .stetigExternalChange)) { _ in
                     reloadIfNeeded()
                 }

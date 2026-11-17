@@ -26,7 +26,7 @@ final class Habit {
     var details: String = ""
     /// SF-Symbol-Name oder ein Emoji.
     var symbol: String = "checkmark"
-    var colorID: String = "indigo"
+    var colorID: String = "iris"
     var createdAt: Date = Date()
     var sortOrder: Int = 0
     var isArchived: Bool = false
@@ -57,7 +57,7 @@ final class Habit {
     @Relationship(deleteRule: .cascade, inverse: \HabitEntry.habit)
     var entries: [HabitEntry] = []
 
-    init(name: String, symbol: String = "checkmark", colorID: String = "indigo") {
+    init(name: String, symbol: String = "checkmark", colorID: String = "iris") {
         self.uuid = UUID()
         self.name = name
         self.symbol = symbol

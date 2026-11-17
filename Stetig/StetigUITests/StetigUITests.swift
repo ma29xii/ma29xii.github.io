@@ -38,8 +38,14 @@ final class StetigUITests: XCTestCase {
         XCTAssertTrue(element(label).waitForExistence(timeout: timeout), "„\(label)“ nicht gefunden", file: file, line: line)
     }
 
+    /// Scrollt nach oben, bis die (beim Scrollen verkleinerte) Tab-Leiste wieder aufklappt.
     private func openTab(_ name: String) {
         let button = app.tabBars.buttons[name]
+        var attempts = 0
+        while !(button.exists && button.isHittable), attempts < 4 {
+            app.swipeDown()
+            attempts += 1
+        }
         XCTAssertTrue(button.waitForExistence(timeout: 10), "Tab \(name) fehlt")
         button.tap()
     }
@@ -118,7 +124,9 @@ final class StetigUITests: XCTestCase {
         waitFor("Gitarre üben")
         shot("06c-Neu-angelegt")
 
-        // Suche
+        // Suche (Suchfeld erscheint oben in der Liste)
+        app.swipeDown()
+        app.swipeDown()
         let search = app.searchFields.firstMatch
         if search.waitForExistence(timeout: 5) {
             search.tap()
@@ -153,9 +161,19 @@ final class StetigUITests: XCTestCase {
         app.launch()
         waitFor("Lesen", timeout: 30)
         shot("11-Dunkel-Gewohnheiten")
+        element("Lesen").tap()
+        waitFor("Verlauf")
+        shot("11b-Dunkel-Detail")
+        goBack()
         openTab("Heute")
         waitFor("Offen")
         shot("12-Dunkel-Heute")
+        openTab("Statistik")
+        waitFor("Letzte 30 Tage")
+        shot("12b-Dunkel-Statistik")
+        openTab("Einstellungen")
+        waitFor("Akzentfarbe")
+        shot("12c-Dunkel-Einstellungen")
     }
 
     func testEmptyState() {

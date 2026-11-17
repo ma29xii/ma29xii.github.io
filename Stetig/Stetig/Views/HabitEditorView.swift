@@ -6,7 +6,7 @@ struct HabitDraft: Equatable {
     var name = ""
     var details = ""
     var symbol = "checkmark"
-    var colorID = "indigo"
+    var colorID = Palette.defaultID
     var kind: HabitKind = .build
     var frequency: HabitFrequency = .daily
     var weekdayMask = 0b111_1111
@@ -87,7 +87,8 @@ struct HabitEditorView: View {
         _draft = State(initialValue: habit.map { HabitDraft(habit: $0) } ?? template ?? HabitDraft())
     }
 
-    private var color: Color { Palette.color(draft.colorID) }
+    private var tint: HabitColor { Palette.entry(draft.colorID) }
+    private var color: Color { tint.color }
 
     var body: some View {
         NavigationStack {
@@ -106,7 +107,7 @@ struct HabitEditorView: View {
 
                 Section {
                     HStack(spacing: 12) {
-                        HabitIcon(symbol: draft.symbol, color: color, size: 44)
+                        HabitIcon(symbol: draft.symbol, tint: tint, size: 44)
                         TextField("Name", text: $draft.name)
                             .font(.headline)
                             .focused($nameFocused)
@@ -122,11 +123,11 @@ struct HabitEditorView: View {
 
                 Section {
                     NavigationLink {
-                        SymbolPickerView(selection: $draft.symbol, color: color)
+                        SymbolPickerView(selection: $draft.symbol, tint: tint)
                     } label: {
                         LabeledContent("Symbol") {
                             HabitGlyph(symbol: draft.symbol)
-                                .foregroundStyle(color)
+                                .foregroundStyle(tint.gradient)
                         }
                     }
                 }
@@ -238,7 +239,7 @@ struct HabitEditorView: View {
             case .daily:
                 EmptyView()
             case .weekdays:
-                WeekdayPicker(mask: $draft.weekdayMask, color: color)
+                WeekdayPicker(mask: $draft.weekdayMask, tint: tint)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             case .perWeek:
                 Stepper("\(draft.timesPerPeriod)× pro Woche", value: $draft.timesPerPeriod, in: 1...7)
@@ -341,7 +342,7 @@ struct HabitEditorView: View {
 
 struct SymbolPickerView: View {
     @Binding var selection: String
-    let color: Color
+    let tint: HabitColor
 
     @Environment(\.dismiss) private var dismiss
     @State private var emoji = ""
@@ -394,12 +395,12 @@ struct SymbolPickerView: View {
                                     dismiss()
                                 } label: {
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(isSelected ? color : color.opacity(0.14))
+                                        .fill(isSelected ? AnyShapeStyle(tint.gradient) : AnyShapeStyle(tint.color.opacity(0.14)))
                                         .aspectRatio(1, contentMode: .fit)
                                         .overlay {
                                             Image(systemName: symbol)
                                                 .font(.system(size: 19, weight: .semibold))
-                                                .foregroundStyle(isSelected ? Color.white : color)
+                                                .foregroundStyle(isSelected ? AnyShapeStyle(tint.onColor) : AnyShapeStyle(tint.gradient))
                                         }
                                 }
                                 .buttonStyle(.plain)
@@ -411,7 +412,7 @@ struct SymbolPickerView: View {
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .ambientBackground(tint)
         .navigationTitle("Symbol")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -454,37 +455,37 @@ enum HabitTemplates {
 
     static let groups: [HabitTemplateGroup] = [
         HabitTemplateGroup(title: "Gesundheit", templates: [
-            make("Wasser trinken", "drop.fill", "blue", target: 8, unit: "Gläser"),
-            make("Früh schlafen", "bed.double.fill", "indigo", details: "Vor 23 Uhr im Bett"),
-            make("Vitamine nehmen", "pills.fill", "orange"),
-            make("Zahnseide", "sparkles", "cyan"),
-            make("Gesund essen", "carrot.fill", "green"),
+            make("Wasser trinken", "drop.fill", "lagoon", target: 8, unit: "Gläser"),
+            make("Früh schlafen", "bed.double.fill", "ultra", details: "Vor 23 Uhr im Bett"),
+            make("Vitamine nehmen", "pills.fill", "mango"),
+            make("Zahnseide", "sparkles", "glacier"),
+            make("Gesund essen", "carrot.fill", "volt"),
         ]),
         HabitTemplateGroup(title: "Bewegung", templates: [
-            make("Spazieren gehen", "figure.walk", "green"),
-            make("Laufen", "figure.run", "coral", frequency: .perWeek, times: 3),
-            make("Krafttraining", "dumbbell.fill", "red", frequency: .perWeek, times: 3),
-            make("Dehnen", "figure.yoga", "teal", target: 10, unit: "min", step: 5),
-            make("10.000 Schritte", "figure.hiking", "lime", target: 10_000, unit: "Schritte", step: 1000),
+            make("Spazieren gehen", "figure.walk", "aurora"),
+            make("Laufen", "figure.run", "sunset", frequency: .perWeek, times: 3),
+            make("Krafttraining", "dumbbell.fill", "lava", frequency: .perWeek, times: 3),
+            make("Dehnen", "figure.yoga", "candy", target: 10, unit: "min", step: 5),
+            make("10.000 Schritte", "figure.hiking", "neon", target: 10_000, unit: "Schritte", step: 1000),
         ]),
         HabitTemplateGroup(title: "Geist", templates: [
-            make("Lesen", "book.fill", "amber", target: 20, unit: "min", step: 5),
-            make("Meditieren", "figure.mind.and.body", "violet", target: 10, unit: "min", step: 5),
-            make("Tagebuch schreiben", "pencil", "brown"),
-            make("Sprache lernen", "character.bubble.fill", "blue", target: 15, unit: "min", step: 5),
+            make("Lesen", "book.fill", "mango", target: 20, unit: "min", step: 5),
+            make("Meditieren", "figure.mind.and.body", "iris", target: 10, unit: "min", step: 5),
+            make("Tagebuch schreiben", "pencil", "flamingo"),
+            make("Sprache lernen", "character.bubble.fill", "lagoon", target: 15, unit: "min", step: 5),
         ]),
         HabitTemplateGroup(title: "Produktivität", templates: [
             make("Fokusarbeit", "laptopcomputer", "graphite", target: 60, unit: "min", step: 15),
-            make("Aufräumen", "house.fill", "teal"),
-            make("Posteingang leeren", "tray.full.fill", "cyan"),
-            make("Woche planen", "calendar", "pink", frequency: .perWeek, times: 1),
+            make("Aufräumen", "house.fill", "aurora"),
+            make("Posteingang leeren", "tray.full.fill", "glacier"),
+            make("Woche planen", "calendar", "orchid", frequency: .perWeek, times: 1),
         ]),
         HabitTemplateGroup(title: "Abgewöhnen", templates: [
-            make("Nicht rauchen", "nosign", "red", kind: .quit, target: 0),
-            make("Kein Alkohol", "wineglass.fill", "purple", kind: .quit, target: 0),
-            make("Kein Zucker", "birthday.cake.fill", "pink", kind: .quit, target: 0),
-            make("Weniger Kaffee", "cup.and.saucer.fill", "brown", kind: .quit, target: 2, unit: "Tassen"),
-            make("Kein Social Media", "iphone.slash", "graphite", kind: .quit, target: 0),
+            make("Nicht rauchen", "nosign", "aurora", kind: .quit, target: 0),
+            make("Kein Alkohol", "wineglass.fill", "ultra", kind: .quit, target: 0),
+            make("Kein Zucker", "birthday.cake.fill", "flamingo", kind: .quit, target: 0),
+            make("Weniger Kaffee", "cup.and.saucer.fill", "sunset", kind: .quit, target: 2, unit: "Tassen"),
+            make("Kein Social Media", "iphone.slash", "orchid", kind: .quit, target: 0),
         ]),
     ]
 }
@@ -503,7 +504,7 @@ struct TemplatesView: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 12) {
-                                HabitIcon(symbol: template.symbol, color: Palette.color(template.colorID), size: 36)
+                                HabitIcon(symbol: template.symbol, colorID: template.colorID, size: 36)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(template.name)
                                         .foregroundStyle(.primary)

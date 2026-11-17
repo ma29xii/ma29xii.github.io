@@ -48,7 +48,7 @@ enum DemoData {
         }
 
         // Lesen – Minuten zählen.
-        let reading = habit("Lesen", "book.fill", "amber", mind) {
+        let reading = habit("Lesen", "book.fill", "mango", mind) {
             $0.dailyTarget = 20
             $0.unit = "min"
             $0.step = 5
@@ -71,7 +71,7 @@ enum DemoData {
         }
 
         // Wasser – Gläser zählen.
-        let water = habit("Wasser trinken", "drop.fill", "blue", health) {
+        let water = habit("Wasser trinken", "drop.fill", "lagoon", health) {
             $0.dailyTarget = 8
             $0.unit = "Gläser"
         }
@@ -85,7 +85,7 @@ enum DemoData {
         water.entries.append(HabitEntry(day: today.key, amount: 5))
 
         // Laufen – dreimal pro Woche.
-        let running = habit("Laufen", "figure.run", "coral", fitness) {
+        let running = habit("Laufen", "figure.run", "sunset", fitness) {
             $0.frequency = .perWeek
             $0.timesPerPeriod = 3
         }
@@ -94,7 +94,7 @@ enum DemoData {
         }
 
         // Krafttraining – Montag, Mittwoch, Freitag.
-        let strength = habit("Krafttraining", "dumbbell.fill", "red", fitness) {
+        let strength = habit("Krafttraining", "dumbbell.fill", "lava", fitness) {
             $0.frequency = .weekdays
             $0.weekdayMask = 0b001_0101
         }
@@ -107,14 +107,14 @@ enum DemoData {
         }
 
         // Meditieren – einfaches Abhaken, heute schon erledigt.
-        let meditation = habit("Meditieren", "figure.mind.and.body", "violet", mind)
+        let meditation = habit("Meditieren", "figure.mind.and.body", "iris", mind)
         for offset in 1..<history where random.next() < chance(0.55, offset: offset) || offset < 12 {
             meditation.entries.append(HabitEntry(day: today.adding(-offset).key, amount: 1))
         }
         meditation.entries.append(HabitEntry(day: today.key, amount: 1, note: "10 Minuten Atemübung"))
 
         // Abgewöhnen – seit 80 Tagen, mit zwei Rückfällen.
-        let smoking = habit("Nicht rauchen", "nosign", "green", health) {
+        let smoking = habit("Nicht rauchen", "nosign", "aurora", health) {
             $0.kind = .quit
             $0.dailyTarget = 0
             $0.startDay = today.adding(-80).key
@@ -123,7 +123,7 @@ enum DemoData {
         smoking.entries.append(HabitEntry(day: today.adding(-34).key, amount: 1))
 
         // Tagebuch – mit ein paar übersprungenen Tagen.
-        let journal = habit("Tagebuch", "pencil", "teal", mind)
+        let journal = habit("Tagebuch", "pencil", "candy", mind)
         for offset in 1..<history {
             let roll = random.next()
             let day = today.adding(-offset)

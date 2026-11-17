@@ -34,8 +34,27 @@ struct SymbolTests {
         }
     }
 
+    @Test func paletteContrastAndLegacyColors() {
+        // Helle Duos bekommen dunkle Symbole, dunkle Duos weiße.
+        #expect(Palette.entry("neon").isLight)
+        #expect(Palette.entry("glacier").isLight)
+        #expect(Palette.entry("mango").isLight)
+        #expect(!Palette.entry("ultra").isLight)
+        #expect(!Palette.entry("iris").isLight)
+        #expect(!Palette.entry("lava").isLight)
+        // Farben aus älteren Backups landen auf passenden neuen Duos.
+        #expect(Palette.entry("indigo").id == "iris")
+        #expect(Palette.entry("red").id == "lava")
+        #expect(Palette.entry("teal").id == "aurora")
+        #expect(Palette.entry("gibt-es-nicht").id == Palette.defaultID)
+        // Begleitfarbe ist immer eine andere Farbe der Palette.
+        for color in Palette.all {
+            #expect(Palette.companion(of: color).id != color.id)
+        }
+    }
+
     @Test func paletteIsConsistent() {
-        #expect(Palette.all.count == 16)
+        #expect(Palette.all.count == 14)
         #expect(Set(Palette.all.map(\.id)).count == Palette.all.count)
         for group in HabitTemplates.groups {
             for template in group.templates {

@@ -8,6 +8,7 @@ struct TodayView: View {
 
     @AppStorage(SettingsKey.weekStart, store: AppGroup.defaults) private var weekStart = 0
     @AppStorage(SettingsKey.confetti) private var confettiEnabled = true
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
 
     @State private var day = Day.today
     @State private var entryTarget: EntryTarget?
@@ -72,7 +73,7 @@ struct TodayView: View {
                 .padding(.bottom, 24)
                 .readableWidth()
             }
-            .background(Color(.systemGroupedBackground))
+            .ambientBackground()
             .navigationTitle(day == today ? "Heute" : day.weekdayLong)
             .toolbar {
                 if day != today {
@@ -101,7 +102,8 @@ struct TodayView: View {
 
     private func progressCard(done: Int, total: Int, today: Day) -> some View {
         let progress = total == 0 ? 0 : Double(done) / Double(total)
-        return VStack(spacing: 16) {
+        let accent = Palette.entry(accentID)
+        return VStack(spacing: 18) {
             HStack {
                 Button("Vorheriger Tag", systemImage: "chevron.left") {
                     withAnimation(.snappy) { day = day.adding(-1) }
@@ -121,13 +123,13 @@ struct TodayView: View {
 
             HStack(spacing: 20) {
                 ZStack {
-                    ProgressRing(progress: progress, color: .accentColor, lineWidth: 12)
+                    ProgressRing(progress: progress, color: accent.color, endColor: accent.endColor, lineWidth: 12)
                         .animation(.snappy, value: progress)
                     Text("\(done)/\(total)")
                         .font(.system(.title2, design: .rounded, weight: .bold))
                         .contentTransition(.numericText())
                 }
-                .frame(width: 96, height: 96)
+                .frame(width: 100, height: 100)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(headline(done: done, total: total))
@@ -139,7 +141,7 @@ struct TodayView: View {
                 Spacer(minLength: 0)
             }
         }
-        .card()
+        .card(padding: 18)
     }
 
     private func headline(done: Int, total: Int) -> String {
@@ -169,15 +171,14 @@ struct TodayView: View {
 
     private func rowView(_ row: Row) -> some View {
         let habit = row.habit
-        let color = Palette.color(habit.colorID)
         return HStack(spacing: 12) {
-            HabitIcon(symbol: habit.symbol, color: color, size: 38)
-            VStack(alignment: .leading, spacing: 2) {
+            HabitIcon(symbol: habit.symbol, colorID: habit.colorID, size: 36)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(habit.name)
-                    .font(.body.weight(.medium))
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
                 Text(subtitle(row))
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -185,13 +186,13 @@ struct TodayView: View {
             if row.state == .skipped {
                 Image(systemName: "forward.end.fill")
                     .foregroundStyle(.secondary)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 40, height: 40)
             } else {
-                CompleteButton(habit: habit, snapshot: row.snapshot, day: day, size: 38)
+                CompleteButton(habit: habit, snapshot: row.snapshot, day: day, size: 40)
             }
         }
-        .card(padding: 12)
-        .contentShape(.rect(cornerRadius: 22))
+        .card(padding: 14, radius: 24)
+        .contentShape(.rect(cornerRadius: 24))
         .onTapGesture {
             entryTarget = EntryTarget(habit: habit, day: day)
         }

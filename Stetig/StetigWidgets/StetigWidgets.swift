@@ -79,7 +79,8 @@ struct HabitWidgetData: Identifiable {
     let isCounter: Bool
     let snapshot: HabitSnapshot
 
-    var color: Color { Palette.color(colorID) }
+    var tint: HabitColor { Palette.entry(colorID) }
+    var color: Color { tint.color }
     var entity: HabitEntity { HabitEntity(id: id, name: name, symbol: symbol) }
     var state: DayState { snapshot.state(snapshot.today) }
     var isDone: Bool { snapshot.isDone(snapshot.today) }
@@ -114,7 +115,7 @@ extension HabitWidgetData {
             id: "sample",
             name: "Lesen",
             symbol: "book.fill",
-            colorID: "indigo",
+            colorID: Palette.defaultID,
             unit: "",
             isCounter: false,
             snapshot: HabitSnapshot(rule: rule, records: records, today: today)
@@ -147,22 +148,31 @@ struct WidgetCheck: View {
 
     var body: some View {
         let done = habit.isDone
-        let quit = habit.snapshot.rule.kind == .quit
-        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-            .fill(habit.color.opacity(done ? 1 : 0.2))
-            .frame(width: size, height: size)
-            .overlay {
-                if habit.isCounter, !done, habit.snapshot.amount(habit.snapshot.today) > 0 {
-                    Text(Format.number(habit.snapshot.amount(habit.snapshot.today)))
-                        .font(.system(size: size * 0.4, weight: .bold, design: .rounded))
-                        .foregroundStyle(habit.color)
-                        .minimumScaleFactor(0.6)
-                } else {
-                    Image(systemName: quit && !done ? "xmark" : "checkmark")
-                        .font(.system(size: size * 0.45, weight: .bold))
-                        .foregroundStyle(done ? Color.white : habit.color.opacity(0.7))
-                }
+        let slipped = habit.snapshot.isSlip(habit.snapshot.today)
+        let tint = habit.tint
+        ZStack {
+            if done || slipped {
+                Circle().fill(tint.gradient)
+            } else {
+                Circle().fill(tint.color.opacity(0.16))
             }
+            if habit.isCounter, !done, habit.snapshot.amount(habit.snapshot.today) > 0 {
+                Circle()
+                    .trim(from: 0, to: habit.snapshot.fraction(habit.snapshot.today))
+                    .stroke(tint.gradient, style: StrokeStyle(lineWidth: size * 0.08, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(size * 0.06)
+                Text(Format.number(habit.snapshot.amount(habit.snapshot.today)))
+                    .font(.system(size: size * 0.36, weight: .bold, design: .rounded))
+                    .foregroundStyle(tint.color)
+                    .minimumScaleFactor(0.6)
+            } else {
+                Image(systemName: slipped ? "xmark" : "checkmark")
+                    .font(.system(size: size * 0.4, weight: .bold))
+                    .foregroundStyle(done || slipped ? tint.onColor : tint.color)
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
 
@@ -240,7 +250,7 @@ struct HabitGridWidgetView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 if family != .systemSmall {
-                    HabitIcon(symbol: habit.symbol, color: habit.color, size: 30)
+                    HabitIcon(symbol: habit.symbol, tint: habit.tint, size: 30)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(habit.name)
@@ -257,7 +267,7 @@ struct HabitGridWidgetView: View {
                 }
                 .buttonStyle(.plain)
             }
-            HeatmapGrid(snapshot: habit.snapshot, color: habit.color)
+            HeatmapGrid(snapshot: habit.snapshot, tint: habit.tint)
         }
     }
 
@@ -348,7 +358,9 @@ struct TodayWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: TodayEntry
 
-    private var tint: Color { Palette.color("indigo") }
+    private var accent: HabitColor {
+        Palette.entry(AppGroup.defaults.string(forKey: SettingsKey.accent) ?? Palette.defaultID)
+    }
 
     var body: some View {
         Group {
@@ -378,7 +390,7 @@ struct TodayWidgetView: View {
 
     private var ring: some View {
         ZStack {
-            ProgressRing(progress: entry.progress, color: tint, lineWidth: 10)
+            ProgressRing(progress: entry.progress, color: accent.color, endColor: accent.endColor, lineWidth: 10)
             VStack(spacing: 0) {
                 Text("\(entry.done)/\(entry.total)")
                     .font(.system(.title2, design: .rounded, weight: .bold))
@@ -403,7 +415,7 @@ struct TodayWidgetView: View {
                 HStack(spacing: 8) {
                     HabitGlyph(symbol: habit.symbol)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(habit.color)
+                        .foregroundStyle(habit.tint.gradient)
                         .frame(width: 18)
                     Text(habit.name)
                         .font(.caption.weight(.medium))

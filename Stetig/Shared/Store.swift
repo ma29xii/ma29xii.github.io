@@ -44,6 +44,7 @@ enum SettingsKey {
     static let appLock = "appLock"
     static let confetti = "confetti"
     static let sortMode = "sortMode"
+    static let accent = "accent"
     static let summaryEnabled = "summaryEnabled"
     static let summaryMinutes = "summaryMinutes"
 }

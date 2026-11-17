@@ -52,6 +52,7 @@ struct HabitsView: View {
     @AppStorage(SettingsKey.viewMode) private var viewModeRaw = ViewMode.grid.rawValue
     @AppStorage(SettingsKey.gridColumns) private var gridColumns = 26
     @AppStorage(SettingsKey.sortMode) private var sortModeRaw = SortMode.manual.rawValue
+    @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
 
     @State private var path: [Habit] = []
     @State private var selectedCategory: UUID?
@@ -65,6 +66,7 @@ struct HabitsView: View {
     private var mode: ViewMode { ViewMode(rawValue: viewModeRaw) ?? .grid }
 
     private var sortMode: SortMode { SortMode(rawValue: sortModeRaw) ?? .manual }
+    private var accent: HabitColor { Palette.entry(accentID) }
 
     private var filtered: [Habit] {
         let visible = habits.filter { habit in
@@ -113,7 +115,7 @@ struct HabitsView: View {
                 }
             }
             }
-            .background(Color(.systemGroupedBackground))
+            .ambientBackground()
             .overlay {
                 if habits.isEmpty {
                     emptyState
@@ -246,13 +248,13 @@ struct HabitsView: View {
                 Text(title)
                     .font(.subheadline.weight(.medium))
             }
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .foregroundStyle(isSelected ? accent.onColor : Color.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .glassEffect(
-            isSelected ? Glass.regular.tint(Color.accentColor).interactive() : Glass.regular.interactive(),
+            isSelected ? Glass.regular.tint(accent.color).interactive() : Glass.regular.interactive(),
             in: .capsule
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -296,31 +298,20 @@ struct HabitCard: View {
 
     var body: some View {
         let snapshot = habit.snapshot(weekStart: weekStart)
-        let color = Palette.color(habit.colorID)
-        let streak = snapshot.currentStreak
+        let tint = Palette.entry(habit.colorID)
 
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                HabitIcon(symbol: habit.symbol, color: color, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
+                HabitIcon(symbol: habit.symbol, tint: tint, size: 36)
+                VStack(alignment: .leading, spacing: 1) {
                     Text(habit.name)
-                        .font(.headline)
+                        .font(.body.weight(.semibold))
                         .lineLimit(1)
-                    HStack(spacing: 6) {
-                        if habit.isPaused {
-                            Label("Pausiert", systemImage: "pause.fill")
-                        } else {
-                            if streak > 0 {
-                                Label("\(streak) \(snapshot.streakUnit(streak))", systemImage: "flame.fill")
-                                    .foregroundStyle(color)
-                            }
-                            Text(subtitle(snapshot))
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
+                    Text(status(snapshot))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.numericText())
                 }
                 Spacer(minLength: 8)
                 CompleteButton(habit: habit, snapshot: snapshot, day: snapshot.today)
@@ -328,27 +319,36 @@ struct HabitCard: View {
 
             switch mode {
             case .grid:
-                HeatmapGrid(snapshot: snapshot, color: color, columns: columns)
+                HeatmapGrid(snapshot: snapshot, tint: tint, columns: columns)
             case .week:
                 WeekStrip(habit: habit, snapshot: snapshot)
             case .compact:
                 EmptyView()
             }
         }
-        .card(padding: 14)
-        .opacity(habit.isPaused ? 0.6 : 1)
+        .card(padding: 16)
+        .opacity(habit.isPaused ? 0.55 : 1)
     }
 
-    private func subtitle(_ snapshot: HabitSnapshot) -> String {
+    /// Genau eine Statuszeile pro Karte – das Wichtigste auf einen Blick.
+    private func status(_ snapshot: HabitSnapshot) -> String {
+        if habit.isPaused { return "Pausiert" }
+        let streak = snapshot.currentStreak
+        let streakText: String? = streak > 0 ? "\(streak) \(snapshot.streakUnit(streak)) in Serie" : nil
         if habit.isCounter {
-            return "\(Format.number(snapshot.amount(snapshot.today))) / \(Format.amount(habit.dailyTarget, unit: habit.unit))"
+            let progress = "\(Format.number(snapshot.amount(snapshot.today))) / \(Format.amount(habit.dailyTarget, unit: habit.unit))"
+            return [progress, streak > 0 ? "\(streak) \(snapshot.streakUnit(streak))" : nil].compactMap { $0 }.joined(separator: " · ")
         }
         if let progress = snapshot.periodProgress {
             let period = snapshot.effectiveFrequency == .perWeek ? "diese Woche" : "diesen Monat"
             return "\(progress.done)/\(progress.target) \(period)"
         }
-        return habit.details.isEmpty ? habit.goalDescription : habit.details
+        if habit.kind == .quit {
+            return "\(streak) \(snapshot.streakUnit(streak)) ohne"
+        }
+        return streakText ?? (habit.details.isEmpty ? habit.goalDescription : habit.details)
     }
+
 }
 
 // MARK: - Reihenfolge
@@ -364,7 +364,7 @@ struct ReorderView: View {
             List {
                 ForEach(habits) { habit in
                     HStack(spacing: 12) {
-                        HabitIcon(symbol: habit.symbol, color: Palette.color(habit.colorID), size: 32)
+                        HabitIcon(symbol: habit.symbol, colorID: habit.colorID, size: 32)
                         Text(habit.name)
                     }
                 }
