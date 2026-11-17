@@ -89,6 +89,7 @@ struct HabitsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(filtered) { habit in
@@ -103,6 +104,14 @@ struct HabitsView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
+            }
+            .onChange(of: habits.count) { old, new in
+                // Neu angelegte Gewohnheit sichtbar machen.
+                guard new > old, let newest = habits.max(by: { $0.createdAt < $1.createdAt }) else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation(.snappy) { proxy.scrollTo(newest.id, anchor: .center) }
+                }
+            }
             }
             .background(Color(.systemGroupedBackground))
             .overlay {

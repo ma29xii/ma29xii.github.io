@@ -372,19 +372,25 @@ struct MonthCalendar: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.glass)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
+            HStack(spacing: 5) {
                 ForEach(0..<7, id: \.self) { index in
                     Text(Day.weekdaySymbolsShort[(index + weekStart) % 7])
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
                 }
-                ForEach(0..<leading, id: \.self) { index in
-                    Color.clear
-                        .frame(height: 38)
-                        .id("blank-\(index)")
-                }
-                ForEach(0..<count, id: \.self) { index in
-                    dayCell(month.adding(index), color: color, hasNote: noteDays.contains(month.adding(index).key))
+            }
+
+            // Leerfelder bekommen negative IDs, Tage ihre Tagesnummer – so sind alle IDs eindeutig.
+            let cells: [Int] = Array(-leading..<0) + (0..<count).map { month.adding($0).ordinal }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
+                ForEach(cells, id: \.self) { cell in
+                    if cell < 0 {
+                        Color.clear.frame(height: 38)
+                    } else {
+                        let day = Day(ordinal: cell)
+                        dayCell(day, color: color, hasNote: noteDays.contains(day.key))
+                    }
                 }
             }
 

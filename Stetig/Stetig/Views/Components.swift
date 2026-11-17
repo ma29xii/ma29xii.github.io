@@ -77,6 +77,8 @@ struct CompleteButton: View {
             return isDone ? .success : .impact(weight: .light)
         }
         .accessibilityLabel(done ? "\(habit.name): erledigt" : "\(habit.name) abhaken")
+        .accessibilityRemoveTraits(done ? [] : .isSelected)
+        .accessibilityAddTraits(done ? .isSelected : [])
         .accessibilityIdentifier("complete-\(habit.name)")
     }
 }

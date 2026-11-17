@@ -44,6 +44,21 @@ final class StetigUITests: XCTestCase {
         button.tap()
     }
 
+    /// Schließt die einmalige Tastatur-Einführung des Simulators, falls sie erscheint.
+    private func dismissKeyboardTutorial() {
+        let button = app.buttons["Continue"]
+        if button.waitForExistence(timeout: 2) {
+            button.tap()
+        }
+    }
+
+    private var currentMonthName: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "LLLL"
+        return formatter.string(from: Date())
+    }
+
     private func goBack() {
         let back = app.navigationBars.buttons.element(boundBy: 0)
         if back.waitForExistence(timeout: 5) {
@@ -70,6 +85,8 @@ final class StetigUITests: XCTestCase {
         waitFor("Verlauf")
         shot("03-Detail")
         app.swipeUp()
+        // Der Monatskalender muss beim 1. beginnen (früher fehlten Tage durch doppelte IDs).
+        waitFor("1. \(currentMonthName)")
         shot("04-Detail-Kalender")
         app.swipeUp()
         shot("05-Detail-Diagramme")
@@ -83,6 +100,7 @@ final class StetigUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         name.tap()
         name.typeText("Gitarre üben")
+        dismissKeyboardTutorial()
         shot("06-Editor")
 
         // Symbolauswahl
@@ -96,7 +114,21 @@ final class StetigUITests: XCTestCase {
         }
 
         app.buttons["save-habit"].tap()
+        // Die Liste scrollt automatisch zur neuen Karte.
         waitFor("Gitarre üben")
+        shot("06c-Neu-angelegt")
+
+        // Suche
+        let search = app.searchFields.firstMatch
+        if search.waitForExistence(timeout: 5) {
+            search.tap()
+            search.typeText("Gitarre")
+            waitFor("Gitarre üben")
+            XCTAssertFalse(element("Wasser trinken").exists, "Suche filtert nicht")
+            shot("06d-Suche")
+            let cancel = app.buttons["Abbrechen"]
+            if cancel.exists { cancel.tap() }
+        }
 
         // Heute
         openTab("Heute")
