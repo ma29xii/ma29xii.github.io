@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @AppStorage(SettingsKey.appearance) private var appearance = 0
     @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
+    @AppStorage(SettingsKey.chipColor, store: AppGroup.defaults) private var chipColorID = ""
     @AppStorage(SettingsKey.weekStart, store: AppGroup.defaults) private var weekStart = 0
     @AppStorage(SettingsKey.haptics) private var haptics = true
     @AppStorage(SettingsKey.confetti) private var confetti = true
@@ -29,10 +30,51 @@ struct SettingsView: View {
     @State private var confirmDemo = false
     @State private var message: String?
 
+    private var appearanceSection: some View {
+        Section("Darstellung") {
+            Picker("Erscheinungsbild", selection: $appearance) {
+                Text("System").tag(0)
+                Text("Hell").tag(1)
+                Text("Dunkel").tag(2)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Akzentfarbe", value: Palette.entry(accentID).name)
+                ColorGrid(selection: $accentID)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Kategorien in Akzentfarbe", isOn: chipFollowsAccent.animation(.snappy))
+                ChipPreview(tint: Palette.entry(chipColorID.isEmpty ? accentID : chipColorID))
+                if !chipColorID.isEmpty {
+                    LabeledContent("Farbe der Kategorien", value: Palette.entry(chipColorID).name)
+                    ColorGrid(selection: $chipColorID)
+                }
+            }
+            Picker("Wochenbeginn", selection: $weekStart) {
+                Text("Montag").tag(0)
+                Text("Sonntag").tag(6)
+            }
+            Toggle("Haptisches Feedback", isOn: $haptics)
+            Toggle("Konfetti, wenn alles erledigt ist", isOn: $confetti)
+        }
+    }
+
+    /// An: Kategorien folgen der Akzentfarbe. Aus: eigene Farbe, zuerst „Mono“ (weiß im Dunkelmodus).
+    private var chipFollowsAccent: Binding<Bool> {
+        Binding(
+            get: { chipColorID.isEmpty },
+            set: { chipColorID = $0 ? "" : "mono" }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    NavigationLink {
+                        SiriSetupView()
+                    } label: {
+                        Label("Siri-Kurzbefehle", systemImage: "mic.fill")
+                    }
                     NavigationLink {
                         WidgetsSiriView()
                     } label: {
@@ -40,23 +82,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Darstellung") {
-                    Picker("Erscheinungsbild", selection: $appearance) {
-                        Text("System").tag(0)
-                        Text("Hell").tag(1)
-                        Text("Dunkel").tag(2)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        LabeledContent("Akzentfarbe", value: Palette.entry(accentID).name)
-                        ColorGrid(selection: $accentID)
-                    }
-                    Picker("Wochenbeginn", selection: $weekStart) {
-                        Text("Montag").tag(0)
-                        Text("Sonntag").tag(6)
-                    }
-                    Toggle("Haptisches Feedback", isOn: $haptics)
-                    Toggle("Konfetti, wenn alles erledigt ist", isOn: $confetti)
-                }
+                appearanceSection
 
                 Section("Organisation") {
                     NavigationLink {
@@ -174,6 +200,9 @@ struct SettingsView: View {
             }
             .onChange(of: accentID) { _, _ in
                 WidgetCenter.shared.reloadAllTimelines()
+            }
+            .onChange(of: appLock) { _, _ in
+                Reminders.registerCategories()
             }
             .onChange(of: summaryEnabled) { _, enabled in
                 Task {
@@ -445,5 +474,30 @@ struct TipsView: View {
         }
         .navigationTitle("Tipps & Gesten")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Vorschau der Kategorie-Leiste mit der gewählten Farbe.
+private struct ChipPreview: View {
+    let tint: HabitColor
+
+    var body: some View {
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                chip("Alle", selected: true)
+                chip("Gesundheit", selected: false)
+                chip("Fitness", selected: false)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func chip(_ title: String, selected: Bool) -> some View {
+        Text(title)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(selected ? tint.onColor : Color.primary)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .glassEffect(selected ? Glass.regular.tint(tint.color) : Glass.regular, in: .capsule)
     }
 }

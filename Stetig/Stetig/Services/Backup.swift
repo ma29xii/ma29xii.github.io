@@ -194,16 +194,16 @@ enum Backup {
             habit.isArchived = item.isArchived
             habit.kindRaw = HabitKind(rawValue: item.kind)?.rawValue ?? HabitKind.build.rawValue
             habit.frequencyRaw = HabitFrequency(rawValue: item.frequency)?.rawValue ?? HabitFrequency.daily.rawValue
-            habit.weekdayMask = item.weekdayMask
-            habit.timesPerPeriod = item.timesPerPeriod
-            habit.dailyTarget = item.dailyTarget
+            habit.weekdayMask = item.weekdayMask & 0x7F
+            habit.timesPerPeriod = min(max(item.timesPerPeriod, 0), 31)
+            habit.dailyTarget = Sanitize.amount(item.dailyTarget, max: 100_000)
             habit.unit = item.unit
-            habit.step = item.step
+            habit.step = item.step.isFinite && item.step >= 0 ? min(item.step, 10_000) : 1
             habit.reminderEnabled = item.reminderEnabled
-            habit.reminderMinutes = item.reminderMinutes
-            habit.startDay = item.startDay
-            habit.endDay = item.endDay
-            habit.pausedSinceDay = item.pausedSinceDay
+            habit.reminderMinutes = Sanitize.minutes(item.reminderMinutes)
+            habit.startDay = Sanitize.optionalDayKey(item.startDay)
+            habit.endDay = Sanitize.optionalDayKey(item.endDay)
+            habit.pausedSinceDay = Sanitize.optionalDayKey(item.pausedSinceDay)
             habit.category = item.categoryUUID.flatMap { categories[$0] }
 
             var existingEntries: [Int: HabitEntry] = [:]
@@ -211,15 +211,17 @@ enum Backup {
                 existingEntries[entry.day] = entry
             }
             for item in item.entries {
+                // Ungültige Tage (z. B. Jahr 1 oder 31. Februar) überspringen.
+                guard let key = Sanitize.dayKey(item.day) else { continue }
                 let entry: HabitEntry
-                if let existing = existingEntries[item.day] {
+                if let existing = existingEntries[key] {
                     entry = existing
                 } else {
-                    entry = HabitEntry(day: item.day)
+                    entry = HabitEntry(day: key)
                     habit.entries.append(entry)
-                    existingEntries[item.day] = entry
+                    existingEntries[key] = entry
                 }
-                entry.amount = item.amount
+                entry.amount = Sanitize.amount(item.amount)
                 entry.skipped = item.skipped
                 entry.note = item.note
                 entry.updatedAt = Date()

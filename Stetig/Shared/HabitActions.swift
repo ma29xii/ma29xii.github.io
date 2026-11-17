@@ -82,7 +82,8 @@ extension Habit {
             pausedSinceDay = today.key
         } else {
             guard isPaused else { return }
-            var day = Day(key: pausedSinceDay)
+            // Höchstens ein Jahr nachtragen – schützt vor kaputten Werten aus Backups.
+            var day = max(Day(key: Sanitize.optionalDayKey(pausedSinceDay)), today.adding(-366))
             while day < today {
                 let entry = ensureEntry(on: day)
                 if entry.amount <= 0 { entry.skipped = true }

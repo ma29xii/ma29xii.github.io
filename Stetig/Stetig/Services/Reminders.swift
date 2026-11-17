@@ -8,7 +8,9 @@ enum Reminders {
     static let doneActionID = "HABIT_DONE"
 
     static func registerCategories() {
-        let done = UNNotificationAction(identifier: doneActionID, title: "Erledigt", options: [])
+        // Mit App-Sperre braucht „Erledigt“ auf dem Sperrbildschirm Face ID.
+        let locked = UserDefaults.standard.bool(forKey: SettingsKey.appLock)
+        let done = UNNotificationAction(identifier: doneActionID, title: "Erledigt", options: locked ? [.authenticationRequired] : [])
         let category = UNNotificationCategory(identifier: categoryID, actions: [done], intentIdentifiers: [], options: [])
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
@@ -49,8 +51,9 @@ enum Reminders {
 
         for weekday in reminderWeekdays(for: habit) {
             var components = DateComponents()
-            components.hour = habit.reminderMinutes / 60
-            components.minute = habit.reminderMinutes % 60
+            let minutes = Sanitize.minutes(habit.reminderMinutes)
+            components.hour = minutes / 60
+            components.minute = minutes % 60
             // Apple: 1 = Sonntag … 7 = Samstag.
             components.weekday = (weekday + 1) % 7 + 1
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)

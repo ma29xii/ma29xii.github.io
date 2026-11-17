@@ -120,6 +120,9 @@ extension Habit {
             records[day.ordinal] = DayRecord(amount: entry.amount, skipped: entry.skipped)
             if isBuild, entry.amount > 0, day < first { first = day }
         }
+        // Schutz vor kaputten Daten (z. B. Jahr 1 aus einem Backup): sonst würden
+        // Serien über Hunderttausende Tage berechnet.
+        first = max(first, Sanitize.earliestDay)
         let rule = HabitRule(
             kind: kind,
             frequency: frequency,
@@ -158,10 +161,39 @@ extension Habit {
     }
 }
 
+/// Grenzen für Werte, die von außen kommen (Backup-Import, Kurzbefehle).
+enum Sanitize {
+    static let earliestDay = Day(year: 2000, month: 1, day: 1)
+    static let latestDay = Day(year: 2100, month: 12, day: 31)
+
+    /// Ein gültiger Tag als `yyyymmdd`, sonst `nil`.
+    static func dayKey(_ key: Int) -> Int? {
+        let month = (key / 100) % 100
+        let day = key % 100
+        guard key >= earliestDay.key, key <= latestDay.key, (1...12).contains(month), (1...31).contains(day) else { return nil }
+        return Day(key: key).key == key ? key : nil
+    }
+
+    /// Wie `dayKey`, aber 0 für „kein Tag“.
+    static func optionalDayKey(_ key: Int) -> Int {
+        key == 0 ? 0 : dayKey(key) ?? 0
+    }
+
+    static func amount(_ value: Double, max upper: Double = 1_000_000) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, 0), upper)
+    }
+
+    static func minutes(_ value: Int) -> Int {
+        min(max(value, 0), 24 * 60 - 1)
+    }
+}
+
 enum Format {
     /// 1 → „1“, 1.5 → „1,5“.
     static func number(_ value: Double) -> String {
-        if value == value.rounded() {
+        guard value.isFinite else { return "–" }
+        if value == value.rounded(), abs(value) < 1e15 {
             return String(Int(value))
         }
         return String(format: "%.1f", value).replacingOccurrences(of: ".", with: ",")

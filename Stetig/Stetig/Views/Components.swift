@@ -44,28 +44,39 @@ struct AmbientBackground: View {
         let companion = Palette.companion(of: main)
         GeometryReader { geo in
             let w = geo.size.width
-            let h = geo.size.height
+            // Weiche Lichtflecken als Radialverläufe statt weichgezeichneter Kreise:
+            // gleiches Bild, aber ohne teuren Blur-Durchgang beim Scrollen.
             ZStack {
-                Circle()
-                    .fill(main.color)
-                    .frame(width: w * 1.15, height: w * 1.15)
-                    .position(x: w * 0.05, y: h * 0.04)
-                Circle()
-                    .fill(main.endColor)
-                    .frame(width: w * 0.95, height: w * 0.95)
-                    .position(x: w * 1.02, y: h * 0.4)
-                Circle()
-                    .fill(companion.color)
-                    .frame(width: w * 1.05, height: w * 1.05)
-                    .position(x: w * 0.15, y: h * 0.96)
+                glow(main.color, center: UnitPoint(x: 0.05, y: 0.04), radius: w * 0.575)
+                glow(main.endColor, center: UnitPoint(x: 1.02, y: 0.4), radius: w * 0.475)
+                glow(companion.color, center: UnitPoint(x: 0.15, y: 0.96), radius: w * 0.525)
             }
-            .blur(radius: 90)
             .opacity(scheme == .dark ? 0.36 : 0.22)
         }
         .background(scheme == .dark ? Color.black : Color(hex: 0xF3F3F7))
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Entspricht einem Kreis mit `radius`, der mit 90 pt weichgezeichnet wurde.
+    private func glow(_ color: Color, center: UnitPoint, radius: CGFloat) -> some View {
+        let soft: CGFloat = 90
+        let outer = radius + soft
+        return Rectangle().fill(
+            RadialGradient(
+                stops: [
+                    .init(color: color, location: 0),
+                    .init(color: color, location: max(0, radius - soft) / outer),
+                    .init(color: color.opacity(0.5), location: radius / outer),
+                    .init(color: color.opacity(0.12), location: (radius + soft * 0.5) / outer),
+                    .init(color: color.opacity(0), location: 1),
+                ],
+                center: center,
+                startRadius: 0,
+                endRadius: outer
+            )
+        )
     }
 }
 
@@ -265,7 +276,7 @@ struct ColorGrid: View {
     @Binding var selection: String
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 7), spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 5), spacing: 14) {
             ForEach(Palette.all) { item in
                 let isSelected = Palette.entry(selection).id == item.id
                 Button {
@@ -289,6 +300,8 @@ struct ColorGrid: View {
                                     .padding(-4)
                             }
                         }
+                        .frame(maxWidth: 40)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(item.name)

@@ -167,8 +167,16 @@ final class StetigUITests: XCTestCase {
         shot("10b-Widgets")
         app.swipeUp()
         app.swipeUp()
-        waitFor("Eigener Satz ohne „in Stetig“")
+        waitFor("Mit einem Tipp zu Siri")
         shot("10c-Siri")
+
+        // Apples „Zu Siri hinzufügen“-Blatt mit fertigem Satz (nur ansehen, nichts speichern).
+        let add = element("Lesen zu Siri hinzufügen")
+        if add.waitForExistence(timeout: 5) {
+            add.tap()
+            sleep(4)
+            shot("10d-Siri-Blatt")
+        }
     }
 
     func testDarkModeOverview() {
@@ -189,6 +197,20 @@ final class StetigUITests: XCTestCase {
         openTab("Einstellungen")
         waitFor("Akzentfarbe")
         shot("12c-Dunkel-Einstellungen")
+
+        // Eigene Farbe für die Kategorien: „Mono“ = weiß im Dunkelmodus.
+        let toggle = app.switches["Kategorien in Akzentfarbe"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "Schalter für Kategorienfarbe fehlt")
+        if !toggle.isHittable { app.swipeUp() }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        if !element("Farbe der Kategorien").waitForExistence(timeout: 3) {
+            toggle.switches.firstMatch.tap()
+        }
+        waitFor("Farbe der Kategorien")
+        shot("12d-Dunkel-Kategorienfarbe")
+        openTab("Gewohnheiten")
+        waitFor("Gesundheit")
+        shot("12e-Dunkel-Mono-Kategorien")
     }
 
     func testEmptyState() {

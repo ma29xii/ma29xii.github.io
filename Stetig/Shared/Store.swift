@@ -45,6 +45,8 @@ enum SettingsKey {
     static let confetti = "confetti"
     static let sortMode = "sortMode"
     static let accent = "accent"
+    /// Farbe der ausgewählten Kategorie oben in „Gewohnheiten“; leer = Akzentfarbe.
+    static let chipColor = "chipColor"
     static let summaryEnabled = "summaryEnabled"
     static let summaryMinutes = "summaryMinutes"
 }
@@ -58,6 +60,10 @@ enum Store {
 
     static let shared: ModelContainer = make(inMemory: usesInMemoryStore)
 
+    /// `true`, wenn die Datenbank nicht geöffnet werden konnte und die App nur
+    /// vorübergehend im Arbeitsspeicher läuft (die App zeigt dann einen Hinweis).
+    private(set) static var openFailed = false
+
     static func make(inMemory: Bool) -> ModelContainer {
         if !inMemory {
             do {
@@ -65,6 +71,7 @@ enum Store {
                 return try ModelContainer(for: schema, configurations: [configuration])
             } catch {
                 print("Stetig: Datenbank konnte nicht geöffnet werden – \(error)")
+                openFailed = true
             }
         }
         // Eigener Name je Container, damit sich flüchtige Speicher (Tests) nie Daten teilen.

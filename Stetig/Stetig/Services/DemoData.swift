@@ -15,6 +15,8 @@ enum DemoData {
 
     static func seedIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-seedDemo") else { return }
+        // Testläufe starten immer mit den Standardfarben.
+        AppGroup.defaults.removeObject(forKey: SettingsKey.chipColor)
         let context = ModelContext(Store.shared)
         guard Store.activeHabits(in: context).isEmpty else { return }
         insert(into: context)

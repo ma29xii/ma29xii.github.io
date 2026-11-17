@@ -1,21 +1,42 @@
 import SwiftUI
+import UIKit
 
 /// Eine Gewohnheitsfarbe ist ein Verlaufs-Duo: Farbe A geht in Farbe B über.
+/// Mit `darkStart`/`darkEnd` hat ein Duo im Dunkelmodus eigene Werte („Mono“:
+/// schwarz im hellen, weiß im dunklen Modus).
 struct HabitColor: Identifiable, Hashable {
     let id: String
     let name: String
     let start: UInt32
     let end: UInt32
+    var darkStart: UInt32?
+    var darkEnd: UInt32?
 
-    var color: Color { Color(hex: start) }
-    var endColor: Color { Color(hex: end) }
+    var isAdaptive: Bool { darkStart != nil }
+
+    var color: Color { Self.make(start, dark: darkStart) }
+    var endColor: Color { Self.make(end, dark: darkEnd ?? darkStart) }
 
     var gradient: LinearGradient {
         LinearGradient(colors: [color, endColor], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    /// Helle Duos bekommen dunkle Symbole, dunkle Duos weiße.
-    var isLight: Bool {
+    /// Helle Duos bekommen dunkle Symbole, dunkle Duos weiße (Werte des hellen Modus).
+    var isLight: Bool { Self.isLight(start, end) }
+
+    var onColor: Color {
+        guard let darkStart else { return isLight ? Self.darkInk : .white }
+        let lightIsLight = isLight
+        let darkIsLight = Self.isLight(darkStart, darkEnd ?? darkStart)
+        return Color(uiColor: UIColor { traits in
+            let light = traits.userInterfaceStyle == .dark ? darkIsLight : lightIsLight
+            return light ? UIColor(white: 0, alpha: 0.78) : .white
+        })
+    }
+
+    private static let darkInk = Color.black.opacity(0.78)
+
+    private static func isLight(_ start: UInt32, _ end: UInt32) -> Bool {
         func luminance(_ hex: UInt32) -> Double {
             let r = Double((hex >> 16) & 0xFF) / 255
             let g = Double((hex >> 8) & 0xFF) / 255
@@ -25,7 +46,12 @@ struct HabitColor: Identifiable, Hashable {
         return (luminance(start) + luminance(end)) / 2 > 0.66
     }
 
-    var onColor: Color { isLight ? Color.black.opacity(0.78) : .white }
+    private static func make(_ light: UInt32, dark: UInt32?) -> Color {
+        guard let dark else { return Color(hex: light) }
+        return Color(uiColor: UIColor { traits in
+            UIColor(hex: traits.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
 }
 
 enum Palette {
@@ -46,6 +72,7 @@ enum Palette {
         HabitColor(id: "flamingo", name: "Flamingo", start: 0xFF4FA3, end: 0xFF8A65),
         HabitColor(id: "candy", name: "Zuckerwatte", start: 0xF472B6, end: 0x8B8CFF),
         HabitColor(id: "graphite", name: "Graphit", start: 0x8E9AAF, end: 0x5C677D),
+        HabitColor(id: "mono", name: "Mono", start: 0x1C1C1E, end: 0x48484A, darkStart: 0xFFFFFF, darkEnd: 0xD8DCE4),
     ]
 
     static let defaultID = "iris"
@@ -66,9 +93,23 @@ enum Palette {
     static func color(_ id: String) -> Color { entry(id).color }
 
     /// Eine harmonische Begleitfarbe – liegt in der Palette ein Stück weiter.
+    /// „Mono“ bleibt neutral und bekommt Graphit.
     static func companion(of tint: HabitColor) -> HabitColor {
-        let index = all.firstIndex { $0.id == tint.id } ?? 0
-        return all[(index + 5) % all.count]
+        if tint.isAdaptive { return entry("graphite") }
+        let colorful = all.filter { !$0.isAdaptive }
+        let index = colorful.firstIndex { $0.id == tint.id } ?? 0
+        return colorful[(index + 5) % colorful.count]
+    }
+}
+
+extension UIColor {
+    convenience init(hex: UInt32) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 import AppIntents
+import Intents
 import SwiftData
 import SwiftUI
 
@@ -11,7 +12,6 @@ struct WidgetsSiriView: View {
         let data = WidgetLoader.habits(from: habits)
         let first = data.first ?? .sample
         let summary = TodaySummary(habits: data.isEmpty ? [.sample] : data)
-        let example = habits.first?.name ?? "Lesen"
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -49,7 +49,7 @@ struct WidgetsSiriView: View {
                 SectionHeader(title: "Siri", symbol: "mic.fill")
                     .padding(.top, 8)
 
-                SiriGuide(habitName: example)
+                SiriGuide(habits: habits.filter { !$0.isPaused })
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -62,32 +62,82 @@ struct WidgetsSiriView: View {
     }
 }
 
-/// Siri-Sätze für eine Gewohnheit plus Anleitung für einen eigenen Satz ohne App-Namen.
+/// Siri einrichten: eigene Sätze per Knopfdruck, dazu die Sätze, die sofort gehen.
 struct SiriGuide: View {
-    let habitName: String
+    let habits: [Habit]
 
     var body: some View {
+        let name = habits.first?.name ?? "Lesen"
         VStack(alignment: .leading, spacing: 16) {
+            VoiceShortcutsCard(habits: habits)
+
             VStack(alignment: .leading, spacing: 12) {
-                CardTitle("Sofort nutzbar", subtitle: "Diese Sätze kennt Siri direkt nach der Installation.")
-                Phrase(text: "Hey Siri, heute \(habitName) in Stetig gemacht")
-                Phrase(text: "Hey Siri, \(habitName) in Stetig erledigt")
-                Phrase(text: "Hey Siri, wie läuft \(habitName) in Stetig?")
+                CardTitle("Sofort nutzbar", subtitle: "Diese Sätze kennt Siri direkt nach der Installation – sie laufen im Hintergrund, auch ohne die App zu öffnen.")
+                Phrase(text: "Hey Siri, heute \(name) in Stetig gemacht")
+                Phrase(text: "Hey Siri, \(name) in Stetig erledigt")
+                Phrase(text: "Hey Siri, wie läuft \(name) in Stetig?")
                 Phrase(text: "Hey Siri, was ist heute in Stetig offen?")
             }
             .card(padding: 18)
 
-            StepsCard(title: "Eigener Satz ohne „in Stetig“", steps: [
-                "Unten auf „Kurzbefehle öffnen“ tippen.",
-                "Neuen Kurzbefehl mit „+“ anlegen und die Aktion „Gewohnheit erledigen“ von Stetig hinzufügen.",
-                "Als Gewohnheit „\(habitName)“ wählen.",
-                "Den Kurzbefehl „Heute \(habitName) gemacht“ nennen.",
-            ], footnote: "Danach reicht: „Hey Siri, heute \(habitName) gemacht.“ Siri antwortet mit deiner aktuellen Serie. Apple erlaubt Apps nur Sätze mit App-Namen – eigene Kurzbefehle sind der offizielle Weg für kürzere Sätze.")
+            Text("Eigene Abläufe – etwa mehrere Gewohnheiten auf einmal – baust du in der Kurzbefehle-App mit der Aktion „Gewohnheit erledigen“.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
 
             ShortcutsLink()
                 .shortcutsLinkStyle(.automatic)
                 .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// „Mit einem Tipp zu Siri“: pro Gewohnheit ein Knopf, der Apples Siri-Blatt mit
+/// fertig eingetragenem Satz öffnet.
+struct VoiceShortcutsCard: View {
+    let habits: [Habit]
+
+    @State private var existing: [String: INVoiceShortcut] = [:]
+    @State private var target: Target?
+
+    struct Target: Identifiable {
+        let id: String
+        let name: String
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            CardTitle("Mit einem Tipp zu Siri", subtitle: "Der Satz ist schon eingetragen – nur noch „Hinzufügen“ tippen. Danach reicht „Hey Siri, heute \(habits.first?.name ?? "Lesen") gemacht“. Stetig öffnet sich kurz und hakt ab.")
+            if habits.isEmpty {
+                Text("Lege zuerst eine Gewohnheit an.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(habits) { habit in
+                let id = habit.uuid.uuidString
+                VoiceShortcutRow(
+                    habitID: id,
+                    name: habit.name,
+                    symbol: habit.symbol,
+                    tint: Palette.entry(habit.colorID),
+                    existing: existing[id]
+                ) {
+                    target = Target(id: id, name: habit.name)
+                }
+            }
+        }
+        .card(padding: 18)
+        .task { existing = await VoiceShortcut.existing() }
+        .sheet(item: $target, onDismiss: refresh) { target in
+            VoiceShortcutSheet(habitID: target.id, name: target.name, existing: existing[target.id]) {
+                self.target = nil
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func refresh() {
+        Task { existing = await VoiceShortcut.existing() }
     }
 }
 
@@ -171,6 +221,25 @@ private struct WidgetFrame<Content: View>: View {
     }
 }
 
+/// Einstellungen › Siri-Kurzbefehle: alles zu Siri auf einer Seite.
+struct SiriSetupView: View {
+    @Query(filter: #Predicate<Habit> { !$0.isArchived }, sort: [SortDescriptor(\Habit.sortOrder), SortDescriptor(\Habit.createdAt)])
+    private var habits: [Habit]
+
+    var body: some View {
+        ScrollView {
+            SiriGuide(habits: habits.filter { !$0.isPaused })
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
+                .readableWidth()
+        }
+        .ambientBackground()
+        .navigationTitle("Siri-Kurzbefehle")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 /// Blatt aus der Detailseite: Siri für genau diese Gewohnheit.
 struct SiriHabitSheet: View {
     let habit: Habit
@@ -179,7 +248,7 @@ struct SiriHabitSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                SiriGuide(habitName: habit.name)
+                SiriGuide(habits: [habit])
                     .padding(16)
                     .readableWidth()
             }

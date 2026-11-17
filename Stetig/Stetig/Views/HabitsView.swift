@@ -53,6 +53,7 @@ struct HabitsView: View {
     @AppStorage(SettingsKey.gridColumns) private var gridColumns = 26
     @AppStorage(SettingsKey.sortMode) private var sortModeRaw = SortMode.manual.rawValue
     @AppStorage(SettingsKey.accent, store: AppGroup.defaults) private var accentID = Palette.defaultID
+    @AppStorage(SettingsKey.chipColor, store: AppGroup.defaults) private var chipColorID = ""
 
     @State private var path: [Habit] = []
     @State private var selectedCategory: UUID?
@@ -66,7 +67,8 @@ struct HabitsView: View {
     private var mode: ViewMode { ViewMode(rawValue: viewModeRaw) ?? .grid }
 
     private var sortMode: SortMode { SortMode(rawValue: sortModeRaw) ?? .manual }
-    private var accent: HabitColor { Palette.entry(accentID) }
+    /// Farbe der ausgewählten Kategorie – eigene Wahl oder die Akzentfarbe.
+    private var chipTint: HabitColor { Palette.entry(chipColorID.isEmpty ? accentID : chipColorID) }
 
     private var filtered: [Habit] {
         let visible = habits.filter { habit in
@@ -90,11 +92,13 @@ struct HabitsView: View {
     }
 
     var body: some View {
+        // Einmal pro Durchlauf filtern und sortieren (Sortierung nach Serie rechnet jede Gewohnheit durch).
+        let visible = filtered
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
-                    ForEach(filtered) { habit in
+                    ForEach(visible) { habit in
                         HabitCard(habit: habit, mode: mode, columns: gridColumns)
                             .matchedTransitionSource(id: habit.persistentModelID, in: zoom)
                             .contentShape(.rect(cornerRadius: 22))
@@ -119,7 +123,7 @@ struct HabitsView: View {
             .overlay {
                 if habits.isEmpty {
                     emptyState
-                } else if filtered.isEmpty {
+                } else if visible.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
@@ -248,13 +252,13 @@ struct HabitsView: View {
                 Text(title)
                     .font(.subheadline.weight(.medium))
             }
-            .foregroundStyle(isSelected ? accent.onColor : Color.primary)
+            .foregroundStyle(isSelected ? chipTint.onColor : Color.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .glassEffect(
-            isSelected ? Glass.regular.tint(accent.color).interactive() : Glass.regular.interactive(),
+            isSelected ? Glass.regular.tint(chipTint.color).interactive() : Glass.regular.interactive(),
             in: .capsule
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])

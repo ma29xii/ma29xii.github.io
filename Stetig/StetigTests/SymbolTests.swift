@@ -28,6 +28,7 @@ struct SymbolTests {
             "star.fill", "crown.fill", "medal.fill", "shield.fill", "bolt.fill", "figure.walk", "sun.max",
             "play.fill", "checkmark", "plus.circle.fill", "heart.fill", "brain.head.profile", "figure.run",
             "list.bullet", "lightbulb", "hand.tap", "hand.point.up.left", "nosign", "square.grid.2x2", "mic",
+            "mic.fill", "waveform", "lock.fill",
         ]
         for symbol in symbols {
             #expect(UIImage(systemName: symbol) != nil, "Symbol fehlt: \(symbol)")
@@ -54,7 +55,8 @@ struct SymbolTests {
     }
 
     @Test func paletteIsConsistent() {
-        #expect(Palette.all.count == 14)
+        #expect(Palette.all.count == 15)
+        #expect(Palette.all.filter(\.isAdaptive).map(\.id) == ["mono"])
         #expect(Set(Palette.all.map(\.id)).count == Palette.all.count)
         for group in HabitTemplates.groups {
             for template in group.templates {
