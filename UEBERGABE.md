@@ -53,7 +53,7 @@ Native iPhone-App (SwiftUI, iOS 26, Swift 6, echtes Liquid Glass, XcodeGen, kein
 - **Auf dem Mac lokal bauen:** `brew install xcodegen && cd forma-ios && xcodegen generate && open Forma.xcodeproj`, dann in Xcode das iPhone wählen und ausführen. Mit Apple-ID signieren, das ersetzt Sideloadly.
 
 ## 6. Offen / bekannte Punkte
-- [ ] **CI-Lauf 8** (Commit 370cc2d) lief beim Schreiben dieser Datei noch. Bei Lauf 7 wurde der IPA-Job ohne freien Mac-Runner abgebrochen. Falls das wieder passiert: in `forma-ios.yml` beim Job `screens` den Eintrag `needs: ipa` setzen (Jobs nacheinander).
+- [x] **CI-Lauf 8** (Commit 370cc2d) komplett grün: IPA und Screenshots. Bei Lauf 7 war der IPA-Job ohne freien Mac-Runner abgebrochen worden. Falls das wieder passiert: in `forma-ios.yml` beim Job `screens` den Eintrag `needs: ipa` setzen (Jobs nacheinander).
 - [ ] **Codex-Review 01** anstoßen (Prompt unten) und die Befunde umsetzen.
 - [ ] **Fitbit:** Client-ID in `forma-ios/Config.xcconfig` eintragen (Anleitung im README). Außerdem auf die Zeitraum-Endpunkte umbauen, wegen des Limits von etwa 150 Anfragen pro Stunde (aktuell 6 Anfragen pro Tag mit Zwischenspeicher).
 - [ ] **Test auf dem iPhone 18 Pro**, ob HealthKit mit kostenloser Apple-ID per Sideloadly funktioniert (nicht bestätigt).
