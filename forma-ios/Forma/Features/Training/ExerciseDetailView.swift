@@ -24,11 +24,8 @@ struct ExerciseDetailView: View {
         let current = tab ?? (pts.isEmpty ? .guide : .history)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("\(exercise.muscle) · \(exercise.equipment)")
-                    .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                ExerciseMuscleCard(name: exercise.name, group: exercise.muscle, equipment: exercise.equipment) { tappedMuscle = $0 }
                     .padding(.top, Space.s4)
-                ExerciseMuscleCard(name: exercise.name, group: exercise.muscle) { tappedMuscle = $0 }
-                    .padding(.top, Space.s3)
 
                 Picker("Inhalt", selection: Binding(get: { current }, set: { tab = $0 })) {
                     Text("Ausführung").tag(DetailTab.guide)
@@ -119,40 +116,31 @@ struct ExerciseDetailView: View {
 
 // MARK: - Bausteine
 
-/// Muskelkarte einer Übung mit Legende (Hauptmuskeln kräftig, mithelfende gedämpft).
+/// Muskelkarte einer Übung, frei auf dem Hintergrund. Darunter nur Typografie:
+/// Hauptmuskeln hell, Gerät und mithelfende Muskeln leise.
 struct ExerciseMuscleCard: View {
     let name: String
     let group: String
+    var equipment: String? = nil
     var onSelect: ((Muscle) -> Void)? = nil
 
     var body: some View {
         let muscles = ExerciseCatalog.muscles(for: name, group: group)
-        Plate {
+        let detail = ([equipment].compactMap { $0 } + (muscles.secondary.isEmpty ? [] : ["mit " + muscles.secondary.map(\.name).joined(separator: ", ")]))
+            .joined(separator: " · ")
+        VStack(spacing: Space.s2) {
             MuscleMapView(intensity: ExerciseCatalog.intensity(primary: muscles.primary, secondary: muscles.secondary), onSelect: onSelect)
-                .frame(height: 330)
-                .padding(.top, Space.s4)
-            VStack(alignment: .leading, spacing: 6) {
-                legendRow(level: 1, title: "Hauptmuskeln", muscles: muscles.primary)
-                if !muscles.secondary.isEmpty {
-                    legendRow(level: ExerciseCatalog.secondaryLevel, title: "Hilft mit", muscles: muscles.secondary)
-                }
-                if onSelect != nil {
-                    Text("Tipp auf einen Muskel für passende Übungen.").font(.formaCaption).foregroundStyle(Theme.textTertiary)
-                }
+                .frame(height: 380)
+            Text(muscles.primary.map(\.name).joined(separator: " · "))
+                .font(.formaRowTitle)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Space.s4)
         }
-    }
-
-    private func legendRow(level: Double, title: String, muscles: [Muscle]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-            Circle().fill(Theme.strain.opacity(0.22 + 0.78 * level)).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-            Text(muscles.map(\.name).joined(separator: ", ")).font(.formaCaption).foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -162,60 +150,64 @@ struct ExerciseGuideSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Die Bewegung steht frei, ohne Karte und ohne Überschrift – sie erklärt sich selbst.
             if let motion = info.motion {
-                FormaSection(title: "Bewegung") {
-                    Plate { ExerciseMotionView(motion: motion).padding(.vertical, Space.s2) }
-                }
+                ExerciseMotionView(motion: motion)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Space.s5)
             }
-            FormaSection(title: "Ausführung") {
+            FormaSection(title: "Schritte") {
                 Plate {
                     ForEach(Array(info.steps.enumerated()), id: \.offset) { i, step in
-                        if i > 0 { RowDivider(inset: 54) }
-                        HStack(alignment: .top, spacing: Space.s3) {
+                        if i > 0 { RowDivider(inset: 48) }
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
                             Text("\(i + 1)")
-                                .font(.formaMicro).monospacedDigit()
-                                .frame(width: 24, height: 24)
-                                .background(Circle().fill(Theme.cardRaised))
+                                .font(.formaValue)
+                                .foregroundStyle(Theme.textTertiary)
+                                .frame(width: 20, alignment: .leading)
                                 .accessibilityLabel("Schritt \(i + 1)")
                             Text(step).font(.formaBody).fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, Space.s4)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 14)
                         .accessibilityElement(children: .combine)
                     }
                 }
             }
-            FormaSection(title: "Häufige Fehler") {
+            FormaSection(title: "Typische Fehler") {
                 Plate {
                     ForEach(Array(info.mistakes.enumerated()), id: \.offset) { i, mistake in
-                        if i > 0 { RowDivider(inset: 54) }
-                        textRow(symbol: "xmark.circle", text: mistake)
+                        if i > 0 { RowDivider() }
+                        Text(mistake)
+                            .font(.formaBody)
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Space.s4)
+                            .padding(.vertical, 14)
                     }
                 }
             }
             FormaSection(title: "Atmung und Tempo") {
                 Plate {
-                    textRow(symbol: "wind", text: info.breathing)
-                    RowDivider(inset: 54)
-                    textRow(symbol: "metronome", text: info.tempo)
+                    labeledRow("Atmung", info.breathing)
+                    RowDivider()
+                    labeledRow("Tempo", info.tempo)
                 }
             }
         }
     }
 
-    private func textRow(symbol: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: Space.s3) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 24, height: 24)
-                .accessibilityHidden(true)
+    private func labeledRow(_ label: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.formaCaptionStrong).foregroundStyle(Theme.textTertiary)
             Text(text).font(.formaBody).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.s4)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -230,8 +222,8 @@ struct ExerciseGuideSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ExerciseMuscleCard(name: name, group: group) { tappedMuscle = $0 }
-                        .padding(.top, Space.s3)
+                    ExerciseMuscleCard(name: name, group: group, equipment: ExerciseCatalog.info(for: name)?.equipment) { tappedMuscle = $0 }
+                        .padding(.top, Space.s4)
                     if let info = ExerciseCatalog.info(for: name) {
                         ExerciseGuideSections(info: info)
                     } else {

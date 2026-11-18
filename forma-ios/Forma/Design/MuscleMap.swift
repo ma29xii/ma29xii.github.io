@@ -56,11 +56,24 @@ struct MuscleMapView: View {
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(FlipTransition()))
                 }
                 .frame(maxWidth: .infinity)
-                Picker("Ansicht", selection: $side.animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.5))) {
-                    ForEach(BodySide.allCases) { Text($0.title).tag($0) }
+                // Leiser Umschalter: zwei Wörter, das aktive hell. Kein zweites Segment-Steuerelement auf dem Bildschirm.
+                HStack(spacing: Space.s4) {
+                    ForEach(BodySide.allCases) { s in
+                        Button {
+                            withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.5)) { side = s }
+                        } label: {
+                            Text(s.title)
+                                .font(.formaLabel).tracking(Tracking.label).textCase(.uppercase)
+                                .foregroundStyle(side == s ? Theme.textPrimary : Theme.textTertiary)
+                                .frame(minWidth: 64, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Ansicht \(s.title.lowercased())")
+                        .accessibilityAddTraits(side == s ? .isSelected : [])
+                    }
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 200)
+                .sensoryFeedback(.selection, trigger: side)
             }
         }
     }
@@ -103,7 +116,7 @@ private struct MuscleFigure: View {
                     let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
                     shape
                         .fill(level > 0 ? tint.opacity(0.22 + 0.78 * level) : Color.white.opacity(0.07))
-                        .shadow(color: tint.opacity(level >= 0.9 ? 0.55 : 0), radius: 6)
+                        .shadow(color: tint.opacity(level >= 0.9 ? 0.35 : 0), radius: 8)
                         .overlay { if selected == m { shape.stroke(Theme.textPrimary, lineWidth: 1.5) } }
                         .animation(.smooth(duration: 0.4), value: level)
                         .animation(.smooth(duration: 0.25), value: selected)
