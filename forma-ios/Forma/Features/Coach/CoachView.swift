@@ -85,9 +85,11 @@ struct CoachView: View {
                         .buttonStyle(.glass)
                     } else {
                         HStack(spacing: Space.s2) {
-                            Button("Übernehmen") {
+                            Button {
                                 TrainingAdjustment.today = suggested
                                 adjustment = suggested
+                            } label: {
+                                Text("Übernehmen").fontWeight(.semibold).foregroundStyle(Theme.onSelection)
                             }
                             .buttonStyle(.glassProminent)
                             Button("Nein, danke") {
@@ -146,7 +148,7 @@ struct CoachView: View {
                     .submitLabel(.send)
                     .onSubmit { send(input) }
                 Button { send(input) } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).frame(width: 30, height: 30)
+                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 30, height: 30)
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)

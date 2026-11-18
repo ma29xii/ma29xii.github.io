@@ -72,6 +72,13 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Kurzform für Bereiche, z. B. 7:02 bei Schlafdauer.
+    func formattedShort(_ value: Double) -> String {
+        guard self == .sleepDuration else { return formatted(value) }
+        let minutes = Int((value * 60).rounded())
+        return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
+    }
+
     func formatted(_ value: Double) -> String {
         if self == .sleepDuration { return Format.duration(value * 3600) }
         return Format.number(value, decimals: decimals)
@@ -95,7 +102,7 @@ struct MetricSummaryRow: View {
         }()
         MetricRow(
             title: kind.title,
-            subtitle: (low != nil && high != nil) ? "Normal \(kind.formatted(low!))–\(kind.formatted(high!))\(kind.unit.isEmpty || kind == .sleepDuration ? "" : " " + kind.unit)" : "noch kein Normalwert",
+            subtitle: (low != nil && high != nil) ? "Normal \(kind.formattedShort(low!))–\(kind.formattedShort(high!))\(kind.unit.isEmpty ? "" : " " + kind.unit)" : "noch kein Normalwert",
             value: current.map { kind == .sleepDuration ? kind.formatted($0) : kind.formatted($0) },
             unit: kind == .sleepDuration ? nil : kind.unit,
             valueColor: outside ? Theme.warning : Theme.textPrimary,

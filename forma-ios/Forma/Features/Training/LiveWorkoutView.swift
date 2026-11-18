@@ -164,7 +164,7 @@ struct LiveWorkoutView: View {
                 HStack(spacing: Space.s2) {
                     Button { workout.extendRest(by: 15) } label: { Text("+15 s").frame(maxWidth: .infinity) }
                         .buttonStyle(.glass)
-                    Button { workout.skipRest() } label: { Text("Weiter").frame(maxWidth: .infinity) }
+                    Button { workout.skipRest() } label: { Text("Weiter").fontWeight(.semibold).foregroundStyle(Theme.onSelection).frame(maxWidth: .infinity) }
                         .buttonStyle(.glassProminent)
                 }
                 .controlSize(.large)
