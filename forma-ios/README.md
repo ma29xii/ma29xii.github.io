@@ -24,6 +24,18 @@ Die IPA ist nicht mit einem Zertifikat signiert. Sie trägt nur eine Ad-hoc-Sign
 
 Ein Client-Secret wird nicht gebraucht, die App nutzt PKCE. Google stellt Fitbit schrittweise auf Google-Konten und die Google Health API um. Ob und wann die Fitbit Web API abgeschaltet wird, kann ich nicht bestätigen.
 
+## Synchronisierung im Hintergrund
+
+Forma synchronisiert, ohne dass die App offen sein muss:
+
+1. **Apple-Health-Hintergrundzustellung** (`HKObserverQuery` + `enableBackgroundDelivery`): Schlaf, HRV, Ruhepuls und Trainings sofort, Schritte und Energie höchstens stündlich. Dafür braucht die App das Entitlement `com.apple.developer.healthkit.background-delivery`. Ob eine kostenlose Apple-ID per Sideloadly dieses Entitlement mitsignieren kann, kann ich nicht bestätigen. Falls die Installation daran scheitert, diese zwei Zeilen aus `Forma/Resources/Forma.entitlements` entfernen. Dann bleibt der normale Hintergrundabruf.
+2. **Hintergrundabruf von iOS** (`BGAppRefreshTask`, etwa alle 1–4 Stunden, iOS entscheidet selbst).
+3. **Zwischenspeicher** (`SyncStore`): Die App startet mit dem letzten Stand. Ein leerer Abruf, etwa bei gesperrtem iPhone, überschreibt nie vorhandene Daten, und nachgereichte Werte werden ergänzt.
+
+Bei gesperrtem iPhone gibt Apple Health keine Daten heraus. Forma holt sie beim nächsten Wecken nach. Den Stand siehst du auf „Heute“ („Stand 06:12“) und im Profil (letzter Import, letzter Hintergrundabruf, „Jetzt synchronisieren“).
+
+**Coach im Hintergrund:** Sobald deine Nacht da ist, kommt ein Morgenbericht als Mitteilung. Abends erinnert der Coach 30 Minuten vor der empfohlenen Bettzeit. Beides lässt sich im Profil abschalten und läuft komplett lokal. Der Chat antwortet immer lokal. Mit Claude-Schlüssel und Zustimmung gibt es freie Antworten, mit 30 s Zeitlimit, einer Wiederholung und Rückfall auf die lokale Antwort.
+
 ## Datenquellen
 
 - **Apple Health:** HRV, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, SpO₂, Trainings (nur lesen)

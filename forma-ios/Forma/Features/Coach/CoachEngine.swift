@@ -149,12 +149,27 @@ enum ClaudeClient {
         let messages: [[String: String]] = history.suffix(12).map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.text] }
         let body: [String: Any] = ["model": model, "max_tokens": 400, "system": system, "messages": messages]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-            throw NSError(domain: "Forma.Claude", code: status, userInfo: [NSLocalizedDescriptionKey: "Claude antwortet mit Fehler \(status)."])
+        request.timeoutInterval = 30
+        // Einmal erneut versuchen bei Überlastung, Serverfehler oder Zeitüberschreitung.
+        var lastError: Error = NSError(domain: "Forma.Claude", code: 0)
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 200 {
+                    let decoded = try JSONDecoder().decode(Response.self, from: data)
+                    let text = decoded.content.compactMap(\.text).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { throw NSError(domain: "Forma.Claude", code: 204) }
+                    return String(text.prefix(4000))
+                }
+                lastError = NSError(domain: "Forma.Claude", code: status, userInfo: [NSLocalizedDescriptionKey: "Claude antwortet mit Fehler \(status)."])
+                guard status == 429 || status >= 500, attempt == 0 else { throw lastError }
+            } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+                lastError = error
+                guard attempt == 0 else { throw error }
+            }
+            try await Task.sleep(for: .seconds(2))
         }
-        let decoded = try JSONDecoder().decode(Response.self, from: data)
-        return decoded.content.compactMap(\.text).joined(separator: "\n")
+        throw lastError
     }
 }

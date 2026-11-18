@@ -411,3 +411,60 @@ final class LiveWorkoutRegressionTests: XCTestCase {
         XCTAssertEqual(w.exercises[0].sets[1].weight, 102.5)
     }
 }
+
+/// Zuverlässigkeit der Synchronisierung: nie Daten verlieren.
+final class SyncReliabilityTests: XCTestCase {
+    private let today = Calendar.forma.date(from: DateComponents(year: 2026, month: 11, day: 18))!
+
+    private func day(_ offset: Int, hrv: Double? = nil, steps: Double? = nil) -> DayMetrics {
+        var d = DayMetrics(date: today.adding(days: offset))
+        d.hrv = hrv; d.steps = steps
+        return d
+    }
+
+    func testEmptyFetchDoesNotOverwriteData() {
+        let old = [day(-2, hrv: 50), day(-1, hrv: 52), day(0, hrv: 55)]
+        let empty = [day(-2), day(-1), day(0)]
+        XCTAssertEqual(SyncStore.merge(old: old, new: empty, today: today), .rejectedEmpty)
+    }
+
+    func testOlderDaysKeepValuesMissingInNewFetch() {
+        let old = [day(-5, hrv: 50, steps: 8000), day(0, hrv: 55)]
+        let new = [day(-5, steps: 8100), day(0, hrv: 57)]
+        guard case .merged(let merged) = SyncStore.merge(old: old, new: new, today: today, keepDays: 10) else { return XCTFail() }
+        let d5 = merged.first { $0.date == today.adding(days: -5) }
+        XCTAssertEqual(d5?.hrv, 50, "alter Wert bleibt")
+        XCTAssertEqual(d5?.steps, 8100, "neuer Wert gewinnt")
+        XCTAssertEqual(merged.last?.hrv, 57, "heute zählt der neue Abruf")
+    }
+
+    func testMergeProducesContinuousDays() {
+        guard case .merged(let merged) = SyncStore.merge(old: [], new: [day(0, hrv: 50)], today: today, keepDays: 30) else { return XCTFail() }
+        XCTAssertEqual(merged.count, 30)
+        for (a, b) in zip(merged, merged.dropFirst()) {
+            XCTAssertEqual(Calendar.forma.dateComponents([.day], from: a.date, to: b.date).day, 1)
+        }
+        XCTAssertEqual(merged.last?.date, today)
+    }
+
+    func testFirstFetchWithoutOldDataIsAccepted() {
+        guard case .merged = SyncStore.merge(old: [], new: [day(0)], today: today) else { return XCTFail("leer, aber ohne alten Stand → übernehmen") }
+    }
+
+    func testSnapshotCodableRoundTrip() throws {
+        let days = SampleData.days(count: 30)
+        let snap = SyncStore.Snapshot(days: days, updated: today, source: "health")
+        let decoded = try JSONDecoder().decode(SyncStore.Snapshot.self, from: JSONEncoder().encode(snap))
+        XCTAssertEqual(decoded.days, days)
+    }
+
+    func testBedtimeIsPlausible() {
+        let now = Calendar.forma.date(from: DateComponents(year: 2026, month: 11, day: 18, hour: 12))!
+        let bed = CoachNotifier.bedtimeDate(sleepNeed: 8 * 3600, now: now)
+        let c = Calendar.forma.dateComponents([.hour, .minute], from: bed!)
+        XCTAssertEqual(c.hour, 22)
+        XCTAssertEqual(c.minute, 45)
+        XCTAssertNil(CoachNotifier.bedtimeDate(sleepNeed: .nan, now: now))
+        XCTAssertNil(CoachNotifier.bedtimeDate(sleepNeed: 20 * 3600, now: now))
+    }
+}

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Messwerte eines Tages, unabhängig von der Quelle.
-struct DayMetrics: Equatable, Sendable, Identifiable {
+struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
     var date: Date                 // Tagesbeginn
     var hrv: Double? = nil         // ms (SDNN bei Apple, RMSSD bei Fitbit)
     var restingHR: Double? = nil   // bpm
@@ -41,8 +41,8 @@ struct DayMetrics: Equatable, Sendable, Identifiable {
     }
 }
 
-struct SleepNight: Equatable, Sendable {
-    enum Stage: String, Sendable, CaseIterable {
+struct SleepNight: Equatable, Sendable, Codable {
+    enum Stage: String, Sendable, CaseIterable, Codable {
         case awake, rem, core, deep
         var title: String {
             switch self {
@@ -63,7 +63,7 @@ struct SleepNight: Equatable, Sendable {
         }
     }
 
-    struct Segment: Equatable, Sendable, Identifiable {
+    struct Segment: Equatable, Sendable, Identifiable, Codable {
         var stage: Stage
         var start: Date
         var end: Date
@@ -133,7 +133,7 @@ struct SleepNight: Equatable, Sendable {
     }
 }
 
-struct WorkoutSummary: Equatable, Sendable, Identifiable {
+struct WorkoutSummary: Equatable, Sendable, Identifiable, Codable {
     var id: UUID = UUID()
     var name: String
     var start: Date

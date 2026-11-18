@@ -1,13 +1,15 @@
 import SwiftUI
 import SwiftData
+import BackgroundTasks
 
 @main
 struct FormaApp: App {
-    static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
+    nonisolated static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
     @State private var hub = DataHub()
     @State private var app = AppState()
 
     var body: some Scene {
+        let backgroundHub = hub
         WindowGroup {
             RootView()
                 .environment(hub)
@@ -17,6 +19,11 @@ struct FormaApp: App {
         }
         .modelContainer(for: [Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self],
                         inMemory: FormaApp.isUITest)
+        // iOS weckt Forma regelmäßig im Hintergrund (zusätzlich zu Apple-Health-Benachrichtigungen).
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            await backgroundHub.backgroundRefresh()
+            await BackgroundRefresh.schedule()
+        }
     }
 }
 
@@ -77,7 +84,23 @@ struct RootView: View {
             })
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .background { BackgroundRefresh.schedule() }
             if phase == .active { Task { await hub.refresh() } }
         }
+    }
+}
+
+/// Planung des Hintergrundabrufs. iOS entscheidet selbst, wann genau (meist alle 1–4 Stunden,
+/// abhängig von Nutzung und Akku). Zusammen mit der Apple-Health-Zustellung ergibt das einen
+/// zuverlässigen Sync, ohne dass die App offen sein muss.
+@MainActor
+enum BackgroundRefresh {
+    static let identifier = "com.ma29xii.forma.refresh"
+
+    static func schedule(earliest: TimeInterval = 45 * 60) {
+        guard !FormaApp.isUITest else { return }
+        let request = BGAppRefreshTaskRequest(identifier: identifier)
+        request.earliestBeginDate = Date.now.addingTimeInterval(earliest)
+        try? BGTaskScheduler.shared.submit(request)
     }
 }

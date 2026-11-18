@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Sammelt Daten aus der gewählten Quelle und berechnet die Tageswerte.
 @MainActor
@@ -38,9 +39,21 @@ final class DataHub {
     private var fitbitCache: [Date: DayMetrics] = [:]
     private(set) var activeSource: DataSourceKind = .sample
     private(set) var isLoading = false
-    private(set) var lastUpdate: Date?
+    /// Letzter erfolgreicher Import (überlebt Neustarts).
+    private(set) var lastUpdate: Date? = UserDefaults.standard.object(forKey: "forma.lastUpdate") as? Date {
+        didSet { UserDefaults.standard.set(lastUpdate, forKey: "forma.lastUpdate") }
+    }
+    /// Letzter Abruf, den iOS im Hintergrund ausgelöst hat.
+    private(set) var lastBackgroundSync: Date? = UserDefaults.standard.object(forKey: "forma.lastBackgroundSync") as? Date {
+        didSet { UserDefaults.standard.set(lastBackgroundSync, forKey: "forma.lastBackgroundSync") }
+    }
+    /// Kam während eines Abrufs ein neuer Anstoß, wird danach noch einmal geladen (nichts geht verloren).
+    private var refreshPending = false
+    private var debounce: Task<Void, Never>?
     private(set) var healthAuthorized = UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
     var lastError: String?
+    /// Kurzer Hinweis zum Sync-Zustand (gesperrt, letzter Stand …), wird im Profil gezeigt.
+    private(set) var syncNote: String?
 
     /// Manuelle Angaben aus dem Profil haben Vorrang, dann Apple Health, bei Beispieldaten eine Annahme.
     var person: PersonInfo {
@@ -76,8 +89,49 @@ final class DataHub {
         if ProcessInfo.processInfo.arguments.contains("-uitest") { source = .sample }
         preferredSource = source
         let expectsRealData = source != .sample && UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
-        longDays = expectsRealData ? [] : SampleData.days()
-        hasLoaded = !expectsRealData
+        if expectsRealData, let cached = SyncStore.load() {
+            // Sofort mit dem letzten Stand starten, auch offline oder wenn Health gerade gesperrt ist.
+            longDays = cached.days
+            activeSource = .health
+            hasLoaded = true
+        } else {
+            longDays = expectsRealData ? [] : SampleData.days()
+            hasLoaded = !expectsRealData
+        }
+        if expectsRealData && !FormaApp.isUITest { startBackgroundSync() }
+    }
+
+    // MARK: Hintergrund
+
+    /// Startet die Apple-Health-Beobachter. Wird bei jedem App-Start aufgerufen,
+    /// auch wenn iOS die App nur im Hintergrund für neue Daten weckt.
+    func startBackgroundSync() {
+        Task { [health] in
+            await health.startObserving { [weak self] in
+                await self?.scheduleRefresh(background: true)
+            }
+        }
+    }
+
+    /// Mehrere Anstöße kurz hintereinander (z. B. Schlaf + HRV nach dem Aufwachen) werden gebündelt.
+    func scheduleRefresh(background: Bool) async {
+        debounce?.cancel()
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await refresh()
+            if background { lastBackgroundSync = .now }
+            CoachNotifier.afterSync(self)
+        }
+        debounce = task
+        await task.value
+    }
+
+    /// Hintergrundabruf durch iOS (BGAppRefreshTask).
+    func backgroundRefresh() async {
+        await refresh()
+        lastBackgroundSync = .now
+        CoachNotifier.afterSync(self)
     }
 
     /// Welche Ringe haben heute eine echte Grundlage? (Codex R-01-03)
@@ -140,16 +194,26 @@ final class DataHub {
             healthAuthorized = true
             if preferredSource == .sample { preferredSource = .automatic }
             UserDefaults.standard.set(true, forKey: "forma.healthAuthorized")
+            startBackgroundSync()
+            CoachNotifier.requestPermission()
             await refresh()
+            CoachNotifier.afterSync(self)
         } catch {
             lastError = "Zugriff auf Apple Health nicht möglich: \(error.localizedDescription)"
         }
     }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading else { refreshPending = true; return }
         isLoading = true
-        defer { isLoading = false; hasLoaded = true }
+        defer {
+            isLoading = false
+            hasLoaded = true
+            if refreshPending {
+                refreshPending = false
+                Task { await self.refresh() }
+            }
+        }
         let source = resolveSource()
         switch source {
         case .fitbit:
@@ -177,18 +241,31 @@ final class DataHub {
                 lastError = "Von Fitbit kamen noch keine Daten. Es werden Beispieldaten gezeigt."
             }
         case .health:
+            // Bei gesperrtem iPhone gibt Apple Health nichts heraus. Dann nichts überschreiben (später erneut).
+            guard UIApplication.shared.isProtectedDataAvailable else {
+                syncNote = "iPhone gesperrt – Forma holt die Daten nach dem Entsperren."
+                return
+            }
             let loaded = await health.loadDays(count: 180).map { $0.sanitized() }
             healthPerson = await health.person()
-            let hasData = loaded.suffix(30).contains { $0.hrv != nil || $0.sleep != nil || ($0.steps ?? 0) > 0 }
-            // Keine stillen Beispieldaten mehr, wenn Apple Health freigegeben ist (Codex R-01-03):
-            // leere Tage bleiben leer und werden als „keine Daten“ gezeigt.
-            longDays = loaded
+            let previous = activeSource == .health ? longDays : (SyncStore.load()?.days ?? [])
             activeSource = .health
-            if hasData {
-                lastUpdate = .now
-                lastError = nil
-            } else {
-                lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Forma, ob alles freigegeben ist."
+            switch SyncStore.merge(old: previous, new: loaded) {
+            case .rejectedEmpty:
+                // Verdächtig leer, obwohl vorher Daten da waren: alten Stand behalten.
+                syncNote = "Apple Health hat gerade keine Daten geliefert. Du siehst den letzten Stand."
+            case .merged(let merged):
+                longDays = merged
+                let hasData = merged.suffix(30).contains(where: SyncStore.hasData)
+                if hasData {
+                    lastUpdate = .now
+                    lastError = nil
+                    syncNote = nil
+                    SyncStore.save(.init(days: merged, updated: .now, source: "health"))
+                } else {
+                    // Keine stillen Beispieldaten, wenn Apple Health freigegeben ist (Codex R-01-03).
+                    lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Forma, ob alles freigegeben ist."
+                }
             }
         case .sample, .automatic:
             longDays = SampleData.days()

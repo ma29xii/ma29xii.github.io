@@ -11,6 +11,8 @@ struct ProfileView: View {
     @State private var message: String?
     @AppStorage("forma.birthYear") private var birthYear = 0
     @AppStorage("forma.claudeConsent") private var claudeConsent = false
+    @AppStorage(CoachNotifier.morningKey) private var morningReport = true
+    @AppStorage(CoachNotifier.bedtimeKey) private var bedtimeReminder = true
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
 
     var body: some View {
@@ -23,7 +25,20 @@ struct ProfileView: View {
                         ForEach(DataSourceKind.allCases.filter { $0 != .fitbit }) { Text($0.title).tag($0) }
                     }
                     LabeledContent("Gerade aktiv", value: hub.activeSource.title)
-                    LabeledContent("Letzter erfolgreicher Import", value: hub.lastUpdate.map { Format.clock($0) } ?? "noch keiner")
+                    LabeledContent("Letzter erfolgreicher Import", value: hub.lastUpdate.map { Format.shortDate($0) + ", " + Format.clock($0) } ?? "noch keiner")
+                    LabeledContent("Letzter Abruf im Hintergrund", value: hub.lastBackgroundSync.map { Format.shortDate($0) + ", " + Format.clock($0) } ?? "noch keiner")
+                    if let note = hub.syncNote {
+                        Text(note).font(.footnote).foregroundStyle(Theme.warning)
+                    }
+                    Button {
+                        Task { await hub.refresh() }
+                    } label: {
+                        HStack {
+                            Label("Jetzt synchronisieren", systemImage: "arrow.triangle.2.circlepath")
+                            if hub.isLoading { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(hub.isLoading)
                     LabeledContent("Tage mit Daten", value: "\(hub.longDays.filter { $0.sleep != nil || $0.hrv != nil || ($0.steps ?? 0) > 0 }.count) von \(hub.longDays.count)")
                 } header: {
                     Text("Datenquelle")
@@ -95,6 +110,20 @@ struct ProfileView: View {
                     Text("Coach")
                 } footer: {
                     Text("Ohne Schlüssel rechnet der Coach komplett auf dem iPhone. Mit Schlüssel fragt Forma vor dem ersten Senden, ob deine Frage, der Chat und eine Zusammenfassung deiner Tageswerte an Anthropic gehen dürfen.")
+                }
+
+                Section {
+                    Toggle("Morgenbericht", isOn: $morningReport)
+                    Toggle("Erinnerung zur Schlafenszeit", isOn: $bedtimeReminder)
+                } header: {
+                    Text("Coach im Hintergrund")
+                } footer: {
+                    Text("Sobald deine Nacht in Apple Health ist, schickt dir der Coach deinen Tagesbericht – auch wenn Forma geschlossen ist. Abends erinnert er dich 30 Minuten vor der empfohlenen Bettzeit. Alles wird auf dem iPhone berechnet.")
+                }
+                .onChange(of: morningReport) { _, on in if on { CoachNotifier.requestPermission() } }
+                .onChange(of: bedtimeReminder) { _, on in
+                    if on { CoachNotifier.requestPermission() }
+                    CoachNotifier.scheduleBedtimeReminder(hub)
                 }
 
                 Section("Journal") {

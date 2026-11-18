@@ -134,6 +134,15 @@ struct TodayView: View {
             Text(Format.dayTitle(.now))
                 .font(.formaCaptionStrong)
                 .foregroundStyle(Theme.textSecondary)
+            if !hub.isSample, let updated = hub.lastUpdate {
+                // Transparenz: wie frisch sind die Daten? (Hintergrund-Sync)
+                Label(Calendar.forma.isDateInToday(updated) ? "Stand \(Format.clock(updated))" : "Stand \(Format.shortDate(updated))",
+                      systemImage: hub.isLoading ? "arrow.triangle.2.circlepath" : "checkmark.circle")
+                    .font(.formaCaption)
+                    .foregroundStyle(Date.now.timeIntervalSince(updated) > 6 * 3600 ? Theme.warning : Theme.textTertiary)
+                    .symbolEffect(.rotate, isActive: hub.isLoading)
+                    .labelStyle(.titleAndIcon)
+            }
             if hub.isSample && hub.hasLoaded {
                 Button { app.showProfile = true } label: { SampleDataBadge() }
                     .buttonStyle(.plain)

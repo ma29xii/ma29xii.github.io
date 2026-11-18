@@ -28,6 +28,38 @@ actor HealthService {
         try await store.requestAuthorization(toShare: [], read: readTypes)
     }
 
+    // MARK: Hintergrund-Synchronisierung
+
+    private var observersStarted = false
+
+    /// Lässt Apple Health Forma wecken, sobald neue Daten da sind – auch wenn die App geschlossen ist.
+    /// Schlaf, HRV, Ruhepuls und Trainings sofort, Schritte und Energie höchstens stündlich.
+    /// Muss bei jedem App-Start erneut gestartet werden (auch beim Start im Hintergrund).
+    func startObserving(onChange: @escaping @Sendable () async -> Void) async {
+        guard !observersStarted, isAvailable else { return }
+        observersStarted = true
+        let types: [(HKSampleType, HKUpdateFrequency)] = [
+            (HKCategoryType(.sleepAnalysis), .immediate),
+            (HKQuantityType(.heartRateVariabilitySDNN), .immediate),
+            (HKQuantityType(.restingHeartRate), .immediate),
+            (HKObjectType.workoutType(), .immediate),
+            (HKQuantityType(.stepCount), .hourly),
+            (HKQuantityType(.activeEnergyBurned), .hourly)
+        ]
+        for (type, frequency) in types {
+            let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completion, error in
+                nonisolated(unsafe) let done = completion
+                guard error == nil else { done(); return }
+                Task {
+                    await onChange()
+                    done() // HealthKit erwartet die Rückmeldung, sonst drosselt es die Zustellung.
+                }
+            }
+            store.execute(query)
+            try? await store.enableBackgroundDelivery(for: type, frequency: frequency)
+        }
+    }
+
     /// Geburtsdatum und Geschlecht aus Apple Health (falls freigegeben und eingetragen).
     func person() -> (birthDate: Date?, sex: BiologicalSex) {
         let components = try? store.dateOfBirthComponents()
