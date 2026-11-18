@@ -73,11 +73,6 @@ struct RootView: View {
             Tab("Coach", systemImage: "bubble.left.and.bubble.right", value: AppTab.coach) {
                 CoachView().scrollEdgeEffectStyle(.soft, for: .all)
             }
-            Tab("Plus", systemImage: "plus", value: AppTab.add) {
-                Color.clear
-            }
-            .disabled(true)
-            .accessibilityIdentifier("tab.add")
         }
         // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)
