@@ -13,7 +13,7 @@ enum CoachNotifier {
     static let morningKey = "forma.coach.morning"       // Einstellung an/aus
     static let bedtimeKey = "forma.coach.bedtime"       // Einstellung an/aus
     static let detailsKey = "forma.coach.showValues"    // Werte in der Mitteilung zeigen (Standard: aus)
-    static let wakeKey = "forma.wakeMinutes"            // Weckzeit in Minuten nach Mitternacht
+    nonisolated static let wakeKey = "forma.wakeMinutes"            // Weckzeit in Minuten nach Mitternacht
 
     static var morningEnabled: Bool { UserDefaults.standard.object(forKey: morningKey) as? Bool ?? true }
     static var bedtimeEnabled: Bool { UserDefaults.standard.object(forKey: bedtimeKey) as? Bool ?? true }

@@ -116,6 +116,7 @@ struct TileStack<Kind: TileKind, Content: View>: View {
 
     var body: some View {
         let shown = arrangement.visible
+        let calm = reduceMotion   // als Wert in die Sendable-Closure von scrollTransition
         VStack(spacing: Space.s3) {
             if shown.isEmpty {
                 VStack(spacing: Space.s3) {
@@ -162,8 +163,8 @@ struct TileStack<Kind: TileKind, Content: View>: View {
                     // Nur am unteren Rand leicht einblenden, oben nichts bewegen (ruhig).
                     .scrollTransition(.animated(.smooth), axis: .vertical) { content, phase in
                         content
-                            .opacity(reduceMotion || phase != .bottomTrailing ? 1 : 0.55)
-                            .scaleEffect(reduceMotion || phase != .bottomTrailing ? 1 : 0.97)
+                            .opacity(calm || phase != .bottomTrailing ? 1 : 0.55)
+                            .scaleEffect(calm || phase != .bottomTrailing ? 1 : 0.97)
                     }
                     // VoiceOver: Verschieben ohne Ziehen.
                     .accessibilityAction(named: "Nach oben") { update { $0.shift(kind, by: -1) } }
