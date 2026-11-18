@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Flächen und Zeilen
 
-/// Matte Inhaltskarte mit Lichtkante oben (kein echtes Glas: Inhalte bleiben ruhig und lesbar).
+/// Ruhige, matte Inhaltskarte (Radius 20) mit feiner Lichtkante oben. Kein Glas: Inhalte bleiben lesbar.
 struct Plate<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -10,13 +10,11 @@ struct Plate<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: Radius.plate, style: .continuous)
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                shape.fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.035)],
-                                          startPoint: .top, endPoint: .bottom))
-            )
+            .background(shape.fill(Theme.card))
             .overlay(
-                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
                                                   startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
+                    .allowsHitTesting(false)
             )
             .clipShape(shape)
     }
@@ -37,8 +35,7 @@ struct WidgetCard<Content: View>: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(accent)
                 Text(title)
-                    .font(.formaCaptionStrong)
-                    .foregroundStyle(Theme.textSecondary)
+                    .formaLabelStyle()
                     .lineLimit(1)
                     .layoutPriority(1)
                 Spacer(minLength: Space.s2)
@@ -54,7 +51,7 @@ struct WidgetCard<Content: View>: View {
     }
 }
 
-/// Abschnitt mit Überschrift (20 pt) auf der 16-pt-Kante.
+/// Abschnitt mit kleinem Großbuchstaben-Titel auf der 16-pt-Kante.
 struct FormaSection<Content: View>: View {
     let title: String
     var actionTitle: String? = nil
@@ -64,7 +61,7 @@ struct FormaSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s3) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.formaSection)
+                Text(title).formaLabelStyle()
                 Spacer()
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)
@@ -75,7 +72,7 @@ struct FormaSection<Content: View>: View {
             }
             content
         }
-        .padding(.top, Space.s6)
+        .padding(.top, Space.s5)
     }
 }
 
@@ -144,7 +141,7 @@ struct Glyph: View {
         Image(systemName: systemName)
             .font(.system(size: 15, weight: .medium))
             .frame(width: 36, height: 36)
-            .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Color.white.opacity(0.07)))
+            .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Theme.cardRaised))
     }
 }
 

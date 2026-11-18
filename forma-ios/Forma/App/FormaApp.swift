@@ -57,16 +57,16 @@ struct RootView: View {
         @Bindable var app = app
         TabView(selection: $app.selectedTab) {
             Tab("Today", systemImage: "circle.circle", value: AppTab.today) {
-                TodayView()
+                TodayView().scrollEdgeEffectStyle(.soft, for: .all)
             }
             Tab("Training", systemImage: "dumbbell", value: AppTab.training) {
-                TrainingView()
+                TrainingView().scrollEdgeEffectStyle(.soft, for: .all)
             }
-            Tab("Health", systemImage: "heart.text.square", value: AppTab.health) {
-                HealthView()
+            Tab("Health", systemImage: "heart", value: AppTab.health) {
+                HealthView().scrollEdgeEffectStyle(.soft, for: .all)
             }
-            Tab("Coach", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.coach) {
-                CoachView()
+            Tab("Coach", systemImage: "bubble.left.and.bubble.right", value: AppTab.coach) {
+                CoachView().scrollEdgeEffectStyle(.soft, for: .all)
             }
             Tab("Plus", systemImage: "plus", value: AppTab.add) {
                 Color.clear
@@ -74,6 +74,7 @@ struct RootView: View {
             .disabled(true)
             .accessibilityIdentifier("tab.add")
         }
+        // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)
         .fullScreenCover(item: $app.liveWorkout) { workout in
             LiveWorkoutView(workout: workout)

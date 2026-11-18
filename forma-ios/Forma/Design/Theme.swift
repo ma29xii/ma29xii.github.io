@@ -1,23 +1,36 @@
 import SwiftUI
 
-/// Forma-Designsystem (Iteration 6, siehe DESIGN.md).
-/// Neutrales Schwarz statt Blaugrau, Licht nur aus den Daten (Erholungsfarbe als Schein oben),
-/// Glas für Bedienelemente und Chips, Inhalte auf matten Karten mit Lichtkante.
+/// Health-Designsystem (Umbau 03).
+/// Dunkles, kühl-neutrales Graphit mit sanftem Verlauf nach oben (kein sichtbares Blau),
+/// ruhige matte Karten (Radius 20), Glas nur für Bedienung. Farbe kommt aus den Daten.
 enum Theme {
-    // Grund: neutrales Schwarz, kein Farbstich
-    static let background = Color(hex: 0x030303)
+    // Grund: Graphit, oben etwas heller. Blau-Anteil nur +2–3 über Rot, damit es kühl wirkt, aber nicht blau.
+    static let backgroundTop = Color(hex: 0x222325)
+    static let backgroundMid = Color(hex: 0x161719)
+    static let background = Color(hex: 0x0D0E0F)
+    /// Verlauf für ganze Seiten.
+    static var screenGradient: LinearGradient {
+        LinearGradient(stops: [
+            .init(color: backgroundTop, location: 0),
+            .init(color: backgroundMid, location: 0.32),
+            .init(color: background, location: 0.72)
+        ], startPoint: .top, endPoint: .bottom)
+    }
 
     // Text
     static let textPrimary = Color(hex: 0xF5F5F7)
-    static let textSecondary = Color(hex: 0x9A9AA0)
-    static let textTertiary = Color.white.opacity(0.56)   // ≈ 6:1 auf Schwarz (WCAG AA)
+    static let textSecondary = Color(hex: 0x9C9DA1)
+    static let textTertiary = Color.white.opacity(0.56)   // ≈ 5,5:1 auf Graphit (WCAG AA)
     static let textQuaternary = Color.white.opacity(0.36)  // ≈ 3:1 für Symbole und Konturen
 
     // Flächen und Linien
+    /// Kartenfläche: deckend, damit Karten auf dem Verlauf überall gleich aussehen.
+    static let card = Color(hex: 0x1D1E20)
+    static let cardRaised = Color(hex: 0x26272A)
     static let plate = Color.white.opacity(0.05)
-    static let plateEdge = Color.white.opacity(0.08)
+    static let plateEdge = Color.white.opacity(0.07)
     static let hairline = Color.white.opacity(0.08)
-    static let barGray = Color(hex: 0x2C2C2E)
+    static let barGray = Color(hex: 0x2C2D30)
     static let track = Color.white.opacity(0.08)
 
     // Bedeutung
@@ -57,10 +70,13 @@ enum Space {
     static let s7: CGFloat = 48
     /// Seitenrand
     static let page: CGFloat = 16
+    /// Abstand zwischen Karten
+    static let gap: CGFloat = 12
 }
 
 enum Radius {
-    static let plate: CGFloat = 24
+    /// Karten
+    static let plate: CGFloat = 20
     static let small: CGFloat = 12
     static let dock: CGFloat = 30
 }
@@ -82,7 +98,7 @@ extension Locale {
 }
 
 /// Typografie: Systemschrift auf Textstilen, damit Dynamic Type wirkt (Codex R-01-10).
-/// Bei Standardgröße identisch zu den früheren festen Größen (34/28/22/20/17/16/15/13/11 pt).
+/// Zahlen sind rund (`.rounded`) und gleich breit (`monospacedDigit`), damit sie beim Wechsel nicht springen.
 /// Große Anzeigezahlen (Ringe, Hero) bleiben fest, sie sind Grafik und haben Text-Alternativen.
 extension Font {
     static let formaLargeTitle = Font.system(.largeTitle, weight: .bold)
@@ -93,39 +109,67 @@ extension Font {
     static let formaBodyLarge = Font.system(.body)
     static let formaRowTitle = Font.system(.callout, weight: .medium)
     static let formaBody = Font.system(.subheadline)
-    static let formaValue = Font.system(.subheadline, weight: .semibold).monospacedDigit()
+    static let formaValue = Font.system(.subheadline, design: .rounded, weight: .semibold).monospacedDigit()
     static let formaCaption = Font.system(.footnote)
     static let formaCaptionStrong = Font.system(.footnote, weight: .semibold)
     static let formaMicro = Font.system(.caption2, weight: .semibold)
     static let formaBigNumber = Font.system(.title, design: .rounded, weight: .semibold).monospacedDigit()
     static let formaWidgetNumber = Font.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit()
+    /// Kleiner Abschnittstitel in GROSSBUCHSTABEN, zusammen mit `.formaLabelStyle()` (Laufweite).
+    static let formaLabel = Font.system(.caption, weight: .semibold)
+    /// Mittlere runde Zahl in Karten (z. B. 62 bpm).
+    static let formaNumber = Font.system(.title2, design: .rounded, weight: .semibold).monospacedDigit()
+    /// Große runde Zahl als Hauptsache eines Bildschirms (wächst mit Dynamic Type).
+    static let formaDisplay = Font.system(.largeTitle, design: .rounded, weight: .semibold).monospacedDigit()
 }
 
-/// Neutrales Schwarz mit weichem Lichtschein oben.
-/// Auf „Heute“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
+/// Laufweite für Großbuchstaben-Titel.
+enum Tracking {
+    static let label: CGFloat = 1.4
+    static let micro: CGFloat = 1.0
+}
+
+extension View {
+    /// Abschnittstitel: klein, GROSSBUCHSTABEN, Laufweite, gedämpft. VoiceOver liest ihn als Überschrift.
+    func formaLabelStyle(_ color: Color = Theme.textSecondary) -> some View {
+        self
+            .font(.formaLabel)
+            .tracking(Tracking.label)
+            .textCase(.uppercase)
+            .foregroundStyle(color)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// Zahlen rollen beim Wechsel statt zu springen (ohne Bewegung bei „Bewegung reduzieren“ durch das System).
+    func formaNumberTransition(_ value: Double) -> some View {
+        self
+            .contentTransition(.numericText(value: value))
+            .animation(.snappy, value: value)
+    }
+}
+
+/// Graphit-Verlauf mit optionalem weichem Farbschein oben.
+/// Auf „Today“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
 struct ScreenBackground: View {
     var tint: Color? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Gelb wirkt auf Schwarz schnell schmutzig (oliv): dort schwächer leuchten.
+    /// Gelb wirkt auf Graphit schnell schmutzig (oliv): dort schwächer leuchten.
     private var strength: Double {
-        guard let tint else { return 0.07 }
-        return tint == Theme.recoveryMid ? 0.09 : 0.14
+        guard let tint else { return 0 }
+        return tint == Theme.recoveryMid ? 0.07 : 0.11
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            Theme.background
-            RadialGradient(
-                colors: [(tint ?? .white).opacity(strength), .clear],
-                center: .top, startRadius: 0, endRadius: 300
-            )
-            .scaleEffect(x: 1.7, y: 1, anchor: .top)
-            .frame(height: 520)
-            RadialGradient(
-                colors: [(tint ?? .white).opacity(strength * 0.4), .clear],
-                center: .topTrailing, startRadius: 0, endRadius: 300
-            )
-            .frame(height: 420)
+            Theme.screenGradient
+            if let tint {
+                RadialGradient(
+                    colors: [tint.opacity(strength), .clear],
+                    center: .top, startRadius: 0, endRadius: 320
+                )
+                .scaleEffect(x: 1.6, y: 1, anchor: .top)
+                .frame(height: 520)
+            }
         }
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: tint)
@@ -133,10 +177,11 @@ struct ScreenBackground: View {
 }
 
 extension View {
-    /// Standard-Hintergrund für Seiten.
+    /// Standard-Hintergrund für Seiten: Graphit-Verlauf und weiche Kanten unter Navigations- und Tab-Leiste.
     func formaScreen(tint: Color? = nil) -> some View {
         self
             .scrollContentBackground(.hidden)
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .background(ScreenBackground(tint: tint))
             .foregroundStyle(Theme.textPrimary)
     }
