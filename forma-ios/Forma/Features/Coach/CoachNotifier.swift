@@ -14,6 +14,7 @@ enum CoachNotifier {
     static var bedtimeEnabled: Bool { UserDefaults.standard.object(forKey: bedtimeKey) as? Bool ?? true }
 
     static func requestPermission() {
+        guard !FormaApp.isUITest else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 

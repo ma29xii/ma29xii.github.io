@@ -123,6 +123,7 @@ enum RestNotifier {
     static let id = "forma.rest"
 
     static func requestPermission() {
+        guard !ProcessInfo.processInfo.arguments.contains("-uitest") else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 

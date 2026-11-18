@@ -120,7 +120,7 @@ struct TrainingView: View {
                 }
             }
         case .weeklySets:
-            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "höchstens 3 Wdh. übrig") { weeklySets }
+            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "≤ 3 Wdh. übrig") { weeklySets }
         case .library:
             WidgetCard(title: tile.title, systemImage: tile.systemImage) {
                 Button { path.append(.library) } label: {

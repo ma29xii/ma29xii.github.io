@@ -221,7 +221,8 @@ struct MetricDetailView: View {
                             .chartYScale(domain: .automatic(includesZero: false))
                             .chartXSelection(value: $selection)
                             .chartXAxis {
-                                AxisMarks(values: .stride(by: .day, count: range > 14 ? 7 : 2)) { _ in
+                                // .aligned hält die Randbeschriftungen im Diagramm (keine abgeschnittenen Daten).
+                                AxisMarks(preset: .aligned, values: .stride(by: .day, count: range > 14 ? 7 : 2)) { _ in
                                     AxisValueLabel(format: .dateTime.day().month(.abbreviated))
                                         .foregroundStyle(Theme.textSecondary)
                                 }

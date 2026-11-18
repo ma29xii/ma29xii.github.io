@@ -39,7 +39,9 @@ struct WidgetCard<Content: View>: View {
                 Text(title)
                     .font(.formaCaptionStrong)
                     .foregroundStyle(Theme.textSecondary)
-                Spacer(minLength: 0)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: Space.s2)
                 if let accessory {
                     Text(accessory).font(.formaCaption).foregroundStyle(Theme.textTertiary)
                 }
