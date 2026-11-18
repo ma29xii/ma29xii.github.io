@@ -1,0 +1,65 @@
+name: Stetig IPA (nur bauen)
+
+# Schneller Weg zur IPA für Sideloadly: kein Simulator, keine Tests.
+on:
+  push:
+    branches: ['claude/awesome-hypatia-tnhuis']
+    paths: ['.github/workflows/stetig-ipa.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stetig-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Stetig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode wählen
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+
+      - name: Geräte-Build (Release, ohne Signatur)
+        run: |
+          set +e
+          xcodebuild build \
+            -project Stetig.xcodeproj -scheme Stetig -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/build.log" 2>&1
+          status=$?
+          grep -E "error:" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/Stetig/##" | sort -u | head -60
+          tail -n 4 "$RUNNER_TEMP/build.log"
+          exit $status
+
+      - name: IPA verpacken
+        run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Stetig.app"
+          GROUP=$(xcodebuild -project Stetig.xcodeproj -scheme Stetig -configuration Release -showBuildSettings 2>/dev/null | awk -F' = ' '/ APP_GROUP_ID = /{print $2; exit}')
+          echo "App-Group: $GROUP"
+          for f in Stetig Widgets; do
+            sed "s#\$(APP_GROUP_ID)#$GROUP#" "Config/$f.entitlements" > "$RUNNER_TEMP/$f.entitlements"
+          done
+          # Ad-hoc-Signatur nur, damit die Entitlements in der App stecken; Sideloadly signiert neu.
+          if [ -d "$APP/PlugIns/StetigWidgets.appex" ]; then
+            codesign --force --sign - --timestamp=none --entitlements "$RUNNER_TEMP/Widgets.entitlements" "$APP/PlugIns/StetigWidgets.appex"
+          fi
+          codesign --force --sign - --timestamp=none --entitlements "$RUNNER_TEMP/Stetig.entitlements" "$APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry Stetig.ipa Payload)
+          ls -lh "$RUNNER_TEMP/ipa/Stetig.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stetig-IPA
+          path: ${{ runner.temp }}/ipa/Stetig.ipa
+          retention-days: 30
