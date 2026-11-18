@@ -44,7 +44,7 @@ final class DesignTodayTests: XCTestCase {
 
     // MARK: Vergleich mit 30 Tagen
 
-    func testComparisonDirection() {
+    @MainActor func testComparisonDirection() {
         let whole: (Double) -> String = { Format.number($0) }
         XCTAssertEqual(ComparisonRow.direction(value: 62, baseline: 58, format: whole), 1)
         XCTAssertEqual(ComparisonRow.direction(value: 50, baseline: 58, format: whole), -1)
