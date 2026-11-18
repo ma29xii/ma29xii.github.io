@@ -1,0 +1,5 @@
+// Forma – Konfiguration
+// Fitbit: trage hier die OAuth-2.0-Client-ID deiner Fitbit-App ein (siehe README.md).
+FITBIT_CLIENT_ID = DEINE_FITBIT_CLIENT_ID
+// Muss exakt der "Redirect URL" in der Fitbit-App-Registrierung entsprechen.
+FITBIT_REDIRECT_SCHEME = forma

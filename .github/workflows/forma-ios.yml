@@ -1,0 +1,75 @@
+name: Forma iOS (IPA)
+
+on:
+  push:
+    branches: ['claude/awesome-hypatia-tnhuis']
+    paths: ['forma-ios/**', '.github/workflows/forma-ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forma-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: forma-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Neuestes Xcode wählen
+        run: |
+          XC=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+          echo "Xcode: $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: XcodeGen installieren und Projekt erzeugen
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build (iphoneos, Release, ohne Signatur)
+        run: |
+          set +e
+          xcodebuild build \
+            -project Forma.xcodeproj -scheme Forma -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" > "$RUNNER_TEMP/build.log" 2>&1
+          status=$?
+          echo "=== ERRORS ==="
+          grep -E "error:|error :" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -200
+          echo "=== WARNINGS (Swift) ==="
+          grep -E "\.swift:[0-9]+:[0-9]+: warning:" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -60
+          echo "=== TAIL ==="
+          tail -n 15 "$RUNNER_TEMP/build.log"
+          exit $status
+
+      - name: IPA packen
+        run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Forma.app"
+          test -d "$APP"
+          # Ad-hoc-Signatur nur, damit die HealthKit-Berechtigung in der App steckt.
+          # Sideloadly signiert beim Installieren mit deiner Apple-ID neu und übernimmt sie.
+          codesign --force --sign - --timestamp=none --entitlements Forma/Resources/Forma.entitlements "$APP"
+          codesign -d --entitlements - "$APP" || true
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa" && zip -qry Forma.ipa Payload
+          ls -lh "$RUNNER_TEMP/ipa/Forma.ipa"
+
+      - name: Artifact hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Forma-IPA
+          path: ${{ runner.temp }}/ipa/Forma.ipa
+          if-no-files-found: error
+          retention-days: 30

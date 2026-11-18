@@ -1,0 +1,36 @@
+name: Forma
+options:
+  bundleIdPrefix: com.ma29xii
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_PREVIEWS: YES
+targets:
+  Forma:
+    type: application
+    platform: iOS
+    sources:
+      - path: Forma
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ma29xii.forma
+        PRODUCT_NAME: Forma
+        CODE_SIGN_ENTITLEMENTS: Forma/Resources/Forma.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Forma/Resources/Info.plist
+schemes:
+  Forma:
+    build:
+      targets:
+        Forma: all

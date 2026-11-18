@@ -1,0 +1,170 @@
+import Foundation
+import SwiftData
+
+@Model
+final class Exercise {
+    var name: String
+    var muscle: String
+    var equipment: String
+    var isCustom: Bool
+
+    init(name: String, muscle: String, equipment: String, isCustom: Bool = false) {
+        self.name = name
+        self.muscle = muscle
+        self.equipment = equipment
+        self.isCustom = isCustom
+    }
+}
+
+@Model
+final class Routine {
+    var name: String
+    var createdAt: Date
+    var lastUsed: Date?
+    @Relationship(deleteRule: .cascade, inverse: \RoutineItem.routine) var items: [RoutineItem]
+
+    init(name: String, items: [RoutineItem] = []) {
+        self.name = name
+        self.createdAt = .now
+        self.items = items
+    }
+
+    var sortedItems: [RoutineItem] { items.sorted { $0.order < $1.order } }
+    var totalSets: Int { items.reduce(0) { $0 + $1.sets } }
+    var muscleSummary: String {
+        var seen: [String] = []
+        for m in sortedItems.map(\.muscle) where !seen.contains(m) { seen.append(m) }
+        return seen.prefix(3).joined(separator: ", ")
+    }
+}
+
+@Model
+final class RoutineItem {
+    var order: Int
+    var exerciseName: String
+    var muscle: String
+    var sets: Int
+    var reps: Int
+    var weight: Double
+    var restSeconds: Int
+    var routine: Routine?
+
+    init(order: Int, exerciseName: String, muscle: String, sets: Int = 3, reps: Int = 8, weight: Double = 20, restSeconds: Int = 90) {
+        self.order = order
+        self.exerciseName = exerciseName
+        self.muscle = muscle
+        self.sets = sets
+        self.reps = reps
+        self.weight = weight
+        self.restSeconds = restSeconds
+    }
+}
+
+@Model
+final class WorkoutSession {
+    var title: String
+    var start: Date
+    var end: Date
+    @Relationship(deleteRule: .cascade, inverse: \SetRecord.session) var sets: [SetRecord]
+
+    init(title: String, start: Date, end: Date, sets: [SetRecord] = []) {
+        self.title = title
+        self.start = start
+        self.end = end
+        self.sets = sets
+    }
+
+    var duration: TimeInterval { end.timeIntervalSince(start) }
+    var workSets: [SetRecord] { sets.filter { !$0.isWarmup } }
+    var volume: Double { workSets.reduce(0) { $0 + $1.weight * Double($1.reps) } }
+    var exerciseNames: [String] {
+        var seen: [String] = []
+        for s in sets.sorted(by: { $0.order < $1.order }) where !seen.contains(s.exerciseName) { seen.append(s.exerciseName) }
+        return seen
+    }
+    func bestOneRepMax(for exercise: String) -> Double {
+        workSets.filter { $0.exerciseName == exercise }.map { OneRepMax.epley(weight: $0.weight, reps: $0.reps) }.max() ?? 0
+    }
+}
+
+@Model
+final class SetRecord {
+    var order: Int
+    var exerciseName: String
+    var weight: Double
+    var reps: Int
+    var rir: Int        // −1 = nicht erfasst
+    var isWarmup: Bool
+    var session: WorkoutSession?
+
+    init(order: Int, exerciseName: String, weight: Double, reps: Int, rir: Int, isWarmup: Bool) {
+        self.order = order
+        self.exerciseName = exerciseName
+        self.weight = weight
+        self.reps = reps
+        self.rir = rir
+        self.isWarmup = isWarmup
+    }
+}
+
+@Model
+final class JournalAnswer {
+    var day: Date
+    var question: String
+    var answer: Bool
+
+    init(day: Date, question: String, answer: Bool) {
+        self.day = day
+        self.question = question
+        self.answer = answer
+    }
+}
+
+/// Übungsbibliothek und Startroutinen.
+enum TrainingSeed {
+    static let library: [(String, String, String)] = [
+        ("Bankdrücken", "Brust", "Langhantel"), ("Schrägbankdrücken Kurzhantel", "Brust", "Kurzhantel"),
+        ("Dips", "Brust", "Körpergewicht"), ("Fliegende am Kabel", "Brust", "Kabel"), ("Liegestütz", "Brust", "Körpergewicht"),
+        ("Schulterdrücken", "Schultern", "Langhantel"), ("Seitheben", "Schultern", "Kurzhantel"), ("Face Pulls", "Schultern", "Kabel"),
+        ("Arnold Press", "Schultern", "Kurzhantel"),
+        ("Klimmzüge", "Rücken", "Körpergewicht"), ("Langhantelrudern", "Rücken", "Langhantel"), ("Latzug", "Rücken", "Kabel"),
+        ("Rudern am Kabel", "Rücken", "Kabel"), ("Kurzhantelrudern einarmig", "Rücken", "Kurzhantel"), ("Kreuzheben", "Rücken", "Langhantel"),
+        ("Kniebeuge", "Beine", "Langhantel"), ("Rumänisches Kreuzheben", "Beine", "Langhantel"), ("Beinpresse", "Beine", "Maschine"),
+        ("Ausfallschritte", "Beine", "Kurzhantel"), ("Beinstrecker", "Beine", "Maschine"), ("Beinbeuger", "Beine", "Maschine"),
+        ("Wadenheben", "Beine", "Maschine"), ("Hip Thrust", "Beine", "Langhantel"), ("Bulgarian Split Squat", "Beine", "Kurzhantel"),
+        ("Bizepscurls", "Arme", "Kurzhantel"), ("Hammercurls", "Arme", "Kurzhantel"), ("Langhantelcurls", "Arme", "Langhantel"),
+        ("Trizepsdrücken am Kabel", "Arme", "Kabel"), ("Überkopf-Trizepsstrecken", "Arme", "Kabel"), ("French Press", "Arme", "SZ-Stange"),
+        ("Plank", "Rumpf", "Körpergewicht"), ("Hängendes Beinheben", "Rumpf", "Körpergewicht"), ("Cable Crunch", "Rumpf", "Kabel"),
+        ("Ab Wheel", "Rumpf", "Gerät")
+    ]
+
+    static let routines: [(String, [(String, String, Int, Int, Double, Int)])] = [
+        ("Push", [("Bankdrücken", "Brust", 4, 8, 72.5, 150), ("Schrägbankdrücken Kurzhantel", "Brust", 3, 10, 26, 120),
+                  ("Schulterdrücken", "Schultern", 3, 8, 45, 120), ("Seitheben", "Schultern", 3, 14, 10, 75),
+                  ("Dips", "Brust", 3, 10, 0, 90), ("Trizepsdrücken am Kabel", "Arme", 3, 12, 25, 75)]),
+        ("Pull", [("Klimmzüge", "Rücken", 4, 7, 0, 150), ("Langhantelrudern", "Rücken", 3, 8, 65, 120),
+                  ("Latzug", "Rücken", 3, 10, 60, 90), ("Face Pulls", "Schultern", 3, 15, 20, 60),
+                  ("Bizepscurls", "Arme", 3, 10, 14, 75), ("Hammercurls", "Arme", 2, 12, 14, 60)]),
+        ("Beine", [("Kniebeuge", "Beine", 4, 6, 90, 180), ("Rumänisches Kreuzheben", "Beine", 3, 8, 80, 150),
+                   ("Beinpresse", "Beine", 3, 12, 160, 120), ("Beinbeuger", "Beine", 3, 12, 45, 75), ("Wadenheben", "Beine", 4, 12, 60, 60)])
+    ]
+
+    @MainActor
+    static func seedIfNeeded(_ context: ModelContext) {
+        let count = (try? context.fetchCount(FetchDescriptor<Exercise>())) ?? 0
+        guard count == 0 else { return }
+        for (name, muscle, equipment) in library {
+            context.insert(Exercise(name: name, muscle: muscle, equipment: equipment))
+        }
+        for (name, items) in routines {
+            let routine = Routine(name: name)
+            context.insert(routine)
+            for (i, item) in items.enumerated() {
+                let ri = RoutineItem(order: i, exerciseName: item.0, muscle: item.1, sets: item.2, reps: item.3, weight: item.4, restSeconds: item.5)
+                context.insert(ri)
+                ri.routine = routine
+            }
+        }
+        try? context.save()
+    }
+}

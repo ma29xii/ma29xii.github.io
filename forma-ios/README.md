@@ -1,0 +1,64 @@
+# Forma (iOS)
+
+Native iPhone-App für Erholung, Schlaf, Belastung und Krafttraining. SwiftUI, iOS 26, Swift 6, Liquid Glass, SwiftData. Keine Fremd-Frameworks.
+
+## IPA bauen und installieren
+
+1. Jeder Push auf den Branch `claude/awesome-hypatia-tnhuis`, der `forma-ios/` ändert, startet den Workflow **Forma iOS (IPA)** (`.github/workflows/forma-ios.yml`).
+2. Nach dem Lauf unter *Actions → Forma iOS (IPA) → Artifacts* das Artifact **Forma-IPA** herunterladen und entpacken. Darin liegt `Forma.ipa`.
+3. Mit **Sideloadly** auf das iPhone laden. Sideloadly signiert mit deiner Apple-ID neu.
+
+Die IPA ist nicht mit einem Zertifikat signiert. Sie trägt nur eine Ad-hoc-Signatur, damit die HealthKit-Berechtigung in der App steckt und Sideloadly sie übernehmen kann.
+
+**Kostenlose Apple-ID:** Die Signatur läuft nach 7 Tagen ab, dann erneut mit Sideloadly installieren. Die Daten bleiben erhalten. Ob HealthKit mit einer kostenlosen Apple-ID funktioniert, kann ich nicht bestätigen. Falls nicht, zeigt Forma gekennzeichnete Beispieldaten oder nutzt Fitbit.
+
+## Fitbit einrichten (OAuth 2.0 mit PKCE)
+
+1. Auf <https://dev.fitbit.com/apps/new> mit deinem Fitbit-/Google-Konto anmelden und eine App registrieren:
+   - **OAuth 2.0 Application Type:** `Personal` (für eigene Daten inklusive HRV und Schlaf) oder `Client`
+   - **Redirect URL:** `forma://fitbit`
+   - **Default Access Type:** `Read Only`
+   - Für die übrigen Pflichtfelder (Website, Datenschutz, Nutzungsbedingungen) reicht z. B. `https://ma29xii.github.io`.
+2. Die angezeigte **OAuth 2.0 Client ID** in `forma-ios/Config.xcconfig` bei `FITBIT_CLIENT_ID` eintragen, committen und pushen. Der Workflow baut eine neue IPA.
+3. In Forma: *Profil → Mit Fitbit verbinden*. Die Anmeldung läuft in einem sicheren Browserfenster (ASWebAuthenticationSession). Forma bekommt nur Lesezugriff auf Schlaf, Herzfrequenz/HRV, Aktivität, SpO₂ und Atemfrequenz.
+
+Ein Client-Secret wird nicht gebraucht, die App nutzt PKCE. Google stellt Fitbit schrittweise auf Google-Konten und die Google Health API um. Ob und wann die Fitbit Web API abgeschaltet wird, kann ich nicht bestätigen.
+
+## Datenquellen
+
+- **Apple Health:** HRV, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, SpO₂, Trainings (nur lesen)
+- **Fitbit:** Schlaf, HRV (RMSSD), Ruhepuls, Schritte, Aktivitätskalorien, SpO₂, Atemfrequenz
+- **Beispieldaten:** werden ohne Berechtigung oder Daten gezeigt und überall mit „Beispieldaten“ gekennzeichnet
+
+Hat Fitbit für heute noch keinen Schlaf geliefert, zeigt Forma die Werte von gestern gedimmt mit dem Hinweis „Warte auf Fitbit“.
+
+## Berechnung (lokal, nachvollziehbar)
+
+- **Erholung (0–100):** Startwert 55, dazu HRV gegen dein 30-Tage-Mittel (stärkster Faktor), Ruhepuls und Atemfrequenz, plus der Schlafwert
+- **Schlaf (0–100):** Dauer gegen Bedarf (60 %), Effizienz (20 %), Tief- und REM-Anteil (20 %)
+- **Belastung (0–100):** aktive Energie und Trainingszeit, nähert sich 100
+- **Empfohlener Bereich** (gestrichelter Bogen am Belastungsring): gut erholt 35–55, mittel 25–40, wenig erholt 10–25
+
+## Coach
+
+Der Tagessatz und die Antworten werden lokal berechnet. Optional lässt sich in *Profil → Coach* ein Anthropic-API-Schlüssel hinterlegen. Er liegt im Schlüsselbund, und freie Fragen gehen dann an Claude. Trainingsänderungen schlägt der Coach nur vor. Übernimmst du einen Vorschlag, gilt er nur für das heutige Training, die gespeicherte Routine bleibt unverändert.
+
+## Gestaltung
+
+Glas (`glassEffect`, `GlassEffectContainer`, System-Tab-Leiste) nur für Bedienelemente. Inhalte liegen auf ruhigen Flächen, Farbe steht nur für Bedeutung (Bereiche, Warnungen). Das Raster folgt 4 pt mit zwei linken Kanten (16 und 32). Details stehen im Designdokument der HTML-Iteration 5.
+
+## Projekt
+
+```
+forma-ios/
+├─ project.yml            XcodeGen-Projekt (Bundle-ID com.ma29xii.forma)
+├─ Config.xcconfig        Fitbit-Client-ID
+└─ Forma/
+   ├─ App/                Einstieg, App-Zustand, Live-Training-Modell
+   ├─ Design/             Designsystem, Komponenten, Ringe
+   ├─ Data/               HealthKit, Fitbit, Berechnung, Beispieldaten, SwiftData-Modelle
+   ├─ Features/           Heute, Training, Gesundheit, Coach, Journal, Profil
+   └─ Resources/          Info.plist, Entitlements, Assets
+```
+
+Lokal bauen: `brew install xcodegen && cd forma-ios && xcodegen generate && open Forma.xcodeproj`
