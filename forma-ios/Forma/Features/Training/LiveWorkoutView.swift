@@ -13,6 +13,7 @@ struct LiveWorkoutView: View {
     @State private var saveError: String?
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var notificationStatus: UNAuthorizationStatus = .authorized
+    @State private var guide: LiveExercise?
 
     var body: some View {
         NavigationStack {
@@ -69,6 +70,7 @@ struct LiveWorkoutView: View {
             .sheet(isPresented: $showPicker) {
                 ExercisePickerView { ex in workout.addExercise(name: ex.name, muscle: ex.muscle) }
             }
+            .sheet(item: $guide) { ex in ExerciseGuideSheet(name: ex.name, group: ex.muscle) }
             .sensoryFeedback(.success, trigger: completedCount)
             .task { notificationStatus = await CoachNotifier.authorizationStatus() }
         }
@@ -78,7 +80,20 @@ struct LiveWorkoutView: View {
 
     private func exerciseBlock(_ exIndex: Int, _ exercise: LiveExercise) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(exercise.name).font(.formaTitle).padding(.top, Space.s6)
+            HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                Text(exercise.name).font(.formaTitle)
+                Spacer(minLength: 0)
+                Button { guide = exercise } label: {
+                    Image(systemName: "figure.strengthtraining.traditional")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ausführung und Muskeln")
+            }
+            .padding(.top, Space.s6)
             Text(exercise.lastTime ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
             if let progression = exercise.progression {
                 HStack(spacing: Space.s2) {

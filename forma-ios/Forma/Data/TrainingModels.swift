@@ -124,21 +124,8 @@ final class JournalAnswer {
 
 /// Übungsbibliothek und Startroutinen.
 enum TrainingSeed {
-    static let library: [(String, String, String)] = [
-        ("Bankdrücken", "Brust", "Langhantel"), ("Schrägbankdrücken Kurzhantel", "Brust", "Kurzhantel"),
-        ("Dips", "Brust", "Körpergewicht"), ("Fliegende am Kabel", "Brust", "Kabel"), ("Liegestütz", "Brust", "Körpergewicht"),
-        ("Schulterdrücken", "Schultern", "Langhantel"), ("Seitheben", "Schultern", "Kurzhantel"), ("Face Pulls", "Schultern", "Kabel"),
-        ("Arnold Press", "Schultern", "Kurzhantel"),
-        ("Klimmzüge", "Rücken", "Körpergewicht"), ("Langhantelrudern", "Rücken", "Langhantel"), ("Latzug", "Rücken", "Kabel"),
-        ("Rudern am Kabel", "Rücken", "Kabel"), ("Kurzhantelrudern einarmig", "Rücken", "Kurzhantel"), ("Kreuzheben", "Rücken", "Langhantel"),
-        ("Kniebeuge", "Beine", "Langhantel"), ("Rumänisches Kreuzheben", "Beine", "Langhantel"), ("Beinpresse", "Beine", "Maschine"),
-        ("Ausfallschritte", "Beine", "Kurzhantel"), ("Beinstrecker", "Beine", "Maschine"), ("Beinbeuger", "Beine", "Maschine"),
-        ("Wadenheben", "Beine", "Maschine"), ("Hip Thrust", "Beine", "Langhantel"), ("Bulgarian Split Squat", "Beine", "Kurzhantel"),
-        ("Bizepscurls", "Arme", "Kurzhantel"), ("Hammercurls", "Arme", "Kurzhantel"), ("Langhantelcurls", "Arme", "Langhantel"),
-        ("Trizepsdrücken am Kabel", "Arme", "Kabel"), ("Überkopf-Trizepsstrecken", "Arme", "Kabel"), ("French Press", "Arme", "SZ-Stange"),
-        ("Plank", "Rumpf", "Körpergewicht"), ("Hängendes Beinheben", "Rumpf", "Körpergewicht"), ("Cable Crunch", "Rumpf", "Kabel"),
-        ("Ab Wheel", "Rumpf", "Gerät")
-    ]
+    /// Name, Gruppe, Gerät – kommt aus `ExerciseCatalog` (dort stehen auch Muskeln und Ausführung).
+    static var library: [(String, String, String)] { ExerciseCatalog.all.map { ($0.name, $0.group, $0.equipment) } }
 
     static let routines: [(String, [(String, String, Int, Int, Double, Int)])] = [
         ("Push", [("Bankdrücken", "Brust", 4, 8, 72.5, 150), ("Schrägbankdrücken Kurzhantel", "Brust", 3, 10, 26, 120),
@@ -153,10 +140,14 @@ enum TrainingSeed {
 
     @MainActor
     static func seedIfNeeded(_ context: ModelContext) {
-        let count = (try? context.fetchCount(FetchDescriptor<Exercise>())) ?? 0
-        guard count == 0 else { return }
-        for (name, muscle, equipment) in library {
+        let existing = Set(((try? context.fetch(FetchDescriptor<Exercise>())) ?? []).map(\.name))
+        // Neue Katalogübungen kommen auch in bestehende Bibliotheken; Routinen nur beim ersten Start.
+        for (name, muscle, equipment) in library where !existing.contains(name) {
             context.insert(Exercise(name: name, muscle: muscle, equipment: equipment))
+        }
+        guard existing.isEmpty else {
+            try? context.save()
+            return
         }
         for (name, items) in routines {
             let routine = Routine(name: name)

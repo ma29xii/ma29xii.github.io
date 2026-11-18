@@ -7,7 +7,7 @@ enum TrainingTile: String, TileKind {
     var title: String {
         switch self {
         case .next: "Als Nächstes"
-        case .weeklySets: "Harte Sätze diese Woche"
+        case .weeklySets: "Muskeln, 7 Tage"
         case .routines: "Routinen"
         case .history: "Verlauf"
         case .library: "Bibliothek"
@@ -16,7 +16,7 @@ enum TrainingTile: String, TileKind {
     var systemImage: String {
         switch self {
         case .next: "play.circle"
-        case .weeklySets: "chart.bar"
+        case .weeklySets: "figure.strengthtraining.traditional"
         case .routines: "list.bullet.rectangle"
         case .history: "clock.arrow.circlepath"
         case .library: "books.vertical"
@@ -25,7 +25,7 @@ enum TrainingTile: String, TileKind {
     var summary: String {
         switch self {
         case .next: "Nächste Routine mit Start-Knopf"
-        case .weeklySets: "Sätze pro Muskelgruppe"
+        case .weeklySets: "Muskelkarte nach Sätzen"
         case .routines: "Deine Pläne"
         case .history: "Letzte Trainings"
         case .library: "Übungen und freies Training"
@@ -46,6 +46,7 @@ struct TrainingView: View {
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var editingTiles = false
     @State private var path: [TrainingRoute] = []
+    @State private var tappedMuscle: Muscle?
 
     private var next: Routine? { routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) } }
 
@@ -82,6 +83,7 @@ struct TrainingView: View {
                 case .history: HistoryView()
                 }
             }
+            .sheet(item: $tappedMuscle) { m in MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0) }
         }
     }
 
@@ -121,7 +123,9 @@ struct TrainingView: View {
                 }
             }
         case .weeklySets:
-            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "≤ 3 Wdh. übrig") { weeklySets }
+            let volume = weeklyVolume
+            let total = sessions.filter { $0.start >= Self.weekCutoff() }.reduce(0) { $0 + $1.workSets.count }
+            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: total > 0 ? "\(total) Sätze" : nil) { weeklyMuscles(volume) }
         case .library:
             WidgetCard(title: tile.title, systemImage: tile.systemImage) {
                 Button { path.append(.library) } label: {
@@ -173,42 +177,63 @@ struct TrainingView: View {
         }
     }
 
-    private var weeklySets: some View {
-        let weekStart = Calendar.forma.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
-        let sets = sessions.filter { $0.start >= weekStart }.flatMap(\.workSets)
+    /// Beginn des 7-Tage-Fensters (heute eingeschlossen).
+    private static func weekCutoff(now: Date = .now) -> Date {
+        Calendar.forma.date(byAdding: .day, value: -6, to: Calendar.forma.startOfDay(for: now)) ?? now
+    }
+
+    /// Sätze je Muskel der letzten 7 Tage (primär 1, sekundär ½).
+    private var weeklyVolume: [Muscle: Double] {
+        let cutoff = Self.weekCutoff()
+        let entries = sessions.filter { $0.start >= cutoff }.flatMap { s in s.workSets.map { (exercise: $0.exerciseName, date: s.start) } }
         let library = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
-        let muscleFor: (String) -> String = { name in library.first { $0.name == name }?.muscle ?? "Andere" }
-        let groups = ["Brust", "Rücken", "Beine", "Schultern", "Arme"]
-        // Unbekannte Reserve (rir < 0) zählt nicht als hart (Codex R-01-23).
-        let unknown = sets.filter { $0.rir < 0 }.count
-        return VStack(spacing: 0) {
-            if sets.isEmpty {
-                Text("Nach deinem ersten Training siehst du hier, wie viele harte Sätze jede Muskelgruppe diese Woche bekommen hat. Hart heißt: höchstens 3 Wiederholungen übrig.")
+        let groups = Dictionary(library.map { ($0.name, $0.muscle) }, uniquingKeysWith: { a, _ in a })
+        return MuscleVolume.lastSevenDays(entries, groups: groups)
+    }
+
+    private func weeklyMuscles(_ volume: [Muscle: Double]) -> some View {
+        let ranked = volume.filter { $0.value > 0 }.sorted { $0.value > $1.value }
+        let untrained = Muscle.allCases.filter { (volume[$0] ?? 0) == 0 }
+        return VStack(alignment: .leading, spacing: 0) {
+            MuscleMapView(intensity: volume.mapValues(MuscleVolume.level), showsBoth: true) { tappedMuscle = $0 }
+                .frame(height: 250)
+                .padding(.horizontal, Space.s4)
+                .padding(.vertical, Space.s3)
+            if ranked.isEmpty {
+                Text("Nach deinem ersten Training färbt sich hier jeder Muskel nach seinen Sätzen der letzten 7 Tage.")
                     .font(.formaBody).foregroundStyle(Theme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Space.s4)
+                    .padding([.horizontal, .bottom], Space.s4)
             } else {
-            ForEach(groups, id: \.self) { g in
-                let n = sets.filter { muscleFor($0.exerciseName) == g && $0.rir >= 0 && $0.rir <= 3 }.count
-                HStack(spacing: Space.s3) {
-                    Text(g).font(.formaCaption).foregroundStyle(Theme.textSecondary).frame(width: 76, alignment: .leading)
-                    ZStack(alignment: .leading) {
-                        ProgressLine(fraction: Double(n) / 20, height: 6)
-                        GeometryReader { geo in Rectangle().fill(Theme.textTertiary).frame(width: 1, height: 10).offset(x: geo.size.width / 2, y: -2) }
-                            .frame(height: 6)
+                ForEach(ranked.prefix(4), id: \.key) { entry in
+                    Button { tappedMuscle = entry.key } label: {
+                        HStack(spacing: Space.s3) {
+                            Text(entry.key.name).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                                .frame(width: 112, alignment: .leading)
+                            ProgressLine(fraction: min(1, entry.value / 20), height: 6)
+                            Text(MuscleVolume.text(entry.value)).font(.formaValue).frame(width: 36, alignment: .trailing)
+                        }
+                        .padding(.horizontal, Space.s4)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                    Text("\(n)").font(.formaValue).frame(width: 28, alignment: .trailing)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(entry.key.name), \(MuscleVolume.text(entry.value)) Sätze")
                 }
-                .padding(.horizontal, Space.s4)
-                .frame(minHeight: 40)
-            }
-            Text("Strich: 10 Sätze pro Woche als grober Orientierungswert, kein persönliches Ziel." + (unknown > 0 ? " \(unknown) Sätze ohne Reserve-Angabe sind nicht mitgezählt." : ""))
-                .font(.formaCaption).foregroundStyle(Theme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding([.horizontal, .bottom], Space.s4)
+                if !untrained.isEmpty {
+                    Text("Noch nicht dran: " + untrained.map(\.name).joined(separator: ", "))
+                        .font(.formaCaption).foregroundStyle(Theme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Space.s4)
+                        .padding(.top, Space.s2)
+                }
+                Text("Hauptmuskel zählt einen Satz, mithelfende einen halben. Aufwärmsätze zählen nicht.")
+                    .font(.formaCaption).foregroundStyle(Theme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding([.horizontal, .bottom], Space.s4)
+                    .padding(.top, Space.s2)
             }
         }
-        .padding(.top, Space.s2)
     }
 
     private func addRoutine() {

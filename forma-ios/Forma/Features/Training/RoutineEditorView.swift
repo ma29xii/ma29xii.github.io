@@ -155,28 +155,44 @@ struct ExerciseLibraryView: View {
     @State private var newName = ""
     @State private var newMuscle = "Brust"
     @State private var newEquipment = "Kurzhantel"
+    @State private var muscleFilter: Muscle?
 
     var body: some View {
         List {
-            ForEach(["Brust", "Rücken", "Schultern", "Beine", "Arme", "Rumpf"], id: \.self) { muscle in
-                let items = exercises.filter { $0.muscle == muscle && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) }
-                if !items.isEmpty {
-                    Section(muscle) {
-                        ForEach(items) { ex in
-                            NavigationLink { ExerciseDetailView(exercise: ex) } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(ex.name).font(.formaRowTitle)
-                                        Text(ex.equipment).font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                                    }
-                                    Spacer()
-                                    if ex.isCustom { Text("eigene").font(.formaMicro).foregroundStyle(Theme.textTertiary) }
+            Section {
+                MuscleMapView(intensity: muscleFilter.map { [$0: 1.0] } ?? [:], selected: muscleFilter, showsBoth: true) { m in
+                    withAnimation(.snappy) { muscleFilter = muscleFilter == m ? nil : m }
+                }
+                .frame(height: 230)
+                .padding(.vertical, Space.s2)
+                .listRowBackground(Color.clear)
+                if let selected = muscleFilter {
+                    Button { withAnimation(.snappy) { muscleFilter = nil } } label: {
+                        Label("\(selected.name) · Filter aufheben", systemImage: "xmark.circle.fill")
+                    }
+                }
+            } footer: {
+                if muscleFilter == nil { Text("Tipp auf einen Muskel, um die Übungen zu filtern.") }
+            }
+            if let muscle = muscleFilter {
+                let matching = exercises.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+                let direct = matching.filter { ExerciseCatalog.muscles(for: $0.name, group: $0.muscle).primary.contains(muscle) }
+                let assist = matching.filter {
+                    let m = ExerciseCatalog.muscles(for: $0.name, group: $0.muscle)
+                    return m.secondary.contains(muscle) && !m.primary.contains(muscle)
+                }
+                if !direct.isEmpty { Section("Trainiert \(muscle.name) direkt") { ForEach(direct) { row($0) } } }
+                if !assist.isEmpty { Section("Hilft mit") { ForEach(assist) { row($0) } } }
+            } else {
+                ForEach(["Brust", "Rücken", "Schultern", "Beine", "Arme", "Rumpf"], id: \.self) { muscle in
+                    let items = exercises.filter { $0.muscle == muscle && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) }
+                    if !items.isEmpty {
+                        Section(muscle) {
+                            ForEach(items) { row($0) }
+                                .onDelete { offsets in
+                                    for i in offsets where items[i].isCustom { context.delete(items[i]) }
+                                    try? context.save()
                                 }
-                            }
-                        }
-                        .onDelete { offsets in
-                            for i in offsets where items[i].isCustom { context.delete(items[i]) }
-                            try? context.save()
                         }
                     }
                 }
@@ -219,6 +235,20 @@ struct ExerciseLibraryView: View {
                 }
             }
             .presentationDetents([.medium])
+        }
+    }
+
+    private func row(_ ex: Exercise) -> some View {
+        NavigationLink { ExerciseDetailView(exercise: ex) } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ex.name).font(.formaRowTitle)
+                    Text(([ex.equipment] + ExerciseCatalog.muscles(for: ex.name, group: ex.muscle).primary.map(\.name)).joined(separator: " · "))
+                        .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
+                Spacer()
+                if ex.isCustom { Text("eigene").font(.formaMicro).foregroundStyle(Theme.textTertiary) }
+            }
         }
     }
 }
