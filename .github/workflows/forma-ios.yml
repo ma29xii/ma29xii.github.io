@@ -76,6 +76,10 @@ jobs:
 
   screens:
     # Unit-Tests (müssen grün sein) und Screenshots für die Design-Prüfung (dürfen scheitern).
+    # Läuft nach dem IPA-Build: Das Konto bekommt offenbar nicht zuverlässig zwei Mac-Runner gleichzeitig,
+    # und die IPA ist das Wichtigste.
+    needs: ipa
+    if: always() && needs.ipa.result != 'cancelled'
     runs-on: macos-26
     timeout-minutes: 45
     defaults:
