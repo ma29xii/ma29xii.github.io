@@ -51,7 +51,7 @@ struct JournalView: View {
                             HStack {
                                 Text(q).font(.formaRowTitle)
                                 Spacer()
-                                YesNoSwitch(value: Binding(get: { answer(q) }, set: { set(q, $0) }))
+                                YesNoSwitch(value: Binding(get: { answer(q) }, set: { set(q, $0) }), question: q)
                             }
                             .padding(.horizontal, Space.s4)
                             .frame(minHeight: 56)

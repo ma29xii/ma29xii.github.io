@@ -155,9 +155,10 @@ struct InfoChip: View {
             if let systemImage { Image(systemName: systemImage).font(.system(size: 11, weight: .semibold)) }
             Text(text)
         }
-        .font(.system(size: 12.5, weight: .semibold))
+        .font(.system(.caption, weight: .semibold))
         .padding(.horizontal, 12)
-        .frame(height: 30)
+        .padding(.vertical, 6)
+        .frame(minHeight: 30)
         .glassEffect(.regular, in: .capsule)
     }
 }
@@ -170,7 +171,8 @@ struct SampleDataBadge: View {
             .font(.formaMicro)
             .foregroundStyle(Theme.warning)
             .padding(.horizontal, 10)
-            .frame(height: 26)
+            .padding(.vertical, 4)
+            .frame(minHeight: 26)
             .glassEffect(.regular.tint(Theme.warning.opacity(0.18)), in: .capsule)
     }
 }
@@ -329,20 +331,36 @@ struct DayBars: View {
         .frame(height: 96)
         .padding(.horizontal, Space.s4)
         .padding(.top, Space.s4)
-        .accessibilityHidden(true)
+        // VoiceOver liest die Tage als Liste vor (Codex R-01-19).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Letzte \(values.count) Tage")
+        .accessibilityValue(zip(labels, values).map { "\($0) \(Int($1.rounded()))" }.joined(separator: ", "))
     }
 }
 
 /// Ja/Nein-Schalter mit einheitlichem Auswahlzustand.
 struct YesNoSwitch: View {
     @Binding var value: Bool?
+    /// Frage für VoiceOver, damit „Ja/Nein“ eindeutig zugeordnet ist.
+    var question: String = ""
     var body: some View {
         HStack(spacing: 0) {
             segment("Nein", selected: value == false) { value = false }
             segment("Ja", selected: value == true) { value = true }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(question)
+        .accessibilityValue(value == nil ? "nicht beantwortet" : (value == true ? "Ja" : "Nein"))
+        .accessibilityHint("Wischen nach oben für Ja, nach unten für Nein")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = true
+            case .decrement: value = false
+            @unknown default: break
+            }
+        }
         .padding(2)
-        .frame(width: 116, height: 34)
+        .frame(width: 132, height: 44)   // 44 pt Tippziel (Codex R-01-34)
         .background(Capsule().fill(Color.white.opacity(0.06)))
         .sensoryFeedback(.selection, trigger: value)
     }
@@ -350,7 +368,7 @@ struct YesNoSwitch: View {
     private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(.footnote, weight: .semibold))
                 .foregroundStyle(selected ? Theme.onSelection : Theme.textSecondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Capsule().fill(selected ? Theme.selection : Color.clear))
@@ -367,10 +385,12 @@ struct PrimaryButtonStyle: ButtonStyle {
     var height: CGFloat = 52
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(.callout, weight: .semibold))
             .foregroundStyle(Theme.onSelection)
+            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
-            .frame(height: height)
+            .padding(.vertical, 8)
+            .frame(minHeight: height)
             .background(Capsule().fill(Theme.selection))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.18), value: configuration.isPressed)
@@ -381,10 +401,11 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SmallPillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(.subheadline, weight: .semibold))
             .foregroundStyle(Theme.onSelection)
             .padding(.horizontal, 16)
-            .frame(height: 34)
+            .padding(.vertical, 6)
+            .frame(minHeight: 34)
             .background(Capsule().fill(Theme.selection))
             .padding(.vertical, 5)               // 44 pt Trefferfläche
             .contentShape(Rectangle())

@@ -81,21 +81,23 @@ extension Locale {
     static let german = Locale(identifier: "de_DE")
 }
 
-/// Typografie: Systemschrift (SF Pro) mit tabellarischen Ziffern für alle Werte.
+/// Typografie: Systemschrift auf Textstilen, damit Dynamic Type wirkt (Codex R-01-10).
+/// Bei Standardgröße identisch zu den früheren festen Größen (34/28/22/20/17/16/15/13/11 pt).
+/// Große Anzeigezahlen (Ringe, Hero) bleiben fest, sie sind Grafik und haben Text-Alternativen.
 extension Font {
-    static let formaLargeTitle = Font.system(size: 34, weight: .bold)
+    static let formaLargeTitle = Font.system(.largeTitle, weight: .bold)
     static let formaHero = Font.system(size: 64, weight: .semibold, design: .rounded).monospacedDigit()
-    static let formaTitle = Font.system(size: 28, weight: .bold)
-    static let formaHeadline = Font.system(size: 22, weight: .semibold)
-    static let formaSection = Font.system(size: 20, weight: .semibold)
-    static let formaBodyLarge = Font.system(size: 17, weight: .regular)
-    static let formaRowTitle = Font.system(size: 16, weight: .medium)
-    static let formaBody = Font.system(size: 15, weight: .regular)
-    static let formaValue = Font.system(size: 15, weight: .semibold).monospacedDigit()
-    static let formaCaption = Font.system(size: 13, weight: .regular)
-    static let formaCaptionStrong = Font.system(size: 13, weight: .semibold)
-    static let formaMicro = Font.system(size: 11, weight: .semibold)
-    static let formaBigNumber = Font.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit()
+    static let formaTitle = Font.system(.title, weight: .bold)
+    static let formaHeadline = Font.system(.title2, weight: .semibold)
+    static let formaSection = Font.system(.title3, weight: .semibold)
+    static let formaBodyLarge = Font.system(.body)
+    static let formaRowTitle = Font.system(.callout, weight: .medium)
+    static let formaBody = Font.system(.subheadline)
+    static let formaValue = Font.system(.subheadline, weight: .semibold).monospacedDigit()
+    static let formaCaption = Font.system(.footnote)
+    static let formaCaptionStrong = Font.system(.footnote, weight: .semibold)
+    static let formaMicro = Font.system(.caption2, weight: .semibold)
+    static let formaBigNumber = Font.system(.title, design: .rounded, weight: .semibold).monospacedDigit()
     static let formaWidgetNumber = Font.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit()
 }
 

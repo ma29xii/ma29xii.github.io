@@ -23,9 +23,8 @@ struct ProfileView: View {
                         ForEach(DataSourceKind.allCases.filter { $0 != .fitbit }) { Text($0.title).tag($0) }
                     }
                     LabeledContent("Gerade aktiv", value: hub.activeSource.title)
-                    if let last = hub.lastUpdate {
-                        LabeledContent("Aktualisiert", value: Format.clock(last))
-                    }
+                    LabeledContent("Letzter erfolgreicher Import", value: hub.lastUpdate.map { Format.clock($0) } ?? "noch keiner")
+                    LabeledContent("Tage mit Daten", value: "\(hub.longDays.filter { $0.sleep != nil || $0.hrv != nil || ($0.steps ?? 0) > 0 }.count) von \(hub.longDays.count)")
                 } header: {
                     Text("Datenquelle")
                 } footer: {
