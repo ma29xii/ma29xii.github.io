@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 /// Der Coach arbeitet auch, wenn die App geschlossen ist:
-/// - **Morgenbericht**, sobald die heutige Nacht in Apple Health angekommen ist (einmal pro Tag).
+/// - **Morgenbericht**, sobald die Schlafdaten für heute aus Google Health geladen sind (einmal pro Tag).
 /// - **Schlafenszeit-Erinnerung** 30 Minuten vor der empfohlenen Bettzeit.
 /// Alles wird lokal berechnet, es geht nichts ins Internet.
 ///
@@ -43,13 +43,18 @@ enum CoachNotifier {
         }
     }
 
-    private static func sentKey(_ date: Date) -> String { "forma.coach.morningSent." + FitbitService.dayString(date) }
+    private static func dayStamp(_ date: Date) -> String {
+        let day = Calendar.forma.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+    }
 
     static func sendMorningReportIfDue(_ hub: DataHub, now: Date = .now) async {
         let hour = Calendar.forma.component(.hour, from: now)
+        let stamp = dayStamp(now)
+        let sentKey = "forma.coach.morningSent." + stamp
         // Nur mit einer Nacht von *heute* – nie aus einem alten Stand (Codex R-02-07/24).
-        guard morningEnabled, (4...13).contains(hour), Calendar.forma.isDate(hub.today.date, inSameDayAs: now),
-              hub.today.sleep != nil, !UserDefaults.standard.bool(forKey: sentKey(now)) else { return }
+        guard morningEnabled, !hub.isSample, (4...13).contains(hour), Calendar.forma.isDate(hub.today.date, inSameDayAs: now),
+              hub.today.sleep != nil, !UserDefaults.standard.bool(forKey: sentKey) else { return }
         let content = UNMutableNotificationContent()
         content.threadIdentifier = "coach"
         content.sound = .default
@@ -67,11 +72,11 @@ enum CoachNotifier {
             content.title = "Dein Tagesbericht ist bereit"
             content.body = "Deine Nacht ist da. Öffne Health für Erholung, Schlaf und deinen Plan für heute."
         }
-        let id = "forma.morning." + FitbitService.dayString(now)
+        let id = "forma.morning." + stamp
         do {
             try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
             // Erst nach erfolgreicher Annahme als erledigt merken (Codex R-02-07).
-            UserDefaults.standard.set(true, forKey: sentKey(now))
+            UserDefaults.standard.set(true, forKey: sentKey)
         } catch {
             // Beim nächsten Abruf erneut versuchen.
         }

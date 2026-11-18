@@ -5,18 +5,25 @@ import Security
 enum Keychain {
     private static let service = "com.ma29xii.forma"
 
-    static func set(_ value: String?, for key: String) {
+    @discardableResult
+    static func set(_ value: String?, for key: String) -> OSStatus {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key
         ]
-        SecItemDelete(query as CFDictionary)
-        guard let value, let data = value.data(using: .utf8) else { return }
+        guard let value else {
+            let status = SecItemDelete(query as CFDictionary)
+            return status == errSecItemNotFound ? errSecSuccess : status
+        }
+        let data = Data(value.utf8)
         var add = query
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecDuplicateItem else { return status }
+        let update = [kSecValueData as String: data]
+        return SecItemUpdate(query as CFDictionary, update as CFDictionary)
     }
 
     static func get(_ key: String) -> String? {

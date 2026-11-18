@@ -5,11 +5,11 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var id = UUID()
     var role: Role
     var text: String
-    /// Nur lokal beantwortet – geht nie an Claude, auch nicht später im Verlauf (Codex R-02-15/A-22).
+    /// Nur lokal beantwortet. Bleibt auch später aus dem externen Verlauf (Codex R-02-15/A-22).
     var localOnly: Bool = false
 }
 
-/// Lokaler Coach: knapp, freundlich, du-Form. Optional mit Claude, wenn ein API-Schlüssel hinterlegt ist.
+/// Lokale Auswertung für den Coach.
 enum CoachEngine {
     struct Context: Sendable {
         var scores: DayScores
@@ -29,7 +29,7 @@ enum CoachEngine {
     static func dailyLine(_ c: Context) -> String {
         let s = c.scores
         if c.trainedToday && !c.strainAvailable {
-            return "Gut trainiert. Für eine Belastungszahl fehlen heute Messwerte von Uhr oder Apple Health."
+            return "Gut trainiert. Für eine Belastungszahl fehlen heute Messwerte aus Google Health."
         }
         if !c.recoveryAvailable && !c.trainedToday && c.hour < 20 {
             return "Für heute fehlen Herzwerte mit Vergleich. Ich gebe dir erst eine Empfehlung, wenn Messwerte da sind – trag deine Uhr auch nachts."
@@ -100,7 +100,7 @@ enum CoachEngine {
         let s = c.scores
         if q.contains("hrv") || q.contains("erhol") {
             guard c.recoveryAvailable else {
-                return "Für heute fehlen HRV oder Ruhepuls mit Vergleichswerten. Ohne Messung rechne ich keine Erholung aus – sobald deine Uhr Daten liefert, erkläre ich sie dir."
+                return "Für heute fehlen HRV oder Ruhepuls mit Vergleichswerten. Sobald Messwerte aus Google Health da sind, kann ich deine Erholung erklären."
             }
             var parts: [String] = []
             if let d = c.hrvDelta { parts.append("HRV \(d >= 0 ? "+" : "")\(Int(d.rounded())) ms zum Normalwert") }
@@ -131,7 +131,7 @@ enum CoachEngine {
         if q.contains("stress") || q.contains("energie") {
             return "Energie \(s.energy) von 100, Stress etwa \(Format.number(s.stress, decimals: 1)) von 3 (geschätzt aus Ruhepuls und HRV)."
         }
-        return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training oder Belastung – oder hinterlege in den Einstellungen einen API-Schlüssel für freie Fragen."
+        return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training oder Belastung."
     }
 
     static func contextSummary(_ c: Context) -> String {
@@ -152,56 +152,14 @@ enum CoachEngine {
     }
 }
 
-/// Optionaler Zugang zu Claude über die Anthropic-API.
+/// Kompatibilität für den bestehenden Coach-Dialog, dessen Einwilligung allein Anthropic umfasst.
 enum ClaudeClient {
-    struct Response: Decodable {
-        struct Block: Decodable { let type: String; let text: String? }
-        let content: [Block]
-    }
-
-    static let model = "claude-sonnet-5-5"
+    static let model = CoachProviders.AnthropicModel.sonnet.rawValue
 
     static func reply(apiKey: String, context: String, history: [ChatMessage]) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        let system = """
-        Du bist der Coach in der App Forma. Antworte auf Deutsch, in der du-Form, knapp (höchstens 3 Sätze), freundlich und konkret. \
-        Stütze dich nur auf die Daten unten. Du darfst Trainingsänderungen nur vorschlagen; Maxi entscheidet. Keine medizinischen Diagnosen.
-        Daten von heute:
-        \(context)
-        """
-        // Lokale Nachrichten nie senden, jede Nachricht begrenzen (Codex R-02-15/A-22/A-23).
-        let messages: [[String: String]] = history.filter { !$0.localOnly }.suffix(12)
-            .map { ["role": $0.role == .user ? "user" : "assistant", "content": String($0.text.prefix(2000))] }
-        guard messages.last?["role"] == "user" else { throw NSError(domain: "Forma.Claude", code: 400) }
-        let body: [String: Any] = ["model": model, "max_tokens": 400, "system": system, "messages": messages]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 30
-        // Einmal erneut versuchen bei Überlastung, Serverfehler oder Zeitüberschreitung.
-        var lastError: Error = NSError(domain: "Forma.Claude", code: 0)
-        for attempt in 0..<2 {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if status == 200 {
-                    let decoded = try JSONDecoder().decode(Response.self, from: data)
-                    let text = decoded.content.compactMap(\.text).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { throw NSError(domain: "Forma.Claude", code: 204) }
-                    return String(text.prefix(4000))
-                }
-                lastError = NSError(domain: "Forma.Claude", code: status, userInfo: [NSLocalizedDescriptionKey: "Claude antwortet mit Fehler \(status)."])
-                guard status == 429 || status >= 500, attempt == 0 else { throw lastError }
-            } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
-                lastError = error
-                guard attempt == 0 else { throw error }
-            }
-            try Task.checkCancellation()   // Widerruf stoppt auch den zweiten Versuch
-            try await Task.sleep(for: .seconds(2))
-            try Task.checkCancellation()
-        }
-        throw lastError
+        try await CoachProviders.reply(
+            context: context, history: history, anthropicKey: apiKey, openAIKey: nil,
+            maySend: { UserDefaults.standard.bool(forKey: "forma.claudeConsent") }
+        )
     }
 }
