@@ -10,7 +10,7 @@ Native iPhone-App für Erholung, Schlaf, Belastung und Krafttraining. SwiftUI, i
 
 Die IPA ist nicht mit einem Zertifikat signiert. Sie trägt nur eine Ad-hoc-Signatur, damit die HealthKit-Berechtigung in der App steckt und Sideloadly sie übernehmen kann.
 
-**Kostenlose Apple-ID:** Die Signatur läuft nach 7 Tagen ab, dann erneut mit Sideloadly installieren. Die Daten bleiben erhalten. Ob HealthKit mit einer kostenlosen Apple-ID funktioniert, kann ich nicht bestätigen. Falls nicht, zeigt Forma gekennzeichnete Beispieldaten oder nutzt Fitbit.
+**Kostenlose Apple-ID:** Die Signatur läuft nach 7 Tagen ab, dann erneut mit Sideloadly installieren. Die Daten bleiben erhalten. HealthKit soll laut Apples Fähigkeiten-Tabelle auch mit kostenloser Apple-ID für die eigene Nutzung gehen ([Expo, mit Verweis auf Apple](https://expo.dev/blog/apple-developer-program-explained-free-vs-paid)), im Entwicklerforum wird aber auch von Fehlern bei der Bereitstellung berichtet ([Apple Developer Forums](https://developer.apple.com/forums/thread/722522)). Verbindlich ist [Apples Tabelle der unterstützten Fähigkeiten](https://developer.apple.com/help/account/reference/supported-capabilities-ios/). Klappt es nicht, zeigt Forma gekennzeichnete Beispieldaten oder nutzt Fitbit.
 
 ## Fitbit einrichten (OAuth 2.0 mit PKCE)
 

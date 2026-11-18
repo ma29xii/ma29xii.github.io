@@ -144,13 +144,15 @@ struct ExerciseLibraryView: View {
                 if !items.isEmpty {
                     Section(muscle) {
                         ForEach(items) { ex in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(ex.name).font(.formaRowTitle)
-                                    Text(ex.equipment).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                            NavigationLink { ExerciseDetailView(exercise: ex) } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(ex.name).font(.formaRowTitle)
+                                        Text(ex.equipment).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                                    }
+                                    Spacer()
+                                    if ex.isCustom { Text("eigene").font(.formaMicro).foregroundStyle(Theme.textTertiary) }
                                 }
-                                Spacer()
-                                if ex.isCustom { Text("eigene").font(.formaMicro).foregroundStyle(Theme.textTertiary) }
                             }
                         }
                         .onDelete { offsets in

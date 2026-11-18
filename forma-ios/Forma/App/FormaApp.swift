@@ -25,6 +25,8 @@ struct RootView: View {
     @Environment(AppState.self) private var app
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("forma.onboarded") private var onboarded = false
+    @State private var showOnboarding = false
 
     var body: some View {
         @Bindable var app = app
@@ -55,8 +57,12 @@ struct RootView: View {
         .sheet(isPresented: $app.showJournal) {
             JournalView()
         }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView()
+        }
         .task {
             TrainingSeed.seedIfNeeded(context)
+            if !onboarded && !FormaApp.isUITest { showOnboarding = true }
             await hub.refresh()
         }
         .onChange(of: scenePhase) { _, phase in
