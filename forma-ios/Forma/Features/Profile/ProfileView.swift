@@ -348,6 +348,9 @@ private struct BodyProfileView: View {
     @AppStorage("forma.bodyWeightKg") private var weightKg = 0.0
     @State private var weightText = ""
     @State private var weightError = false
+    @AppStorage(FoodGoal.heightKey) private var heightCm = 0.0
+    @State private var heightText = ""
+    @State private var heightError = false
 
     var body: some View {
         @Bindable var app = app
@@ -391,10 +394,25 @@ private struct BodyProfileView: View {
                         Text("Gib ein Gewicht zwischen 1 und 500 kg ein oder lass das Feld leer.")
                             .font(.formaCaption).foregroundStyle(Theme.warning)
                     }
+                    HStack {
+                        Text("Größe")
+                        TextField("Nicht angegeben", text: $heightText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityLabel("Körpergröße")
+                        Text("cm").foregroundStyle(Theme.textSecondary)
+                    }
+                    if heightText != heightDisplay {
+                        Button("Größe speichern") { saveHeight() }
+                    }
+                    if heightError {
+                        Text("Gib 80 bis 250 cm ein oder lass das Feld leer.")
+                            .font(.formaCaption).foregroundStyle(Theme.warning)
+                    }
                 } header: {
                     Text("Über dich").formaLabelStyle()
                 } footer: {
-                    Text("Für Health Age und Schlafbedarf.")
+                    Text("Für Health Age, Schlafbedarf und dein Kalorienziel.")
                 }
                 .listRowBackground(Theme.card)
             }
@@ -412,7 +430,10 @@ private struct BodyProfileView: View {
         .formaScreen()
         .navigationTitle("Body")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { weightText = displayWeight(weightKg, unit: app.weightUnit) }
+        .onAppear {
+            weightText = displayWeight(weightKg, unit: app.weightUnit)
+            heightText = heightDisplay
+        }
         .onChange(of: birthYear) { _, _ in hub.profileChanged() }
         .onChange(of: sexRaw) { _, _ in hub.profileChanged() }
         .onChange(of: app.weightUnit) { old, new in
@@ -440,6 +461,21 @@ private struct BodyProfileView: View {
             : value
         guard let number = Double(decimal), number.isFinite else { return nil }
         return unit == .kg ? number : number / 2.20462
+    }
+
+    private var heightDisplay: String { FoodGoal.heightRange.contains(heightCm) ? FoodText.input(heightCm) : "" }
+
+    private func saveHeight() {
+        if heightText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            heightCm = 0
+        } else if let cm = FoodText.decimal(heightText), FoodGoal.heightRange.contains(cm) {
+            heightCm = cm
+        } else {
+            heightError = true
+            return
+        }
+        heightText = heightDisplay
+        heightError = false
     }
 
     private func saveWeight() {
