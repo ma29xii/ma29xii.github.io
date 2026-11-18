@@ -1,11 +1,16 @@
 import SwiftUI
 
-/// Einzige Naht zum Kalorien-Tracker (`Features/Food/`, codex-food).
-/// Solange `FoodScanSheet` und `FoodLogView` fehlen, zeigen Platzhalter das Ziel.
-/// Umstellen: nur die drei Funktionen unten ändern.
+/// Einzige Naht zum Tracker in `Features/Food/` (codex-food): Essen, Wasser, Fasten, Gewicht.
+/// Was noch fehlt (`FoodLogView`, Foto, Wasser, Fasten, Gewicht), zeigt einen Platzhalter.
+/// Umstellen: nur die Funktionen unten ändern.
 enum PlusFood {
-    @ViewBuilder static func scan() -> some View { PlusFoodPlaceholder(title: "Mahlzeit scannen", systemImage: "barcode.viewfinder") }
-    @ViewBuilder static func search() -> some View { PlusFoodPlaceholder(title: "Essen suchen", systemImage: "magnifyingglass") }
+    // Barcode und Suche sind zwei Reiter im selben Sheet (Standard: Barcode).
+    @ViewBuilder static func scan() -> some View { FoodScanSheet() }
+    @ViewBuilder static func photo() -> some View { PlusFoodPlaceholder(title: "Essen fotografieren", systemImage: "camera.viewfinder") }
+    @ViewBuilder static func water() -> some View { PlusFoodPlaceholder(title: "Wasser", systemImage: "drop") }
+    @ViewBuilder static func fasting() -> some View { PlusFoodPlaceholder(title: "Fasten", systemImage: "timer") }
+    @ViewBuilder static func weight() -> some View { PlusFoodPlaceholder(title: "Gewicht", systemImage: "scalemass") }
+    @ViewBuilder static func search() -> some View { FoodScanSheet() }
     @ViewBuilder static func log() -> some View { PlusFoodPlaceholder(title: "Ernährung heute", systemImage: "fork.knife") }
 }
 

@@ -3,7 +3,7 @@ import SwiftData
 
 /// Einträge des Plus-Menüs.
 enum PlusAction: String, CaseIterable, Identifiable, Sendable {
-    case scan, search, food, training
+    case scan, photo, search, food, water, fasting, weight, training
 
     var id: String { rawValue }
     var accessibilityID: String { "plus." + rawValue }
@@ -11,8 +11,12 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .scan: "Mahlzeit scannen"
+        case .photo: "Essen fotografieren"
         case .search: "Essen suchen"
         case .food: "Ernährung heute"
+        case .water: "Wasser"
+        case .fasting: "Fasten"
+        case .weight: "Gewicht"
         case .training: "Training starten"
         }
     }
@@ -20,8 +24,12 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
     var subtitle: String {
         switch self {
         case .scan: "Barcode mit der Kamera lesen"
+        case .photo: "Die KI schätzt, du bestätigst"
         case .search: "Nach Name oder Marke suchen"
         case .food: "Kalorien und Nährwerte"
+        case .water: "Ein Glas eintragen"
+        case .fasting: "Fastenzeit starten oder beenden"
+        case .weight: "Gewicht eintragen"
         case .training: "Die nächste Routine beginnen"
         }
     }
@@ -29,11 +37,30 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
     var systemImage: String {
         switch self {
         case .scan: "barcode.viewfinder"
+        case .photo: "camera.viewfinder"
         case .search: "magnifyingglass"
         case .food: "fork.knife"
+        case .water: "drop"
+        case .fasting: "timer"
+        case .weight: "scalemass"
         case .training: "dumbbell"
         }
     }
+}
+
+struct PlusGroup: Identifiable, Sendable {
+    let title: String
+    let actions: [PlusAction]
+    var id: String { title }
+}
+
+extension PlusAction {
+    /// Gruppen im Menü: Essen, Heute erfassen, Training.
+    static let groups = [
+        PlusGroup(title: "Essen", actions: [.scan, .photo, .search, .food]),
+        PlusGroup(title: "Heute erfassen", actions: [.water, .fasting, .weight]),
+        PlusGroup(title: "Training", actions: [.training])
+    ]
 }
 
 enum PlusLogic {
@@ -52,17 +79,20 @@ struct PlusMenuSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s3) {
-                Text("Hinzufügen").formaLabelStyle()
-                VStack(spacing: 0) {
-                    ForEach(Array(PlusAction.allCases.enumerated()), id: \.element.id) { index, action in
-                        if index > 0 { RowDivider(inset: Space.s4 + 36 + Space.s3) }
-                        Button { onSelect(action) } label: { row(action) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier(action.accessibilityID)
+                ForEach(PlusAction.groups) { group in
+                    Text(group.title).formaLabelStyle()
+                        .padding(.top, group.id == PlusAction.groups.first?.id ? 0 : Space.s3)
+                    VStack(spacing: 0) {
+                        ForEach(Array(group.actions.enumerated()), id: \.element.id) { index, action in
+                            if index > 0 { RowDivider(inset: Space.s4 + 36 + Space.s3) }
+                            Button { onSelect(action) } label: { row(action) }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier(action.accessibilityID)
+                        }
                     }
+                    .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Theme.plate))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 0.75))
                 }
-                .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Theme.plate))
-                .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 0.75))
             }
             .padding(.horizontal, Space.page)
             .padding(.top, Space.s5)
@@ -120,8 +150,12 @@ private struct PlusFlow: ViewModifier {
             .sheet(item: $destination) { action in
                 switch action {
                 case .scan: PlusFood.scan()
+                case .photo: PlusFood.photo()
                 case .search: PlusFood.search()
                 case .food: PlusFood.log()
+                case .water: PlusFood.water()
+                case .fasting: PlusFood.fasting()
+                case .weight: PlusFood.weight()
                 case .training: EmptyView()
                 }
             }

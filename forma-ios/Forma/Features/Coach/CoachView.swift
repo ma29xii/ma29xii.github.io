@@ -19,6 +19,9 @@ struct CoachView: View {
     @State private var claudeTask: Task<Void, Never>?
     /// Kurz nach einer Antwort freut sich das Maskottchen.
     @State private var justReplied = false
+    /// Fotos für die nächste Nachricht und die Fotos der bisherigen Nachrichten (nur Vorschau, nur im Speicher).
+    @State private var attachments: [CoachPhoto] = []
+    @State private var messagePhotos: [UUID: [CoachPhoto]] = [:]
     @State private var repliedResetTask: Task<Void, Never>?
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Schlüssel einmal beim Öffnen prüfen (Schlüsselbund-Zugriff nicht bei jedem Neuzeichnen).
@@ -35,7 +38,8 @@ struct CoachView: View {
             plannedRoutine: planned?.name,
             trainedToday: sessions.contains { Calendar.forma.isDateInToday($0.start) },
             isSample: hub.isSample, hour: Calendar.forma.component(.hour, from: .now),
-            recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain)
+            recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain,
+            history: hub.history)
     }
 
     private var hasSuggestion: Bool {
@@ -120,13 +124,12 @@ struct CoachView: View {
                 Button("Nur lokal antworten") {
                     if let t = pendingConsentText {
                         pendingConsentText = nil
-                        messages.append(ChatMessage(role: .user, text: t, localOnly: true))
-                        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: t, context), localOnly: true))
+                        answerLocally(t)
                     }
                 }
                 Button("Abbrechen", role: .cancel) { pendingConsentText = nil }
             } message: {
-                Text("Dann gehen deine Frage, der bisherige Chat und eine Zusammenfassung deiner Tageswerte (Recovery, Sleep, Strain, HRV, Ruhepuls, geplantes Training) an Anthropic. Ist Anthropic nicht erreichbar, antwortet OpenAI mit denselben Daten. Widerrufen kannst du das oben im Coach.")
+                Text(consentMessage(for: pendingConsentText ?? ""))
             }
             .onChange(of: app.coachPrompt) { _, _ in consumePrompt() }
             .onChange(of: messages.count) { _, _ in
@@ -223,19 +226,22 @@ struct CoachView: View {
         HStack(alignment: .bottom, spacing: Space.s2) {
             if m.role == .user { Spacer(minLength: 48) }
             if m.role == .coach { MascotBadge(size: 26) }
-            Text(m.text)
-                .font(.formaBody)
-                .foregroundStyle(m.role == .user ? Theme.onSelection : Theme.textPrimary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background {
-                    let shape = UnevenRoundedRectangle(
-                        topLeadingRadius: Radius.plate, bottomLeadingRadius: m.role == .user ? Radius.plate : 6,
-                        bottomTrailingRadius: m.role == .user ? 6 : Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
-                    shape.fill(m.role == .user ? Theme.selection : Theme.card)
-                        .overlay { if m.role == .coach { shape.strokeBorder(Theme.hairline, lineWidth: 0.75) } }
-                }
-                .textSelection(.enabled)
+            VStack(alignment: m.role == .user ? .trailing : .leading, spacing: 6) {
+                if let photos = messagePhotos[m.id], !photos.isEmpty { CoachBubblePhotos(photos: photos) }
+                Text(m.text)
+                    .font(.formaBody)
+                    .foregroundStyle(m.role == .user ? Theme.onSelection : Theme.textPrimary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background {
+                        let shape = UnevenRoundedRectangle(
+                            topLeadingRadius: Radius.plate, bottomLeadingRadius: m.role == .user ? Radius.plate : 6,
+                            bottomTrailingRadius: m.role == .user ? 6 : Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
+                        shape.fill(m.role == .user ? Theme.selection : Theme.card)
+                            .overlay { if m.role == .coach { shape.strokeBorder(Theme.hairline, lineWidth: 0.75) } }
+                    }
+                    .textSelection(.enabled)
+            }
             if m.role == .coach { Spacer(minLength: 48) }
         }
     }
@@ -265,7 +271,9 @@ struct CoachView: View {
                 .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.75))
                 .padding(.horizontal, Space.page)
             }
+            CoachPhotoStrip(photos: $attachments)
             HStack(spacing: Space.s2) {
+                CoachPhotoButton(photos: $attachments)
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($inputFocused)
@@ -279,7 +287,7 @@ struct CoachView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)
-                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || thinking)
+                .disabled((input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) || thinking)
                 .accessibilityLabel("Senden")
             }
             .padding(.horizontal, Space.page)
@@ -294,9 +302,49 @@ struct CoachView: View {
         messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: app.coachTopic, context), localOnly: true))
     }
 
+    /// Nur lokal antworten: Frage und Antwort bleiben auf dem iPhone. Fotos kann der lokale Coach nicht ansehen.
+    private func answerLocally(_ text: String) {
+        let photos = attachments
+        let question = ChatMessage(role: .user, text: text, localOnly: true)
+        messages.append(question)
+        var answer = CoachEngine.localAnswer(to: text, context)
+        if !photos.isEmpty {
+            messagePhotos[question.id] = photos.map(\.forChat)
+            attachments = []
+            answer = "Fotos sehe ich nur im Online-Coach. Hier kann ich nur zu deinen Werten antworten.\n\n" + answer
+        }
+        messages.append(ChatMessage(role: .coach, text: answer, localOnly: true))
+    }
+
+    /// Dialogtext: wer bekommt was, wann OpenAI übernimmt (Gegenprüfung 01, Punkt 4).
+    private func consentMessage(for question: String) -> String {
+        let fields = CoachEngine.transmittedFields(for: question, context)
+        let values = fields.isEmpty
+            ? "Für diese Frage gehen keine Tageswerte mit."
+            : "Dazu diese Tageswerte: \(fields.joined(separator: ", "))."
+        let photos = attachments.isEmpty
+            ? ""
+            : " Außerdem \(attachments.count == 1 ? "dein Foto" : "deine \(attachments.count) Fotos")."
+        return """
+        Gesendet werden deine Frage und der bisherige Online-Chat (ohne nur lokal beantwortete Nachrichten). \(values)\(photos)
+
+        Empfänger ist Anthropic. Antwortet Anthropic nicht rechtzeitig oder unbrauchbar, bekommt OpenAI dieselben Daten und antwortet stattdessen. Ist nur ein OpenAI-Schlüssel hinterlegt, geht alles direkt an OpenAI.
+
+        Widerrufen kannst du das oben im Coach über „Online-Coach“.
+        """
+    }
+
+    /// Online-Antwort. Mit Fotos ruft das die Bildfunktion des Anbieters auf.
+    private func onlineReply(summary: String, history: [ChatMessage], photos: [CoachPhoto]) async throws -> String {
+        guard photos.isEmpty else { throw CoachPhotoError.notReady }
+        return try await CoachProviders.reply(context: summary, history: history)
+    }
+
     private func send(_ raw: String) {
-        let text = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
-        guard !text.isEmpty, !thinking else { return }
+        let typed = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+        let photos = attachments
+        guard !typed.isEmpty || !photos.isEmpty, !thinking else { return }
+        let text = typed.isEmpty ? "Schau dir das bitte an." : typed
         if hasKey && !externalConsent {
             input = ""
             pendingConsentText = text
@@ -307,13 +355,18 @@ struct CoachView: View {
         let external = online
         let question = ChatMessage(role: .user, text: text, localOnly: !external)
         messages.append(question)
+        if !photos.isEmpty {
+            messagePhotos[question.id] = photos.map(\.forChat)
+            attachments = []
+        }
         if external {
             thinking = true
             let history = messages
-            let summary = CoachEngine.contextSummary(ctx)
+            // Nur die Tageswerte, die zur Frage gehören – genau die, die der Dialog genannt hat.
+            let summary = CoachEngine.contextSummary(ctx, for: text)
             claudeTask = Task {
                 do {
-                    let reply = try await CoachProviders.reply(context: summary, history: history)
+                    let reply = try await onlineReply(summary: summary, history: history, photos: photos)
                     guard !Task.isCancelled, externalConsent else {
                         messages.markLocalOnly(question.id)
                         thinking = false
@@ -324,6 +377,9 @@ struct CoachView: View {
                     // Abgebrochene Frage nie später im Verlauf mitsenden (Gegenprüfung 01, Punkt 5).
                     messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: "Abgebrochen. Nichts weiter wurde gesendet.", localOnly: true))
+                } catch CoachPhotoError.notReady {
+                    messages.markLocalOnly(question.id)
+                    messages.append(ChatMessage(role: .coach, text: "Fotos kann ich noch nicht ansehen. Das kommt mit dem nächsten Update. Es wurde nichts gesendet.", localOnly: true))
                 } catch {
                     messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Der Online-Coach ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
@@ -331,10 +387,15 @@ struct CoachView: View {
                 thinking = false
             }
         } else {
-            messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx), localOnly: true))
+            var answer = CoachEngine.localAnswer(to: text, ctx)
+            if !photos.isEmpty { answer = "Fotos sehe ich nur im Online-Coach. Hier kann ich nur zu deinen Werten antworten.\n\n" + answer }
+            messages.append(ChatMessage(role: .coach, text: answer, localOnly: true))
         }
     }
 }
+
+/// Fotos an den Online-Coach: wartet auf die Bildfunktion in `CoachProviders` (codex-coach).
+private enum CoachPhotoError: Error { case notReady }
 
 extension Array where Element == ChatMessage {
     /// Markiert eine Nachricht als nur lokal, damit sie in keiner späteren Online-Anfrage auftaucht.

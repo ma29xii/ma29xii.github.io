@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Forma
 
 final class PlusCoachTests: XCTestCase {
@@ -6,10 +7,13 @@ final class PlusCoachTests: XCTestCase {
 
     func testPlusActionsHaveUniqueIdentifiersAndTexts() {
         let ids = PlusAction.allCases.map(\.accessibilityID)
-        XCTAssertEqual(ids, ["plus.scan", "plus.search", "plus.food", "plus.training"])
+        XCTAssertEqual(ids, ["plus.scan", "plus.photo", "plus.search", "plus.food", "plus.water",
+                             "plus.fasting", "plus.weight", "plus.training"])
         XCTAssertEqual(Set(ids).count, ids.count)
         XCTAssertEqual(PlusAction.allCases.map(\.title),
-                       ["Mahlzeit scannen", "Essen suchen", "Ernährung heute", "Training starten"])
+                       ["Mahlzeit scannen", "Essen fotografieren", "Essen suchen", "Ernährung heute", "Wasser",
+                        "Fasten", "Gewicht", "Training starten"])
+        XCTAssertEqual(PlusAction.groups.flatMap(\.actions), PlusAction.allCases, "Jede Aktion steht in genau einer Gruppe")
         XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.subtitle.isEmpty && !$0.systemImage.isEmpty })
     }
 
@@ -45,5 +49,38 @@ final class PlusCoachTests: XCTestCase {
 
     func testEveryMoodHasText() {
         for mood in MascotMood.allCases { XCTAssertFalse(mood.accessibilityText.isEmpty) }
+    }
+}
+
+final class CoachPhotoTests: XCTestCase {
+    private func jpeg(width: Int, height: Int) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { ctx in
+            for y in stride(from: 0, to: height, by: 8) {
+                UIColor(hue: CGFloat(y % 360) / 360, saturation: 1, brightness: 1, alpha: 1).setFill()
+                ctx.fill(CGRect(x: 0, y: y, width: width, height: 8))
+            }
+        }
+        return image.jpegData(compressionQuality: 1)!
+    }
+
+    func testLargePhotoIsShrunkBelowEdgeAndSizeLimit() throws {
+        let photo = try XCTUnwrap(CoachPhoto.prepare(jpeg(width: 3000, height: 2000)))
+        let sent = try XCTUnwrap(UIImage(data: photo.jpeg))
+        XCTAssertLessThanOrEqual(max(sent.size.width, sent.size.height) * sent.scale, CGFloat(CoachPhoto.maxEdge))
+        XCTAssertLessThanOrEqual(photo.jpeg.count, CoachPhoto.maxBytes)
+        XCTAssertLessThanOrEqual(max(photo.image.size.width, photo.image.size.height) * photo.image.scale, CGFloat(CoachPhoto.previewEdge))
+    }
+
+    func testNoImageDataGivesNil() {
+        XCTAssertNil(CoachPhoto.prepare(Data("kein Bild".utf8)))
+        XCTAssertNil(CoachPhoto.prepare(Data()))
+    }
+
+    func testChatCopyKeepsNoSendData() throws {
+        let photo = try XCTUnwrap(CoachPhoto.prepare(jpeg(width: 800, height: 600)))
+        XCTAssertFalse(photo.jpeg.isEmpty)
+        XCTAssertTrue(photo.forChat.jpeg.isEmpty)
     }
 }
