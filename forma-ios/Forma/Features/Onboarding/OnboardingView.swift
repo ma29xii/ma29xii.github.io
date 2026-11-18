@@ -3,7 +3,6 @@ import SwiftUI
 /// Erster Start: Datenquelle wählen. Erscheint einmal.
 struct OnboardingView: View {
     @Environment(DataHub.self) private var hub
-    @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @AppStorage("forma.onboarded") private var onboarded = false
 
@@ -24,10 +23,19 @@ struct OnboardingView: View {
                 Button {
                     Task {
                         await hub.requestHealthAccess()
-                        finish()
+                        if hub.healthAccessError == nil { finish() }
                     }
                 } label: { Text("Mit Apple Health verbinden") }
                 .buttonStyle(PrimaryButtonStyle())
+                .disabled(!hub.health.isAvailable || hub.requestingHealthAccess)
+                if !hub.health.isAvailable || hub.healthAccessError != nil {
+                    Text(hub.healthStatus)
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.warning)
+                        .multilineTextAlignment(.center)
+                }
+                Button("Später verbinden") { finish() }
+                    .frame(minHeight: 44)
                 Button("Erst mit Beispieldaten ansehen") {
                     hub.preferredSource = .sample
                     finish()
@@ -36,7 +44,7 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minHeight: 44)
             }
-            Text("Health rechnet auf deinem iPhone. Nur wenn du später den Claude-Coach einschaltest, gehen ausgewählte Werte an Anthropic – das fragt dich Health vorher.")
+            Text("Health liest deine freigegebenen Daten aus Apple Health.")
                 .font(.formaCaption).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.top, Space.s2)

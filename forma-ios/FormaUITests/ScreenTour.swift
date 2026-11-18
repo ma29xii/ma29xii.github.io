@@ -55,26 +55,90 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
+    private func reveal(_ element: XCUIElement, swipes: Int = 5) -> Bool {
+        for _ in 0..<swipes {
+            if element.exists && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists && element.isHittable
+    }
+
+    private func captureDetail(_ id: String, title: String, screenshot: String) {
+        let button = app.buttons[id]
+        guard reveal(button) else {
+            XCTFail("Der Einstieg für \(title) fehlt")
+            return
+        }
+        button.tap()
+        guard app.navigationBars[title].waitForExistence(timeout: 3) else {
+            XCTFail("Die Detailseite \(title) fehlt")
+            return
+        }
+        shot(screenshot)
+        back()
+    }
+
+    private func finishEditing() {
+        let done = app.buttons["tiles.done"]
+        if done.exists && done.isHittable {
+            done.tap()
+            return
+        }
+        let edit = app.buttons["tiles.edit"]
+        guard reveal(edit), edit.label == "Fertig" else {
+            XCTFail("Der Bearbeitungsmodus lässt sich nicht beenden")
+            return
+        }
+        edit.tap()
+    }
+
     func testTour() {
         sleep(2)
-        shot("01 Heute")
+        let steps = app.buttons["today.tile.day"]
+        XCTAssertTrue(steps.waitForExistence(timeout: 5))
+        let edit = app.buttons["tiles.edit"]
+        XCTAssertFalse(app.navigationBars.buttons["Heute anpassen"].exists)
+        shot("01 Today")
         app.swipeUp()
-        shot("02 Heute gescrollt")
-        app.swipeUp()
-        app.swipeUp()
-        shot("03 Heute unten")
-        app.swipeUp()
-        if tapButton(beginningWith: "Heute anpassen") {
-            sleep(1)
-            shot("03b Heute anpassen")
-            _ = tapButton(beginningWith: "Fertig")
+        shot("02 Today gescrollt")
+
+        if reveal(edit) {
+            shot("03 Today unten")
+            edit.tap()
+            XCTAssertTrue(app.buttons["Körper ausblenden"].exists)
+            XCTAssertFalse(app.buttons["Schritte ausblenden"].exists)
+            XCTAssertFalse(app.sheets.firstMatch.exists)
+            shot("03b Today bearbeiten")
+            finishEditing()
+        } else {
+            XCTFail("Der Bearbeitungsmodus von Today fehlt")
         }
-        app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown()
+        let recovery = app.buttons["ring.recovery"]
+        for _ in 0..<5 {
+            if recovery.exists && recovery.isHittable { break }
+            app.swipeDown()
+        }
         sleep(1)
 
-        if tapButton(beginningWith: "Erholung ") { shot("04 Erholung"); app.swipeUp(); shot("05 Erholung unten"); back() }
-        if tapButton(beginningWith: "Schlaf ") { shot("06 Schlaf"); app.swipeUp(); shot("07 Schlaf unten"); back() }
-        if tapButton(beginningWith: "Belastung ") { shot("08 Belastung"); back() }
+        for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
+            let ring = app.buttons["ring.\(kind)"]
+            guard ring.waitForExistence(timeout: 3) && ring.isHittable else {
+                XCTFail("Ring \(kind) fehlt")
+                continue
+            }
+            ring.tap()
+            let title = String(name.dropFirst(3))
+            if app.navigationBars[title].waitForExistence(timeout: 3) {
+                XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 3))
+                shot(name)
+                back()
+            } else {
+                XCTFail("Die Ring-Detailseite \(title) fehlt")
+            }
+        }
+        captureDetail("today.tile.day", title: "Schritte", screenshot: "08b Schritte")
+        captureDetail("today.tile.energy", title: "Energie und Stress", screenshot: "08c Energie und Stress")
+        captureDetail("today.tile.body", title: "Körper", screenshot: "08d Körper")
 
         tab("Training")
         shot("09 Training")
@@ -106,28 +170,32 @@ final class ScreenTour: XCTestCase {
             }
         }
 
-        tab("Gesundheit")
-        shot("14 Gesundheit")
-        app.swipeUp()
-        if tapButton(beginningWith: "Körperalter") {
-            shot("14b Körperalter")
-            app.swipeUp()
-            shot("14c Körperalter Faktoren")
-            app.swipeUp(); app.swipeUp()
-            shot("14d Körperalter Methode")
-            back()
+        tab("Health")
+        shot("14 Health")
+        captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
+        captureDetail("health.age", title: "Health Age", screenshot: "14b Health Age")
+        if reveal(edit) {
+            edit.tap()
+            XCTAssertFalse(app.sheets.firstMatch.exists)
+            shot("14c Health bearbeiten")
+            finishEditing()
+        } else {
+            XCTFail("Der Bearbeitungsmodus von Health fehlt")
         }
-        shot("14e Gesundheit unten")
-        app.swipeDown(); app.swipeDown()
-        if tapButton(beginningWith: "HRV") { shot("15 HRV"); back() }
 
         tab("Coach")
         shot("16 Coach")
         if tapButton(beginningWith: "Wann soll ich") { sleep(1); shot("17 Coach Antwort") }
 
-        tab("Heute")
-        if tapButton(beginningWith: "Journal") { sleep(1); shot("18 Journal"); _ = tapButton(beginningWith: "Fertig") }
+        tab("Today")
         let profile = app.buttons["Profil und Einstellungen"].firstMatch
-        if profile.waitForExistence(timeout: 3) { profile.tap(); sleep(1); shot("19 Profil") }
+        if profile.waitForExistence(timeout: 3) {
+            profile.tap()
+            XCTAssertTrue(app.navigationBars["Profil"].waitForExistence(timeout: 3))
+            shot("19 Profil")
+            captureDetail("Body", title: "Body", screenshot: "20 Body")
+        } else {
+            XCTFail("Das Profil fehlt")
+        }
     }
 }

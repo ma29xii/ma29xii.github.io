@@ -1,8 +1,6 @@
 import SwiftUI
 import SwiftData
 
-struct BodyAgeRoute: Hashable {}
-
 @MainActor
 func bodyAgeOutcome(hub: DataHub, sessions: [WorkoutSession]) -> BodyAge.Outcome {
     let forma = sessions.map { (start: $0.start, minutes: $0.duration / 60) }
@@ -35,124 +33,40 @@ enum BodyAgeText {
     }
 }
 
-/// Skala: echtes Alter als Strich, Körperalter als leuchtender Punkt.
-struct AgeScale: View {
-    let age: Double
-    let bodyAge: Double
-    var span: Double = 15   // gleiche Grenze wie die Rechnung (±15 Jahre, Codex R-02-11)
 
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let lo = age - span, hi = age + span
-            let x: (Double) -> CGFloat = { v in CGFloat((min(hi, max(lo, v)) - lo) / (hi - lo)) * w }
-            let color = BodyAgeText.color(bodyAge - age)
-            ZStack(alignment: .topLeading) {
-                Capsule()
-                    .fill(LinearGradient(colors: [Theme.younger.opacity(0.35), Color.white.opacity(0.08), Theme.older.opacity(0.35)],
-                                         startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 6)
-                    .offset(y: 7)
-                Capsule().fill(color)
-                    .frame(width: max(2, abs(x(bodyAge) - x(age))), height: 6)
-                    .offset(x: min(x(bodyAge), x(age)), y: 7)
-                Rectangle().fill(Theme.textPrimary).frame(width: 2, height: 20)
-                    .offset(x: x(age) - 1)
-                Circle().fill(color)
-                    .frame(width: 14, height: 14)
-                    .overlay(Circle().stroke(Theme.background, lineWidth: 2))
-                    .shadow(color: color.opacity(0.7), radius: 6)
-                    .offset(x: x(bodyAge) - 7, y: 3)
-                Text("dein Alter").font(.formaMicro).foregroundStyle(Theme.textTertiary)
-                    .fixedSize()
-                    .offset(x: x(age) - 26, y: 24)
-                Text("jünger").font(.formaMicro).foregroundStyle(Theme.textTertiary).offset(x: 0, y: 24)
-                Text("älter").font(.formaMicro).foregroundStyle(Theme.textTertiary)
-                    .frame(width: w, alignment: .trailing).offset(y: 24)
-            }
-        }
-        .frame(height: 40)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Kachel für „Heute“.
-struct BodyAgeTile: View {
-    @Environment(DataHub.self) private var hub
-    @Environment(AppState.self) private var app
-    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
-    var open: () -> Void
-
-    var body: some View {
-        BodyAgeSummaryCard(outcome: bodyAgeOutcome(hub: hub, sessions: sessions), open: open) { app.showProfile = true }
-    }
-}
-
-/// Karte mit Körperalter, genutzt auf „Heute“ und in „Gesundheit“.
 struct BodyAgeSummaryCard: View {
     let outcome: BodyAge.Outcome
-    var open: () -> Void
-    var openProfile: () -> Void
 
     var body: some View {
-        switch outcome {
-        case .ready(let r):
-            Button(action: open) {
-                WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "Schätzung, nicht validiert") {
-                    VStack(alignment: .leading, spacing: Space.s3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(BodyAgeText.years(r.bodyAge))
-                                .font(.formaWidgetNumber)
-                                .foregroundStyle(BodyAgeText.color(r.difference))
-                            Text("Jahre").font(.formaBody).foregroundStyle(Theme.textSecondary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Theme.textQuaternary)
-                        }
-                        Text(BodyAgeText.difference(r))
-                            .font(.formaBody)
-                            .foregroundStyle(Theme.textSecondary)
-                        AgeScale(age: r.age, bodyAge: r.bodyAge)
-                            .padding(.top, 2)
+        WidgetCard(title: "Health Age", systemImage: "hourglass") {
+            HStack(spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    if case .ready(let result) = outcome {
+                        Text("\(BodyAgeText.years(result.bodyAge)) Jahre")
+                            .font(.formaBigNumber)
+                            .foregroundStyle(BodyAgeText.color(result.difference))
                     }
-                    .padding(.horizontal, Space.s4)
-                    .padding(.top, 4)
-                    .padding(.bottom, Space.s4)
+                    Text(status)
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
+                Spacer(minLength: Space.s2)
+                Image(systemName: "chevron.right")
+                    .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Körperalter \(BodyAgeText.years(r.bodyAge)) Jahre, \(BodyAgeText.difference(r))")
-        case .needsProfile:
-            WidgetCard(title: "Körperalter", systemImage: "hourglass") {
-                VStack(alignment: .leading, spacing: Space.s3) {
-                    Text("Für dein Körperalter brauche ich dein Geburtsjahr. Das Geschlecht ist nur für den VO₂max-Vergleich nötig.")
-                        .font(.formaBody).foregroundStyle(Theme.textSecondary)
-                    Button("Im Profil eintragen", action: openProfile).buttonStyle(.glass)
-                }
-                .padding([.horizontal, .bottom], Space.s4)
-                .padding(.top, 4)
-            }
-        case .insufficient(let reason):
-            WidgetCard(title: "Körperalter", systemImage: "hourglass") {
-                VStack(alignment: .leading, spacing: Space.s3) {
-                    Text(reason).font(.formaBody).foregroundStyle(Theme.textSecondary)
-                    Button("Profil öffnen", action: openProfile).buttonStyle(.glass)
-                }
-                .padding([.horizontal, .bottom], Space.s4)
-                .padding(.top, 4)
-            }
-        case .needsData(let have, let need):
-            WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "\(have) von \(need) Tagen") {
-                VStack(alignment: .leading, spacing: Space.s3) {
-                    Text("Ich brauche noch \(need - have) Tage mit Schlaf, Puls oder Schritten.")
-                        .font(.formaBody).foregroundStyle(Theme.textSecondary)
-                    ProgressLine(fraction: Double(have) / Double(need), height: 4)
-                }
-                .padding([.horizontal, .bottom], Space.s4)
-                .padding(.top, 4)
-            }
+            .padding(Space.s4)
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private var status: String {
+        switch outcome {
+        case .ready: "Nicht validierte Schätzung"
+        case .needsProfile: "Geburtsjahr fehlt"
+        case .needsData(let have, let need): "\(have) von \(need) Tagen mit Daten"
+        case .insufficient: "Keine Schätzung verfügbar"
         }
     }
 }
@@ -164,173 +78,155 @@ struct BodyAgeDetailView: View {
 
     var body: some View {
         let outcome = bodyAgeOutcome(hub: hub, sessions: sessions)
-        let tint: Color? = { if case .ready(let r) = outcome, abs(r.difference) >= 0.5 { return BodyAgeText.color(r.difference) }; return nil }()
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if hub.isSample { SampleDataBadge() }
                 switch outcome {
-                case .ready(let r): content(r)
-                default:
-                    BodyAgeSummaryCard(outcome: outcome, open: {}, openProfile: { app.showProfile = true })
-                        .padding(.top, Space.s4)
+                case .ready(let result):
+                    resultView(result)
+                case .needsProfile:
+                    empty("Für Health Age fehlt dein Geburtsjahr.", offersProfile: true)
+                case .needsData(let have, let need):
+                    empty("\(have) von \(need) Tagen mit Daten", offersProfile: false)
+                case .insufficient(let reason):
+                    empty(reason, offersProfile: true)
                 }
-                method
-                Color.clear.frame(height: Space.s7)
+
+                NavigationLink {
+                    sources
+                } label: {
+                    Label("Quellen", systemImage: "book")
+                        .font(.formaCaption)
+                        .frame(minHeight: 44)
+                }
+                .padding(.top, Space.s4)
             }
             .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
         }
-        .formaScreen(tint: tint)
-        .navigationTitle("Körperalter")
+        .formaScreen()
+        .navigationTitle("Health Age")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    @ViewBuilder private func content(_ r: BodyAge.Result) -> some View {
-        VStack(spacing: Space.s2) {
-            Text("Geschätztes Körperalter")
-                .font(.formaCaptionStrong)
-                .foregroundStyle(Theme.textSecondary)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(BodyAgeText.years(r.bodyAge))
-                    .font(.system(size: 76, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(BodyAgeText.color(r.difference))
-                    .shadow(color: BodyAgeText.color(r.difference).opacity(0.35), radius: 24)
-                    .contentTransition(.numericText(value: r.bodyAge.rounded()))
-                Text("Jahre").font(.formaHeadline).foregroundStyle(Theme.textSecondary)
-            }
-            Text(BodyAgeText.difference(r))
+    private func resultView(_ result: BodyAge.Result) -> some View {
+        VStack(spacing: 0) {
+            AgeArc(age: result.age, estimate: result.bodyAge)
+            Text(BodyAgeText.difference(result))
                 .font(.formaHeadline)
-            Text("Dein Alter: \(Int(r.age.rounded(.down))) Jahre")
-                .font(.formaBody).foregroundStyle(Theme.textSecondary)
-            AgeScale(age: r.age, bodyAge: r.bodyAge)
+                .multilineTextAlignment(.center)
                 .padding(.top, Space.s4)
-                .padding(.horizontal, Space.s4)
-            personNote
+            Text(hub.person.origin == .assumed ? "Beispiel mit angenommenem Alter" : "Nicht validierte Schätzung")
+                .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                .padding(.top, Space.s1)
+
+            FormaSection(title: "Trend") {
+                Plate {
+                    if let previous = result.previousBodyAge, let recent = result.recentBodyAge, let change = result.trend {
+                        MetricRow(title: "Letzte 30 Tage", value: "\(BodyAgeText.years(recent)) Jahre")
+                        RowDivider()
+                        MetricRow(title: "30 Tage davor", value: "\(BodyAgeText.years(previous)) Jahre")
+                        RowDivider()
+                        MetricRow(title: "Veränderung", value: BodyAgeText.signedYears(change))
+                    } else {
+                        MetricRow(title: "Noch kein Vergleich verfügbar")
+                    }
+                }
+            }
+
+            FormaSection(title: "Datengrundlage") {
+                Plate {
+                    MetricRow(title: "Tage mit Daten", value: "\(result.daysWithData) von \(result.windowDays)")
+                }
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, Space.s5)
+    }
 
+    private func empty(_ message: String, offersProfile: Bool) -> some View {
         VStack(spacing: Space.s3) {
-            WidgetCard(title: "Letzte 30 Tage gegenüber den 30 Tagen davor", systemImage: "arrow.left.arrow.right") {
-                if let recent = r.recentBodyAge, let previous = r.previousBodyAge, let trend = r.trend {
-                    MetricRow(title: abs(trend) < 0.5 ? "Kein deutlicher Unterschied" : (trend < 0 ? "Zuletzt günstiger" : "Zuletzt ungünstiger"),
-                              subtitle: "Davor etwa \(BodyAgeText.years(previous)), zuletzt etwa \(BodyAgeText.years(recent)) Jahre",
-                              value: BodyAgeText.signedYears(trend), valueColor: BodyAgeText.color(trend * 2))
-                } else {
-                    MetricRow(title: "Noch kein Vergleich", subtitle: "Dafür brauche ich in beiden Zeiträumen genug Daten mit denselben Faktoren.")
-                }
-            }
-
-            WidgetCard(title: "Was dein Körperalter ausmacht", systemImage: "list.bullet", accessory: "in Jahren") {
-                ForEach(Array(r.factors.enumerated()), id: \.element.id) { i, f in
-                    if i > 0 { RowDivider() }
-                    FactorRow(factor: f)
-                }
-            }
-
-            if !r.missing.isEmpty {
-                WidgetCard(title: "Noch nicht berücksichtigt", systemImage: "questionmark.circle") {
-                    ForEach(Array(r.missing.enumerated()), id: \.offset) { i, text in
-                        if i > 0 { RowDivider() }
-                        MetricRow(title: text)
-                    }
-                }
-            }
-
-            WidgetCard(title: "Datengrundlage", systemImage: "gauge.with.dots.needle.33percent") {
-                MetricRow(title: "Datenabdeckung", subtitle: "\(r.daysWithData) von \(r.windowDays) Tagen mit Daten · \(r.factors.count) von 5 Faktoren",
-                          value: r.confidence.title)
-                RowDivider()
-                Text("Die Abdeckung sagt, wie vollständig deine Daten sind – nicht, wie genau die Schätzung ist. Die Methode ist nicht an Einzelpersonen geprüft.")
-                    .font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                    .padding(Space.s4)
+            Text("–").font(.formaHero).foregroundStyle(Theme.textSecondary)
+            Text(message)
+                .font(.formaBody).foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+            if offersProfile {
+                Button("Profil öffnen") { app.showProfile = true }
+                    .buttonStyle(.glass)
+                    .frame(minHeight: 44)
             }
         }
-        .padding(.top, Space.s6)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.s6)
     }
 
-    @ViewBuilder private var personNote: some View {
-        let p = hub.person
-        switch p.origin {
-        case .assumed:
-            Button { app.showProfile = true } label: {
-                SampleDataBadge(text: "Beispielrechnung: 30 Jahre, \(p.sex.title.lowercased()) – im Profil ändern")
+    private var sources: some View {
+        List {
+            ForEach(Array(BodyAge.sources.enumerated()), id: \.offset) { _, source in
+                if let url = URL(string: source.url) { Link(source.title, destination: url) }
             }
-            .buttonStyle(.plain)
-            .padding(.top, Space.s3)
-        case .health:
-            Text("Alter und Geschlecht aus Apple Health").font(.formaCaption).foregroundStyle(Theme.textTertiary).padding(.top, Space.s2)
-        default:
-            EmptyView()
         }
-    }
-
-    private var method: some View {
-        FormaSection(title: "So wird gerechnet") {
-            VStack(alignment: .leading, spacing: Space.s3) {
-                Text("**Deine Messwerte:** Für jeden Faktor nehme ich deinen Durchschnitt der letzten bis zu 180 Tage (VO₂max: letzte 90 Tage).")
-                Text("**Vergleich in Studien:** Wie stark ein Unterschied mit dem Sterberisiko zusammenhängt, stammt aus großen Meta-Analysen. Das sind Gruppenbefunde, keine Aussagen über dich.")
-                Text("**So entsteht die Zahl:** Das Risiko rechne ich mit der Faustregel „Verdopplung etwa alle 8 Jahre“ (Gompertz) in Jahre um. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 %, höchstens ±15 Jahre. Vergleichswerte, 70 % und Grenzen sind Annahmen von Health. Die Zeilen oben zeigen die Beiträge bereits mit 70 %, sie ergeben zusammen den Abstand zu deinem Alter.")
-                Text("HRV fließt nicht ein: Apple misst SDNN, Fitbit RMSSD, und das Modell ist dafür nicht geprüft.")
-                Text("Eine Schätzung zur Orientierung und Motivation, keine Diagnose.")
-            }
-            .font(.formaBody)
-            .foregroundStyle(Theme.textSecondary)
-
-            Plate {
-                ForEach(Array(BodyAge.sources.enumerated()), id: \.offset) { i, source in
-                    if i > 0 { RowDivider() }
-                    if let url = URL(string: source.url) {
-                        Link(destination: url) {
-                            MetricRow(title: source.title) {
-                                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textTertiary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(.top, Space.s2)
-        }
+        .formaScreen()
+        .navigationTitle("Quellen")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private struct FactorRow: View {
-    let factor: BodyAge.Factor
-    @State private var expanded = false
+/// Ein offener Bogen mit dem eigenen Alter in der Mitte und der Schätzung auf der Skala.
+private struct AgeArc: View {
+    let age: Double
+    let estimate: Double
+    private let span = 15.0
 
     var body: some View {
-        Button { withAnimation(.snappy) { expanded.toggle() } } label: {
-            VStack(alignment: .leading, spacing: Space.s2) {
-                HStack(spacing: Space.s3) {
-                    Glyph(systemName: factor.systemImage)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(factor.title).font(.formaRowTitle)
-                        Text(factor.valueText).font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                        Text(factor.coverage).font(.formaMicro).foregroundStyle(Theme.textTertiary)
+        let tint = BodyAgeText.color(estimate - age)
+        VStack(spacing: Space.s2) {
+            ZStack(alignment: .bottom) {
+                Canvas { context, size in
+                    let radius = min(size.width / 2 - 12, size.height - 12)
+                    guard radius > 0 else { return }
+                    let center = CGPoint(x: size.width / 2, y: size.height - 6)
+                    func point(_ degrees: Double, radius: CGFloat) -> CGPoint {
+                        let angle = degrees * .pi / 180
+                        return CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
                     }
-                    Spacer(minLength: Space.s2)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text(BodyAgeText.signedYears(factor.years * BodyAge.overlapDamping))
-                            .font(.formaValue)
-                            .foregroundStyle(BodyAgeText.color(factor.years * BodyAge.overlapDamping * 2))
-                        DivergingBar(value: abs(factor.years * BodyAge.overlapDamping) < 0.5 ? 0 : factor.years * BodyAge.overlapDamping, limit: 4, width: 84)
+                    var arc = Path()
+                    arc.addArc(center: center, radius: radius, startAngle: .degrees(180), endAngle: .degrees(360), clockwise: false)
+                    context.stroke(arc, with: .color(Theme.track), lineWidth: 9)
+                    for step in 0...30 {
+                        let angle = 180 + Double(step) * 6
+                        var tick = Path()
+                        tick.move(to: point(angle, radius: radius - (step % 5 == 0 ? 8 : 3)))
+                        tick.addLine(to: point(angle, radius: radius + 4))
+                        context.stroke(tick, with: .color(step == 15 ? Theme.textSecondary : Theme.textQuaternary), lineWidth: 1)
                     }
+                    let fraction = (min(span, max(-span, estimate - age)) + span) / (span * 2)
+                    let mark = point(180 + fraction * 180, radius: radius)
+                    let marker = Path(ellipseIn: CGRect(x: mark.x - 5, y: mark.y - 5, width: 10, height: 10))
+                    context.fill(marker, with: .color(tint))
                 }
-                if expanded {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(factor.referenceText).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                        Text(factor.explanation).font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                        Text(factor.source).font(.formaMicro).foregroundStyle(Theme.textTertiary)
-                    }
-                    .padding(.leading, 48)
-                    .transition(.opacity)
+                .accessibilityHidden(true)
+                VStack(spacing: 0) {
+                    Text(BodyAgeText.years(estimate)).font(.formaHero)
+                        .minimumScaleFactor(0.5)
+                        .foregroundStyle(tint)
+                    Text("Jahre").font(.formaCaption).foregroundStyle(Theme.textSecondary)
                 }
+                .padding(.bottom, Space.s2)
             }
-            .padding(.horizontal, Space.s4)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
+            .frame(height: 145)
+
+            HStack(spacing: Space.s1) {
+                Text(BodyAgeText.years(age - span)).frame(maxWidth: .infinity, alignment: .leading)
+                Text("Dein Alter \(BodyAgeText.years(age.rounded(.down)))").frame(maxWidth: .infinity)
+                Text(BodyAgeText.years(age + span)).frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .font(.formaCaption).monospacedDigit().foregroundStyle(Theme.textSecondary)
+            .multilineTextAlignment(.center)
+            .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .accessibilityHint(expanded ? "Erklärung ausblenden" : "Erklärung zeigen")
+        .frame(maxWidth: 310)
+        .padding(.top, Space.s5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Geschätzt \(BodyAgeText.years(estimate)) Jahre. Dein Alter \(BodyAgeText.years(age.rounded(.down))) Jahre.")
     }
 }

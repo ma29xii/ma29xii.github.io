@@ -107,12 +107,12 @@ enum BodyAge {
         let withData = days.filter(hasData)
         guard withData.count >= minimumDays else { return .needsData(have: withData.count, need: minimumDays) }
         guard (18...90).contains(age) else {
-            return .insufficient("Das Körperalter ist für 18 bis 90 Jahre ausgelegt. Prüfe dein Geburtsjahr im Profil.")
+            return .insufficient("Health Age ist für 18 bis 90 Jahre verfügbar.")
         }
 
         let long = factors(days: days, age: age, sex: person.sex, strengthPerWeek: strength.perWeek, hasStrengthRecord: strength.hasRecord)
         guard long.factors.contains(where: { ["rhr", "sleep", "vo2"].contains($0.id) }) else {
-            return .insufficient("Nur aus Schritten rechne ich kein Körperalter. Dafür brauche ich zusätzlich Ruhepuls, Schlaf oder VO₂max.")
+            return .insufficient("Für Health Age fehlen Ruhepuls, Schlaf oder VO₂max.")
         }
         // Vergleich nur zwischen gleich langen, nicht überlappenden Fenstern mit denselben Faktoren (Codex R-01-09).
         let recentDays = Array(days.suffix(30))

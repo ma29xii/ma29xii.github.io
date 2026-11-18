@@ -137,20 +137,44 @@ actor HealthService {
 
     /// nil = Abfrage fehlgeschlagen (nicht: keine Werte).
     private func dailyValues(_ id: HKQuantityTypeIdentifier, unit: HKUnit, option: HKStatisticsOptions, from start: Date) async -> [Date: Double]? {
+        await quantityValues(id, unit: unit, option: option, from: start, interval: DateComponents(day: 1))
+    }
+
+    /// Stunden sind nach absoluter Zeit sortiert. Auch eine doppelte Stunde bei der Zeitumstellung bleibt eindeutig.
+    func loadHours(until end: Date = .now) async -> [HourlyMetrics] {
+        let start = end.startOfDay
+        let hour = DateComponents(hour: 1)
+        let steps = await quantityValues(.stepCount, unit: .count(), option: .cumulativeSum, from: start, until: end, interval: hour)
+        let energy = await quantityValues(.activeEnergyBurned, unit: .kilocalorie(), option: .cumulativeSum, from: start, until: end, interval: hour)
+        let hrv = await quantityValues(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), option: .discreteAverage, from: start, until: end, interval: hour)
+        let restingHR = await quantityValues(.restingHeartRate, unit: .count().unitDivided(by: .minute()), option: .discreteAverage, from: start, until: end, interval: hour)
+        let dates = Set([steps, energy, hrv, restingHR].compactMap { $0 }.flatMap { $0.keys })
+        return dates.sorted().compactMap { date in
+            guard date >= start, date < end else { return nil }
+            let clean = DayMetrics(date: date, hrv: hrv?[date], restingHR: restingHR?[date],
+                                   steps: steps?[date], activeEnergy: energy?[date]).sanitized()
+            return HourlyMetrics(start: date, end: min(date.addingTimeInterval(3600), end), steps: clean.steps,
+                                 activeEnergy: clean.activeEnergy, hrv: clean.hrv, restingHR: clean.restingHR)
+        }
+    }
+
+    private func quantityValues(_ id: HKQuantityTypeIdentifier, unit: HKUnit, option: HKStatisticsOptions,
+                                from start: Date, until end: Date? = nil, interval: DateComponents) async -> [Date: Double]? {
         let type = HKQuantityType(id)
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: nil)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: end == nil ? [] : .strictEndDate)
         let descriptor = HKStatisticsCollectionQueryDescriptor(
             predicate: .quantitySample(type: type, predicate: predicate),
             options: option,
             anchorDate: start,
-            intervalComponents: DateComponents(day: 1)
+            intervalComponents: interval
         )
         do {
             let collection = try await descriptor.result(for: store)
             var result: [Date: Double] = [:]
             for stats in collection.statistics() {
                 let quantity = option == .cumulativeSum ? stats.sumQuantity() : stats.averageQuantity()
-                if let quantity { result[stats.startDate.startOfDay] = quantity.doubleValue(for: unit) }
+                let date = interval.day == 1 ? stats.startDate.startOfDay : stats.startDate
+                if let quantity { result[date] = quantity.doubleValue(for: unit) }
             }
             return result
         } catch {

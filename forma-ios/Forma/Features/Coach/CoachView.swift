@@ -56,7 +56,7 @@ struct CoachView: View {
                             bubble(message).id(message.id)
                         }
                         if thinking {
-                            ProgressView().tint(Theme.textSecondary).padding(.leading, Space.s2)
+                            CoachThinkingLine().padding(.leading, Space.s2)
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -237,5 +237,31 @@ struct CoachView: View {
         } else {
             messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx), localOnly: true))
         }
+    }
+}
+
+private struct CoachThinkingLine: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Text("Denkt nach …")
+            .font(.formaCaptionStrong)
+            .foregroundStyle(Theme.textSecondary)
+            .overlay {
+                if !reduceMotion {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                        let position = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3.2) / 3.2
+                        GeometryReader { geometry in
+                            LinearGradient(colors: [.clear, Color.white.opacity(0.68), .clear],
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: geometry.size.width / 2)
+                                .offset(x: geometry.size.width * (position * 1.5 - 0.5))
+                        }
+                        .mask { Text("Denkt nach …").font(.formaCaptionStrong) }
+                    }
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+                }
+            }
     }
 }

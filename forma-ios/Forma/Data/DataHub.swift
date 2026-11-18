@@ -37,7 +37,7 @@ final class DataHub {
     private(set) var healthPerson: (birthDate: Date?, sex: BiologicalSex) = (nil, .unknown)
     /// Fitbit erlaubt etwa 150 Anfragen pro Stunde: ältere Tage nur einmal laden.
     private var fitbitCache: [Date: DayMetrics] = [:]
-    private(set) var activeSource: DataSourceKind = .sample
+    private(set) var activeSource: DataSourceKind = .automatic
     private(set) var isLoading = false
     /// Letzter erfolgreicher Import (überlebt Neustarts).
     private(set) var lastUpdate: Date? = UserDefaults.standard.object(forKey: "forma.lastUpdate") as? Date {
@@ -62,10 +62,41 @@ final class DataHub {
     /// Hinweis, falls Apple Health die Hintergrundzustellung nicht erlaubt.
     private(set) var observerNote: String?
     private var debounce: Task<Void, Never>?
-    private(set) var healthAuthorized = UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
-    var lastError: String?
+    // Der gespeicherte Wert heißt nur: Der Systemdialog wurde schon einmal abgeschlossen.
+    // Ob Lesefreigaben erteilt sind, lässt sich erst aus gelesenen Messwerten ableiten.
+    private var askedForHealthAccess = UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
+    private(set) var requestingHealthAccess = false
+    private(set) var healthAccessError: String?
+    private var lastHealthMeasurement: Date?
+    private var readHealthThisSession = false
     /// Kurzer Hinweis zum Sync-Zustand (gesperrt, letzter Stand …), wird im Profil gezeigt.
     private(set) var syncNote: String?
+
+    var healthStatus: String {
+        guard health.isAvailable else { return "Apple Health ist auf diesem Gerät nicht verfügbar." }
+        if requestingHealthAccess { return "Freigabe wird abgefragt …" }
+        if let healthAccessError { return healthAccessError }
+        if waitingForUnlock { return "Warte auf Entsperren" }
+        if let date = lastHealthMeasurement {
+            if readHealthThisSession && Calendar.forma.isDateInToday(date) { return "Verbunden · Daten von heute" }
+            if Calendar.forma.isDateInToday(date) { return "Letzte lesbare Daten von heute" }
+            return "Keine Daten seit \(Format.shortDate(date))"
+        }
+        if !askedForHealthAccess { return "Keine Freigabe angefragt" }
+        if isLoading { return "Daten werden geladen …" }
+        return "Keine lesbaren Daten. Prüfe in Apple Health die Freigabe."
+    }
+
+    var todayDataNotice: String? {
+        if isSample { return nil }
+        if healthAccessError != nil || !health.isAvailable { return healthStatus }
+        // Lokale Trainings können den Tageswert füllen, belegen aber keinen Apple-Health-Abruf.
+        if activeSource == .health, let day = longDays.last,
+           day.date == Date.now.startOfDay, SyncStore.hasData(day) { return nil }
+        if waitingForFitbit { return "Recovery und Sleep vom Vortag" }
+        if isLoading { return "Lade deine Daten …" }
+        return healthStatus
+    }
 
     /// Manuelle Angaben aus dem Profil haben Vorrang, dann Apple Health, bei Beispieldaten eine Annahme.
     var person: PersonInfo {
@@ -101,11 +132,15 @@ final class DataHub {
 
     /// Löscht die lokale Kopie der Gesundheitsdaten (Codex R-02-02). Apple Health selbst bleibt unberührt.
     func deleteLocalHealthCopy() {
+        generation += 1
         SyncStore.clear()
         lastUpdate = nil
         lastBackgroundSync = nil
         lastBackgroundAttempt = nil
         syncNote = nil
+        lastHealthMeasurement = nil
+        readHealthThisSession = false
+        healthHours = []
         if activeSource == .health { longDays = SyncStore.normalized([]) }
     }
 
@@ -121,10 +156,13 @@ final class DataHub {
             // Auf heute normalisiert: Ein Stand von gestern erscheint nicht als „heute“ (Codex R-02-24).
             longDays = SyncStore.normalized(cached.days)
             activeSource = .health
+            lastHealthMeasurement = longDays.last(where: SyncStore.hasData)?.date
+            lastUpdate = cached.updated
             hasLoaded = true
         } else {
-            longDays = expectsRealData ? [] : SampleData.days()
-            hasLoaded = !expectsRealData
+            longDays = source == .sample ? SampleData.days() : []
+            activeSource = source == .sample ? .sample : .automatic
+            hasLoaded = source == .sample
         }
         if expectsRealData && !FormaApp.isUITest { startBackgroundSync() }
         // Nach dem Entsperren sofort nachholen, was im gesperrten Zustand nicht lesbar war (Codex R-02-06).
@@ -218,6 +256,18 @@ final class DataHub {
     var yesterday: DayMetrics? { days.count > 1 ? days[days.count - 2] : nil }
     var history: [DayMetrics] { Array(days.dropLast()) }
 
+    private var healthHours: [HourlyMetrics] = []
+
+    var hours: [HourlyMetrics] {
+        if isSample { return HourlyMetrics.samples(for: today) }
+        guard activeSource == .health, healthHours.first?.start.startOfDay == Date.now.startOfDay else { return [] }
+        return healthHours
+    }
+
+    var hourlyEstimates: [HourlyEstimate] {
+        HourlyEstimate.timeline(hours: hours, today: today, history: history)
+    }
+
     /// Fitbit hat für heute noch keinen Schlaf geliefert: gestrige Werte gedimmt zeigen.
     var waitingForFitbit: Bool { activeSource == .fitbit && today.sleep == nil }
 
@@ -262,17 +312,20 @@ final class DataHub {
     // MARK: Laden
 
     func requestHealthAccess() async {
-        guard health.isAvailable else { lastError = "Apple Health ist auf diesem Gerät nicht verfügbar."; return }
+        guard !requestingHealthAccess, health.isAvailable else { return }
+        requestingHealthAccess = true
+        defer { requestingHealthAccess = false }
+        healthAccessError = nil
         do {
             try await health.requestAuthorization()
-            healthAuthorized = true
-            if preferredSource == .sample { preferredSource = .automatic }
+            askedForHealthAccess = true
             UserDefaults.standard.set(true, forKey: "forma.healthAuthorized")
             startBackgroundSync()
-            await syncAndNotify(background: false)
         } catch {
-            lastError = "Zugriff auf Apple Health nicht möglich: \(error.localizedDescription)"
+            healthAccessError = "Apple Health konnte nicht verbunden werden. Prüfe die Freigabe und ob diese App-Version HealthKit unterstützt."
         }
+        if preferredSource != .health { preferredSource = .health }
+        await syncAndNotify(background: false)
     }
 
     /// Lädt die gewählte Quelle. Läuft schon ein Abruf, wartet der Aufrufer darauf und es folgt
@@ -317,11 +370,15 @@ final class DataHub {
                 longDays = loaded
                 activeSource = .fitbit
                 lastUpdate = .now
-                lastError = nil
                 return .updated
             }
             return .unchanged
         case .health:
+            let previous = activeSource == .health ? longDays : (SyncStore.load().map { SyncStore.normalized($0.days) } ?? [])
+            // Echte Quelle und realer Altbestand gehören zusammen, auch wenn jeder Leseversuch scheitert.
+            longDays = previous
+            activeSource = .health
+            guard health.isAvailable, askedForHealthAccess else { return .unchanged }
             // Bei gesperrtem iPhone gibt Apple Health nichts heraus. Dann nichts überschreiben (später erneut).
             guard UIApplication.shared.isProtectedDataAvailable else {
                 waitingForUnlock = true
@@ -329,13 +386,24 @@ final class DataHub {
                 return .locked
             }
             waitingForUnlock = false
+            async let hourly = health.loadHours()
             let imported = await health.loadDays(count: 180)
             let person = await health.person()
+            let hours = await hourly
             guard myGeneration == generation else { return .superseded }
             healthPerson = person
+            healthHours = hours
             let fresh = imported.days.map { $0.sanitized() }
-            let previous = activeSource == .health ? longDays : (SyncStore.load().map { SyncStore.normalized($0.days) } ?? [])
-            activeSource = .health
+            if imported.failed.count < MetricSeries.allCases.count {
+                let lastReadable = fresh.last(where: SyncStore.hasData)?.date
+                readHealthThisSession = lastReadable != nil
+                if let lastReadable {
+                    lastHealthMeasurement = lastReadable
+                    healthAccessError = nil
+                }
+            } else {
+                readHealthThisSession = false
+            }
             switch SyncStore.merge(old: previous, new: fresh, failed: imported.failed) {
             case .rejectedEmpty:
                 if !previous.isEmpty { longDays = SyncStore.normalized(previous) }
@@ -348,11 +416,10 @@ final class DataHub {
                 let hasData = merged.suffix(30).contains(where: SyncStore.hasData)
                 guard hasData else {
                     // Keine stillen Beispieldaten, wenn Apple Health freigegeben ist (Codex R-01-03).
-                    lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Health, ob alles freigegeben ist."
+                    syncNote = nil
                     return .unchanged
                 }
                 lastUpdate = .now
-                lastError = nil
                 let saved = SyncStore.save(.init(days: merged, updated: .now, source: "health"))
                 if !imported.failed.isEmpty {
                     syncNote = "Teilweise aktualisiert. Nicht lesbar: \(imported.failed.map(\.title).sorted().joined(separator: ", ")) – dort gilt der letzte Stand."
@@ -361,22 +428,24 @@ final class DataHub {
                 }
                 return imported.failed.isEmpty ? .updated : .partial(imported.failed)
             }
-        case .sample, .automatic:
+        case .sample:
             guard myGeneration == generation else { return .superseded }
             longDays = SampleData.days()
             activeSource = .sample
             return .sample
+        case .automatic:
+            longDays = []
+            activeSource = .automatic
+            return .unchanged
         }
     }
 
     private func resolveSource() -> DataSourceKind {
         switch preferredSource {
         case .sample: return .sample
-        case .fitbit: return fitbit.isConnected ? .fitbit : .sample
-        case .health: return healthAuthorized ? .health : .sample
-        case .automatic:
-            if healthAuthorized { return .health }
-            return .sample
+        case .fitbit: return fitbit.isConnected ? .fitbit : .automatic
+        case .health: return .health
+        case .automatic: return askedForHealthAccess ? .health : .automatic
         }
     }
 }

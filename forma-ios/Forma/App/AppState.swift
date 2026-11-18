@@ -28,7 +28,7 @@ final class AppState {
     }
     var finishedSession: WorkoutSession?
     var showProfile = false
-    var showJournal = false
+    var profilePhoto = ProfilePhotoStore.load()
 
     var weightUnit: WeightUnit {
         didSet { UserDefaults.standard.set(weightUnit.rawValue, forKey: "forma.weightUnit") }

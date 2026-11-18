@@ -17,6 +17,7 @@ struct FormaApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Theme.selection)
         }
+        // JournalAnswer bleibt im Schema, damit vorhandene Trainingsspeicher beim Update geöffnet werden.
         .modelContainer(for: [Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self],
                         inMemory: FormaApp.isUITest)
         // iOS weckt Forma regelmäßig im Hintergrund (zusätzlich zu Apple-Health-Benachrichtigungen).
@@ -39,13 +40,13 @@ struct RootView: View {
     var body: some View {
         @Bindable var app = app
         TabView(selection: $app.selectedTab) {
-            Tab("Heute", systemImage: "circle.circle", value: AppTab.today) {
+            Tab("Today", systemImage: "circle.circle", value: AppTab.today) {
                 TodayView()
             }
             Tab("Training", systemImage: "dumbbell", value: AppTab.training) {
                 TrainingView()
             }
-            Tab("Gesundheit", systemImage: "heart.text.square", value: AppTab.health) {
+            Tab("Health", systemImage: "heart.text.square", value: AppTab.health) {
                 HealthView()
             }
             Tab("Coach", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.coach) {
@@ -61,9 +62,6 @@ struct RootView: View {
         }
         .sheet(isPresented: $app.showProfile) {
             ProfileView()
-        }
-        .sheet(isPresented: $app.showJournal) {
-            JournalView()
         }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView()

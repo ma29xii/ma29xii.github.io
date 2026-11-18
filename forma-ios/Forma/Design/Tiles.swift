@@ -7,10 +7,14 @@ protocol TileKind: RawRepresentable, CaseIterable, Identifiable, Hashable, Senda
     var summary: String { get }
     /// Kacheln, die neu hinzukommen, aber zunächst ausgeblendet sein sollen.
     static var defaultHidden: Set<Self> { get }
+    static var requiredVisible: Set<Self> { get }
+    static func storedKinds(for id: String) -> [Self]
 }
 
 extension TileKind {
     static var defaultHidden: Set<Self> { [] }
+    static var requiredVisible: Set<Self> { [] }
+    static func storedKinds(for id: String) -> [Self] { Self(rawValue: id).map { [$0] } ?? [] }
 }
 
 /// Reihenfolge und Sichtbarkeit, gespeichert als einfacher Text: „a,b,c|x,y“ (sichtbar/ausgeblendet getrennt).
@@ -27,7 +31,7 @@ struct TileArrangement<Kind: TileKind>: Equatable {
 
     init(order: [Kind], hidden: Set<Kind>) {
         self.order = order
-        self.hidden = hidden
+        self.hidden = hidden.subtracting(Kind.requiredVisible)
     }
 
     init(storage: String) {
@@ -37,15 +41,14 @@ struct TileArrangement<Kind: TileKind>: Equatable {
         let hiddenIDs = parts.count > 1 ? parts[1].split(separator: ",").map(String.init) : []
         // Doppelte oder unbekannte Einträge (z. B. kaputte Speicherung) verwerfen.
         var order: [Kind] = []
-        for kind in orderIDs.compactMap(Kind.init(rawValue:)) where !order.contains(kind) { order.append(kind) }
-        var hidden = Set(hiddenIDs.compactMap(Kind.init(rawValue:)))
+        for kind in orderIDs.flatMap(Kind.storedKinds(for:)) where !order.contains(kind) { order.append(kind) }
+        var hidden = Set(hiddenIDs.flatMap(Kind.storedKinds(for:)))
         // Neue Kacheln aus späteren Versionen hinten anhängen.
         for kind in Kind.allCases where !order.contains(kind) {
             order.append(kind)
             if Kind.defaultHidden.contains(kind) { hidden.insert(kind) }
         }
-        self.order = order
-        self.hidden = hidden
+        self.init(order: order, hidden: hidden)
     }
 
     var storage: String {
@@ -56,6 +59,13 @@ struct TileArrangement<Kind: TileKind>: Equatable {
         guard kind != target, let from = order.firstIndex(of: kind) else { return }
         order.remove(at: from)
         let to = order.firstIndex(of: target) ?? order.endIndex
+        order.insert(kind, at: to)
+    }
+
+    mutating func move(_ kind: Kind, toPositionOf target: Kind) {
+        guard kind != target, let from = order.firstIndex(of: kind),
+              let to = order.firstIndex(of: target) else { return }
+        order.remove(at: from)
         order.insert(kind, at: to)
     }
 
@@ -76,7 +86,9 @@ struct TileArrangement<Kind: TileKind>: Equatable {
         order = shown + hiddenInOrder
     }
 
-    mutating func hide(_ kind: Kind) { hidden.insert(kind) }
+    mutating func hide(_ kind: Kind) {
+        if !Kind.requiredVisible.contains(kind) { hidden.insert(kind) }
+    }
 
     mutating func show(_ kind: Kind) {
         hidden.remove(kind)

@@ -38,27 +38,6 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Höher ist besser? (für die Farbe der Abweichung)
-    var higherIsBetter: Bool {
-        switch self {
-        case .restingHR, .respiratoryRate: false
-        default: true
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .hrv: "Herzfrequenzvariabilität: Schwankung zwischen Herzschlägen. Höher als dein Normalwert heißt meist: gut erholt. Apple misst SDNN, Fitbit RMSSD – die Werte sind nicht direkt vergleichbar."
-        case .restingHR: "Ruhepuls: dein niedrigster stabiler Puls. Ein Anstieg über mehrere Tage kann auf Belastung, Stress oder eine beginnende Erkrankung hinweisen."
-        case .respiratoryRate: "Atemzüge pro Minute im Schlaf. Sehr stabil – schon kleine Abweichungen sind auffällig."
-        case .spo2: "Sauerstoffsättigung im Blut, gemessen im Schlaf. Werte zwischen 95 und 100 % gelten als normal."
-        case .vo2max: "Geschätzte maximale Sauerstoffaufnahme – ein Maß für deine Ausdauer. Ändert sich langsam über Wochen."
-        case .sleepDuration: "Tatsächlich geschlafene Zeit ohne Wachphasen."
-        case .steps: "Schritte über den ganzen Tag."
-        case .activeEnergy: "Kalorien, die du durch Bewegung über dem Grundumsatz verbrauchst."
-        }
-    }
-
     func value(_ day: DayMetrics) -> Double? {
         switch self {
         case .hrv: day.hrv
@@ -72,61 +51,94 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Kurzform für Bereiche, z. B. 7:02 bei Schlafdauer.
-    func formattedShort(_ value: Double) -> String {
-        guard self == .sleepDuration else { return formatted(value) }
-        let minutes = Int((value * 60).rounded())
-        return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
-    }
-
     func formatted(_ value: Double) -> String {
         if self == .sleepDuration { return Format.duration(value * 3600) }
         return Format.number(value, decimals: decimals)
     }
+
+    func measurement(_ value: Double) -> String {
+        let formatted = formatted(value)
+        return self == .sleepDuration || unit.isEmpty ? formatted : "\(formatted) \(unit)"
+    }
 }
 
-/// Zeile mit aktuellem Wert und deinem üblichen Bereich (Mittel ± 1 Standardabweichung der letzten 30 Tage).
-/// Bewusst nicht „Normal“: Das ist dein persönlicher Bereich, kein medizinischer Referenzwert (Codex R-01-30).
 struct MetricSummaryRow: View {
     @Environment(DataHub.self) private var hub
     let kind: MetricKind
 
     var body: some View {
-        let values = hub.days.compactMap { kind.value($0) }
-        let history = hub.history.compactMap { kind.value($0) }
-        let todayValue = kind.value(hub.today)
-        let lastDay = hub.days.last { kind.value($0) != nil }
-        let current = todayValue ?? values.last
-        let base = ScoreEngine.baseline(history)
-        let low = base.map { $0.mean - $0.sd }, high = base.map { $0.mean + $0.sd }
-        let outside: Bool = {
-            guard let c = current, let low, let high else { return false }
-            return c < low - (high - low) * 0.25 || c > high + (high - low) * 0.25
-        }()
-        MetricRow(
-            title: kind.title,
-            subtitle: subtitleText(low: low, high: high, stale: todayValue == nil ? lastDay?.date : nil),
-            value: current.map { kind == .sleepDuration ? kind.formatted($0) : kind.formatted($0) },
-            unit: kind == .sleepDuration ? nil : kind.unit,
-            valueColor: outside ? Theme.warning : Theme.textPrimary,
-            showsChevron: true
-        ) {
-            if let c = current, let low, let high {
-                let span = Swift.max(high - low, 0.001)
-                RangeBar(low: low, high: high, value: c, minimum: low - span * 1.2, maximum: high + span * 1.2,
-                         dotColor: outside ? Theme.warning : Theme.textPrimary)
-            }
+        let points = hub.days.compactMap { day in
+            kind.value(day).map { HealthChartPoint(date: day.date, value: $0) }
         }
+        let last = points.last
+        let recent = points.filter { $0.date >= Date.now.startOfDay.adding(days: -13) }
+        let prior = points.dropLast().map(\.value)
+        let status = status(for: last, comparedWith: ScoreEngine.baseline(prior))
+
+        HStack(spacing: Space.s3) {
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Text(kind.title).font(.formaRowTitle)
+                Text(last.map { kind.measurement($0.value) } ?? "–").font(.formaValue)
+                Text(status.title).font(.formaCaptionStrong).foregroundStyle(status.color)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !recent.isEmpty {
+                MetricSparkline(points: recent, color: status.color)
+                    .frame(width: 58, height: 28)
+                    .accessibilityHidden(true)
+            }
+            Image(systemName: "chevron.right")
+                .font(.formaCaptionStrong)
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, Space.s4)
+        .padding(.vertical, Space.s3)
+        .frame(minHeight: 64)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
-    private func subtitleText(low: Double?, high: Double?, stale: Date?) -> String {
-        var parts: [String] = []
-        if let low, let high {
-            parts.append("Dein Bereich \(kind.formattedShort(low))–\(kind.formattedShort(high))\(kind.unit.isEmpty ? "" : " " + kind.unit)")
-        } else {
-            parts.append("noch kein üblicher Bereich")
+    private func status(for last: HealthChartPoint?, comparedWith base: ScoreEngine.Baseline?) -> (title: String, color: Color) {
+        guard let last else { return ("Keine Daten", Theme.textSecondary) }
+        guard Calendar.forma.isDateInToday(last.date) else {
+            return ("Stand \(Format.shortDate(last.date))", Theme.textSecondary)
         }
-        if let stale { parts.append("zuletzt am \(Format.shortDate(stale))") }
-        return parts.joined(separator: " · ")
+        guard let base else { return ("Noch kein Vergleich", Theme.textSecondary) }
+        let z = base.z(last.value)
+        if z > 1 { return ("Höher als üblich", Theme.warning) }
+        if z < -1 { return ("Niedriger als üblich", Theme.warning) }
+        return ("Wie üblich", Theme.younger)
+    }
+}
+
+/// Die X-Position folgt dem Kalendertag. Eine fehlende Messung unterbricht die Linie.
+private struct MetricSparkline: View {
+    let points: [HealthChartPoint]
+    let color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            guard let low = points.map(\.value).min(), let high = points.map(\.value).max() else { return }
+            let today = Date.now.startOfDay
+            let first = today.adding(days: -13)
+            let span = max(high - low, 0.001)
+            var path = Path()
+            var previous: Date?
+            for point in points {
+                let days = Calendar.forma.dateComponents([.day], from: first, to: point.date).day ?? 0
+                let x = 2 + (size.width - 4) * CGFloat(days) / 13
+                let y = high == low ? size.height / 2 : size.height - 3 - (size.height - 6) * (point.value - low) / span
+                let position = CGPoint(x: x, y: y)
+                if previous?.adding(days: 1) == point.date {
+                    path.addLine(to: position)
+                } else {
+                    path.move(to: position)
+                }
+                previous = point.date
+                context.fill(Path(ellipseIn: CGRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3)), with: .color(color))
+            }
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
     }
 }

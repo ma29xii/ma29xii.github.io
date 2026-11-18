@@ -223,7 +223,7 @@ final class TileArrangementTests: XCTestCase {
 
     func testRoundTripAndGarbage() {
         var a = TileArrangement<TodayTile>(storage: "")
-        a.hide(.week)
+        a.hide(.energy)
         a.shift(.body, by: -1)
         let restored = TileArrangement<TodayTile>(storage: a.storage)
         XCTAssertEqual(restored, a)
@@ -238,14 +238,29 @@ final class TileArrangementTests: XCTestCase {
         XCTAssertEqual(a.order.count, TodayTile.allCases.count)
     }
 
+    func testStepsStayVisibleWithOldLayout() {
+        var a = TileArrangement<TodayTile>(storage: "week,body,day,next|day,energy")
+        XCTAssertEqual(a.visible, [.body, .day])
+        a.hide(.day)
+        XCTAssertTrue(a.visible.contains(.day))
+        a.move(.body, toPositionOf: .day)
+        XCTAssertEqual(a.visible, [.day, .body])
+    }
+
+    func testHealthLayoutExpandsOldGroups() {
+        let a = TileArrangement<HealthTile>(storage: "fitness,heart,sleepActivity,bodyAge|heart")
+        XCTAssertEqual(a.visible, [.vo2max, .sleepDuration, .steps, .activeEnergy, .bodyAge])
+        XCTAssertEqual(a.hiddenInOrder, [.hrv, .restingHR, .respiratoryRate, .spo2])
+    }
+
     func testMoveBeforeAndShowHide() {
         var a = TileArrangement<HealthTile>(storage: "")
-        a.move(.bodyAge, before: .heart)
+        a.move(.bodyAge, before: .hrv)
         XCTAssertEqual(a.visible.first, .bodyAge)
-        a.hide(.fitness)
-        XCTAssertFalse(a.visible.contains(.fitness))
-        a.show(.fitness)
-        XCTAssertEqual(a.visible.last, .fitness)
+        a.hide(.vo2max)
+        XCTAssertFalse(a.visible.contains(.vo2max))
+        a.show(.vo2max)
+        XCTAssertEqual(a.visible.last, .vo2max)
         a.shift(.bodyAge, by: -1) // schon oben: nichts passiert
         XCTAssertEqual(a.visible.first, .bodyAge)
     }
