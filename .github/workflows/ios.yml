@@ -136,6 +136,36 @@ jobs:
           ls "$RUNNER_TEMP/dd-device/Build/Products/Release-iphoneos" 2>/dev/null | head
           exit $status
 
+      - name: IPA verpacken (für Sideloadly)
+        if: always()
+        run: |
+          APP="$RUNNER_TEMP/dd-device/Build/Products/Release-iphoneos/Stetig.app"
+          [ -d "$APP" ] || { echo "Kein Geräte-Build vorhanden"; exit 1; }
+          # App-Group-ID aus den Build-Einstellungen in die Entitlements einsetzen (Variablen werden ohne Signatur nicht ersetzt).
+          GROUP=$(xcodebuild -project Stetig.xcodeproj -scheme Stetig -configuration Release -showBuildSettings 2>/dev/null | awk -F' = ' '/ APP_GROUP_ID = /{print $2; exit}')
+          echo "App-Group: $GROUP"
+          for f in Stetig Widgets; do
+            sed "s#\$(APP_GROUP_ID)#$GROUP#" "Config/$f.entitlements" > "$RUNNER_TEMP/$f.entitlements"
+          done
+          # Ad-hoc-Signatur nur, damit die Entitlements in der App stecken; Sideloadly signiert neu.
+          if [ -d "$APP/PlugIns/StetigWidgets.appex" ]; then
+            codesign --force --sign - --timestamp=none --entitlements "$RUNNER_TEMP/Widgets.entitlements" "$APP/PlugIns/StetigWidgets.appex"
+          fi
+          codesign --force --sign - --timestamp=none --entitlements "$RUNNER_TEMP/Stetig.entitlements" "$APP"
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry Stetig.ipa Payload)
+          ls -lh "$RUNNER_TEMP/ipa/Stetig.ipa"
+
+      - name: IPA hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stetig-IPA
+          path: ${{ runner.temp }}/ipa/Stetig.ipa
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Screenshots hochladen
         if: always()
         uses: actions/upload-artifact@v4
