@@ -11,24 +11,26 @@ func bodyAgeOutcome(hub: DataHub, sessions: [WorkoutSession]) -> BodyAge.Outcome
 }
 
 enum BodyAgeText {
-    static func years(_ value: Double, decimals: Int = 1) -> String {
-        Format.number(value, decimals: decimals)
+    /// Ganze Jahre: Eine Nachkommastelle würde Genauigkeit vortäuschen (Codex R-01-01).
+    static func years(_ value: Double) -> String {
+        Format.number(value.rounded(), decimals: 0)
     }
 
     static func signedYears(_ value: Double) -> String {
-        let rounded = (value * 10).rounded() / 10
-        if rounded == 0 { return "±0 Jahre" }
-        return (rounded < 0 ? "−" : "+") + Format.number(abs(rounded), decimals: 1) + " Jahre"
+        let rounded = (value * 2).rounded() / 2
+        if abs(rounded) < 0.5 { return "kaum Einfluss" }
+        return (rounded < 0 ? "−" : "+") + Format.number(abs(rounded), decimals: rounded.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1) + " J."
     }
 
     static func difference(_ result: BodyAge.Result) -> String {
-        let d = (result.difference * 10).rounded() / 10
-        if abs(d) < 0.1 { return "So alt wie du bist" }
-        return "\(Format.number(abs(d), decimals: 1)) Jahre \(d < 0 ? "jünger" : "älter") als du bist"
+        let d = result.bodyAge.rounded() - result.age.rounded(.down)
+        if d == 0 { return "Etwa so alt wie du bist" }
+        let n = Int(abs(d))
+        return "Etwa \(n) \(n == 1 ? "Jahr" : "Jahre") \(d < 0 ? "jünger" : "älter") als du bist"
     }
 
     static func color(_ difference: Double) -> Color {
-        abs(difference) < 0.5 ? Theme.textPrimary : (difference < 0 ? Theme.younger : Theme.older)
+        abs(difference) < 1 ? Theme.textPrimary : (difference < 0 ? Theme.younger : Theme.older)
     }
 }
 
@@ -92,7 +94,7 @@ struct BodyAgeSummaryCard: View {
         switch outcome {
         case .ready(let r):
             Button(action: open) {
-                WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "letzte \(r.windowDays) Tage") {
+                WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "Schätzung · \(r.windowDays) Tage") {
                     VStack(alignment: .leading, spacing: Space.s3) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(BodyAgeText.years(r.bodyAge))
@@ -121,7 +123,7 @@ struct BodyAgeSummaryCard: View {
         case .needsProfile:
             WidgetCard(title: "Körperalter", systemImage: "hourglass") {
                 VStack(alignment: .leading, spacing: Space.s3) {
-                    Text("Für dein Körperalter brauche ich dein Geburtsjahr und dein Geschlecht.")
+                    Text("Für dein Körperalter brauche ich dein Geburtsjahr. Das Geschlecht ist nur für den VO₂max-Vergleich nötig.")
                         .font(.formaBody).foregroundStyle(Theme.textSecondary)
                     Button("Im Profil eintragen", action: openProfile).buttonStyle(.glass)
                 }
@@ -170,14 +172,21 @@ struct BodyAgeDetailView: View {
 
     @ViewBuilder private func content(_ r: BodyAge.Result) -> some View {
         VStack(spacing: Space.s2) {
-            Text(BodyAgeText.years(r.bodyAge))
-                .font(.system(size: 76, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(BodyAgeText.color(r.difference))
-                .shadow(color: BodyAgeText.color(r.difference).opacity(0.35), radius: 24)
+            Text("Geschätztes Körperalter")
+                .font(.formaCaptionStrong)
+                .foregroundStyle(Theme.textSecondary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(BodyAgeText.years(r.bodyAge))
+                    .font(.system(size: 76, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(BodyAgeText.color(r.difference))
+                    .shadow(color: BodyAgeText.color(r.difference).opacity(0.35), radius: 24)
+                    .contentTransition(.numericText(value: r.bodyAge.rounded()))
+                Text("Jahre").font(.formaHeadline).foregroundStyle(Theme.textSecondary)
+            }
             Text(BodyAgeText.difference(r))
                 .font(.formaHeadline)
-            Text("Dein Alter: \(BodyAgeText.years(r.age)) Jahre")
+            Text("Dein Alter: \(Int(r.age.rounded(.down))) Jahre")
                 .font(.formaBody).foregroundStyle(Theme.textSecondary)
             AgeScale(age: r.age, bodyAge: r.bodyAge)
                 .padding(.top, Space.s4)
@@ -188,11 +197,13 @@ struct BodyAgeDetailView: View {
         .padding(.top, Space.s5)
 
         VStack(spacing: Space.s3) {
-            if let recent = r.recentBodyAge, let trend = r.trend {
-                WidgetCard(title: "Richtung", systemImage: trend <= 0 ? "arrow.down.right" : "arrow.up.right", accent: BodyAgeText.color(trend)) {
-                    MetricRow(title: "Nur die letzten 30 Tage",
-                              subtitle: abs(trend) < 0.1 ? "Du hältst dein Niveau" : (trend < 0 ? "Du bewegst dich gerade in die jüngere Richtung" : "Zuletzt etwas schlechter als im Schnitt"),
-                              value: BodyAgeText.years(recent), unit: "Jahre", valueColor: BodyAgeText.color(trend))
+            WidgetCard(title: "Letzte 30 Tage gegenüber den 30 Tagen davor", systemImage: "arrow.left.arrow.right") {
+                if let recent = r.recentBodyAge, let previous = r.previousBodyAge, let trend = r.trend {
+                    MetricRow(title: abs(trend) < 0.5 ? "Kein deutlicher Unterschied" : (trend < 0 ? "Zuletzt günstiger" : "Zuletzt ungünstiger"),
+                              subtitle: "Davor etwa \(BodyAgeText.years(previous)), zuletzt etwa \(BodyAgeText.years(recent)) Jahre",
+                              value: BodyAgeText.signedYears(trend), valueColor: BodyAgeText.color(trend * 2))
+                } else {
+                    MetricRow(title: "Noch kein Vergleich", subtitle: "Dafür brauche ich in beiden Zeiträumen genug Daten mit denselben Faktoren.")
                 }
             }
 
@@ -212,9 +223,13 @@ struct BodyAgeDetailView: View {
                 }
             }
 
-            WidgetCard(title: "Wie sicher ist das?", systemImage: "gauge.with.dots.needle.33percent") {
-                MetricRow(title: "Verlässlichkeit", subtitle: "\(r.daysWithData) von \(r.windowDays) Tagen mit Daten · \(r.factors.count) Faktoren",
+            WidgetCard(title: "Datengrundlage", systemImage: "gauge.with.dots.needle.33percent") {
+                MetricRow(title: "Datenabdeckung", subtitle: "\(r.daysWithData) von \(r.windowDays) Tagen mit Daten · \(r.factors.count) von 5 Faktoren",
                           value: r.confidence.title)
+                RowDivider()
+                Text("Die Abdeckung sagt, wie vollständig deine Daten sind – nicht, wie genau die Schätzung ist. Die Methode ist nicht an Einzelpersonen geprüft.")
+                    .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    .padding(Space.s4)
             }
         }
         .padding(.top, Space.s6)
@@ -225,7 +240,7 @@ struct BodyAgeDetailView: View {
         switch p.origin {
         case .assumed:
             Button { app.showProfile = true } label: {
-                SampleDataBadge(text: "Annahme: 30 Jahre, \(p.sex.title.lowercased()) – im Profil ändern")
+                SampleDataBadge(text: "Beispielrechnung: 30 Jahre, \(p.sex.title.lowercased()) – im Profil ändern")
             }
             .buttonStyle(.plain)
             .padding(.top, Space.s3)
@@ -239,9 +254,11 @@ struct BodyAgeDetailView: View {
     private var method: some View {
         FormaSection(title: "So wird gerechnet") {
             VStack(alignment: .leading, spacing: Space.s3) {
-                Text("Für jeden Faktor vergleiche ich deinen Durchschnitt der letzten bis zu 180 Tage mit einem Referenzwert. Wie stark ein Unterschied zählt, stammt aus großen Studien zum Sterberisiko. Das Risiko rechne ich in Jahre um: Bei Erwachsenen verdoppelt es sich etwa alle 8 Jahre. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 %.")
-                Text("HRV fließt nicht ein: Apple misst SDNN, Fitbit RMSSD, und für Werte von Uhren gibt es keine belastbaren Studien zur Lebenserwartung.")
-                Text("Das ist eine Schätzung zur Orientierung und Motivation, keine Diagnose. Studien zeigen Zusammenhänge, keine sicheren Ursachen.")
+                Text("**Deine Messwerte:** Für jeden Faktor nehme ich deinen Durchschnitt der letzten bis zu 180 Tage (VO₂max: letzte 90 Tage).")
+                Text("**Vergleich in Studien:** Wie stark ein Unterschied mit dem Sterberisiko zusammenhängt, stammt aus großen Meta-Analysen. Das sind Gruppenbefunde, keine Aussagen über dich.")
+                Text("**So entsteht die Zahl:** Das Risiko rechne ich mit der Faustregel „Verdopplung etwa alle 8 Jahre“ (Gompertz) in Jahre um. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 %, höchstens ±15 Jahre. Vergleichswerte, 70 % und Grenzen sind Annahmen von Forma. Die Zeilen oben zeigen die Beiträge bereits mit 70 %, sie ergeben zusammen den Abstand zu deinem Alter.")
+                Text("HRV fließt nicht ein: Apple misst SDNN, Fitbit RMSSD, und das Modell ist dafür nicht geprüft.")
+                Text("Eine Schätzung zur Orientierung und Motivation, keine Diagnose.")
             }
             .font(.formaBody)
             .foregroundStyle(Theme.textSecondary)
@@ -276,13 +293,14 @@ private struct FactorRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(factor.title).font(.formaRowTitle)
                         Text(factor.valueText).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                        Text(factor.coverage).font(.formaMicro).foregroundStyle(Theme.textTertiary)
                     }
                     Spacer(minLength: Space.s2)
                     VStack(alignment: .trailing, spacing: 6) {
                         Text(BodyAgeText.signedYears(factor.years * BodyAge.overlapDamping))
                             .font(.formaValue)
-                            .foregroundStyle(BodyAgeText.color(factor.years))
-                        DivergingBar(value: factor.years * BodyAge.overlapDamping, limit: 4, width: 84)
+                            .foregroundStyle(BodyAgeText.color(factor.years * BodyAge.overlapDamping * 2))
+                        DivergingBar(value: abs(factor.years * BodyAge.overlapDamping) < 0.5 ? 0 : factor.years * BodyAge.overlapDamping, limit: 4, width: 84)
                     }
                 }
                 if expanded {

@@ -188,7 +188,7 @@ struct DivergingBar: View {
             Capsule().fill(Color.white.opacity(0.07)).frame(height: 6)
             Rectangle().fill(Color.white.opacity(0.35)).frame(width: 1, height: 12)
             Capsule()
-                .fill(value < 0 ? Theme.younger : Theme.older)
+                .fill(value == 0 ? Theme.textTertiary : (value < 0 ? Theme.younger : Theme.older))
                 .frame(width: Swift.max(3, half * fraction), height: 6)
                 .offset(x: value < 0 ? -half * fraction / 2 : half * fraction / 2)
         }
@@ -383,10 +383,13 @@ struct SmallPillButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(Theme.onSelection)
-            .padding(.horizontal, 14)
-            .frame(height: 32)
+            .padding(.horizontal, 16)
+            .frame(height: 34)
             .background(Capsule().fill(Theme.selection))
+            .padding(.vertical, 5)               // 44 pt Trefferfläche
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
 }
 
@@ -416,6 +419,10 @@ enum Format {
 
     static func dayTitle(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(locale: .german).weekday(.wide).day().month(.wide))
+    }
+
+    static func shortDate(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(locale: .german).day().month(.twoDigits))
     }
 
     static func shortWeekday(_ date: Date) -> String {

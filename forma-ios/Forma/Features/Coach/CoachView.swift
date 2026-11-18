@@ -12,6 +12,10 @@ struct CoachView: View {
     @State private var adjustment: TrainingAdjustment? = TrainingAdjustment.today
     @State private var dismissed = TrainingAdjustment.dismissedToday
     @FocusState private var inputFocused: Bool
+    /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
+    @AppStorage("forma.claudeConsent") private var claudeConsent = false
+    @State private var pendingConsentText: String?
+    private var hasKey: Bool { !(Keychain.get("anthropic.key") ?? "").isEmpty }
 
     private var context: CoachEngine.Context {
         let planned = routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
@@ -31,7 +35,16 @@ struct CoachView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Space.s3) {
-                        if hub.isSample { SampleDataBadge().padding(.top, Space.s1) }
+                        HStack(spacing: Space.s2) {
+                            if hub.isSample { SampleDataBadge() }
+                            Label(hasKey && claudeConsent ? "Claude (extern)" : "Lokaler Coach", systemImage: hasKey && claudeConsent ? "cloud" : "iphone")
+                                .font(.formaMicro)
+                                .foregroundStyle(Theme.textSecondary)
+                                .padding(.horizontal, 10).frame(height: 26)
+                                .background(Capsule().fill(Color.white.opacity(0.07)))
+                                .accessibilityLabel(hasKey && claudeConsent ? "Antworten kommen von Claude über das Internet" : "Antworten werden auf dem iPhone berechnet")
+                        }
+                        .padding(.top, Space.s1)
                         Text(CoachEngine.dailyLine(context))
                             .font(.formaBodyLarge)
                             .foregroundStyle(Theme.textPrimary)
@@ -61,6 +74,22 @@ struct CoachView: View {
                 }
             }
             .onAppear(perform: consumePrompt)
+            .confirmationDialog("Frage an Claude senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
+                Button("Senden und merken") {
+                    claudeConsent = true
+                    if let t = pendingConsentText { pendingConsentText = nil; send(t) }
+                }
+                Button("Nur lokal antworten") {
+                    if let t = pendingConsentText {
+                        pendingConsentText = nil
+                        messages.append(ChatMessage(role: .user, text: t))
+                        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: t, context)))
+                    }
+                }
+                Button("Abbrechen", role: .cancel) { pendingConsentText = nil }
+            } message: {
+                Text("Dann gehen deine Frage, der bisherige Chat und eine Zusammenfassung deiner Tageswerte (Erholung, Schlaf, Belastung, HRV, Ruhepuls, geplantes Training) an Anthropic. Widerrufen kannst du das im Profil.")
+            }
             .onChange(of: app.coachPrompt) { _, _ in consumePrompt() }
         }
     }
@@ -129,14 +158,18 @@ struct CoachView: View {
     private var composer: some View {
         VStack(spacing: Space.s2) {
             if messages.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Space.s2) {
-                        ForEach(suggestions, id: \.self) { s in
-                            Button(s) { send(s) }.buttonStyle(.glass)
+                // Vollständig lesbare Einstiegsfragen statt abgeschnittener Chips (Codex R-01-33).
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(suggestions, id: \.self) { s in
+                        Button { send(s) } label: {
+                            Text(s).font(.formaBody).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14).frame(minHeight: 44)
+                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.07)))
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, Space.page)
                 }
+                .padding(.horizontal, Space.page)
             }
             HStack(spacing: Space.s2) {
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
@@ -148,7 +181,7 @@ struct CoachView: View {
                     .submitLabel(.send)
                     .onSubmit { send(input) }
                 Button { send(input) } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 30, height: 30)
+                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 36, height: 36)
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)
@@ -164,16 +197,21 @@ struct CoachView: View {
         guard let prompt = app.coachPrompt else { return }
         app.coachPrompt = nil
         messages.append(ChatMessage(role: .coach, text: prompt))
-        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: "erholung", context)))
+        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: app.coachTopic, context)))
     }
 
     private func send(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
         guard !text.isEmpty, !thinking else { return }
+        if hasKey && !claudeConsent {
+            input = ""
+            pendingConsentText = text
+            return
+        }
         input = ""
         messages.append(ChatMessage(role: .user, text: text))
         let ctx = context
-        if let key = Keychain.get("anthropic.key"), !key.isEmpty {
+        if claudeConsent, let key = Keychain.get("anthropic.key"), !key.isEmpty {
             thinking = true
             let history = messages
             let summary = CoachEngine.contextSummary(ctx)
@@ -182,7 +220,7 @@ struct CoachView: View {
                     let reply = try await ClaudeClient.reply(apiKey: key, context: summary, history: history)
                     messages.append(ChatMessage(role: .coach, text: reply))
                 } catch {
-                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Claude war nicht erreichbar: \(error.localizedDescription))"))
+                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Claude ist gerade nicht erreichbar, das war die lokale Antwort.)"))
                 }
                 thinking = false
             }

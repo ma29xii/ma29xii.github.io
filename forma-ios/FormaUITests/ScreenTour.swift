@@ -26,6 +26,14 @@ final class ScreenTour: XCTestCase {
         return true
     }
 
+    /// Tippt den Knopf „… abschließen“ im Dock (nicht die Satzzeilen).
+    private func tapCompleteSet() -> Bool {
+        let button = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "abschließen")).firstMatch
+        guard button.waitForExistence(timeout: 4) else { return false }
+        button.tap()
+        return true
+    }
+
     private func back() {
         let b = app.navigationBars.buttons.firstMatch
         if b.waitForExistence(timeout: 2) { b.tap() }
@@ -64,25 +72,28 @@ final class ScreenTour: XCTestCase {
         app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown()
         sleep(1)
 
-        if tapButton(beginningWith: "Erholung") { shot("04 Erholung"); app.swipeUp(); shot("05 Erholung unten"); back() }
-        if tapButton(beginningWith: "Schlaf") { shot("06 Schlaf"); app.swipeUp(); shot("07 Schlaf unten"); back() }
-        if tapButton(beginningWith: "Belastung") { shot("08 Belastung"); back() }
+        if tapButton(beginningWith: "Erholung ") { shot("04 Erholung"); app.swipeUp(); shot("05 Erholung unten"); back() }
+        if tapButton(beginningWith: "Schlaf ") { shot("06 Schlaf"); app.swipeUp(); shot("07 Schlaf unten"); back() }
+        if tapButton(beginningWith: "Belastung ") { shot("08 Belastung"); back() }
 
         tab("Training")
         shot("09 Training")
         app.swipeUp()
         shot("09b Training unten")
         app.swipeDown(); app.swipeDown()
-        if tapButton(beginningWith: "Training starten") {
+        let startButton = app.buttons["training.start"]
+        if startButton.waitForExistence(timeout: 4) {
+            startButton.tap()
             sleep(1)
             shot("10 Live-Training")
-            if tapButton(beginningWith: "Aufwärmsatz abschließen") || tapButton(beginningWith: "Satz") {
+            if tapCompleteSet() {
                 shot("11 Pause")
-                _ = tapButton(beginningWith: "Weiter")
+                let skip = app.buttons["rest.skip"]
+                if skip.waitForExistence(timeout: 3) { skip.tap() }
                 sleep(1)
                 shot("12 Nächster Satz")
-                _ = tapButton(beginningWith: "Satz")
-                _ = tapButton(beginningWith: "Weiter")
+                _ = tapCompleteSet()
+                if skip.waitForExistence(timeout: 3) { skip.tap() }
             }
             let end = app.buttons["Beenden"]
             if end.waitForExistence(timeout: 3) {
@@ -97,6 +108,7 @@ final class ScreenTour: XCTestCase {
 
         tab("Gesundheit")
         shot("14 Gesundheit")
+        app.swipeUp()
         if tapButton(beginningWith: "Körperalter") {
             shot("14b Körperalter")
             app.swipeUp()
@@ -105,7 +117,6 @@ final class ScreenTour: XCTestCase {
             shot("14d Körperalter Methode")
             back()
         }
-        app.swipeUp()
         shot("14e Gesundheit unten")
         app.swipeDown(); app.swipeDown()
         if tapButton(beginningWith: "HRV") { shot("15 HRV"); back() }

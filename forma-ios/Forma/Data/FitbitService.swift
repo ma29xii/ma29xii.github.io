@@ -147,6 +147,11 @@ final class FitbitService {
             rateLimitedUntil = until
             throw FitbitError.rateLimited(until)
         }
+        if status == 410 {
+            // Endpunkt abgeschaltet (Google, 2.11.2026): dauerhaft, nicht wiederholen.
+            needsReconnect = true
+            rateLimitedUntil = .distantFuture
+        }
         guard status == 200 else { throw FitbitError.http(status) }
         return data
     }

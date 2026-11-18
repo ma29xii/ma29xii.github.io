@@ -94,13 +94,16 @@ struct TileStack<Kind: TileKind, Content: View>: View {
     let screenTitle: String
     let content: (Kind) -> Content
     @AppStorage private var raw: String
-    @State private var editing = false
+    @Binding private var editing: Bool
     @State private var dropTarget: Kind?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(storageKey: String, screenTitle: String, @ViewBuilder content: @escaping (Kind) -> Content) {
+    /// `isEditing` erlaubt einen zusätzlichen Einstieg oben in der Navigationsleiste (Codex R-01-13).
+    init(storageKey: String, screenTitle: String, isEditing: Binding<Bool>, @ViewBuilder content: @escaping (Kind) -> Content) {
         self.screenTitle = screenTitle
         self.content = content
         _raw = AppStorage(wrappedValue: "", storageKey)
+        _editing = isEditing
     }
 
     private var arrangement: TileArrangement<Kind> { TileArrangement(storage: raw) }
@@ -108,12 +111,20 @@ struct TileStack<Kind: TileKind, Content: View>: View {
     private func update(_ change: (inout TileArrangement<Kind>) -> Void) {
         var a = arrangement
         change(&a)
-        withAnimation(.snappy(duration: 0.3)) { raw = a.storage }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.3)) { raw = a.storage }
     }
 
     var body: some View {
         let shown = arrangement.visible
         VStack(spacing: Space.s3) {
+            if shown.isEmpty {
+                VStack(spacing: Space.s3) {
+                    Text("Alle Kacheln sind ausgeblendet.").font(.formaBody).foregroundStyle(Theme.textSecondary)
+                    Button("Standard wiederherstellen") { update { $0 = .standard } }.buttonStyle(.glass)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Space.s5)
+            }
             ForEach(shown) { kind in
                 content(kind)
                     .overlay {
@@ -147,18 +158,31 @@ struct TileStack<Kind: TileKind, Content: View>: View {
                     } isTargeted: { targeted in
                         if targeted { dropTarget = kind } else if dropTarget == kind { dropTarget = nil }
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
+                    // Nur am unteren Rand leicht einblenden, oben nichts bewegen (ruhig).
+                    .scrollTransition(.animated(.smooth), axis: .vertical) { content, phase in
+                        content
+                            .opacity(reduceMotion || phase != .bottomTrailing ? 1 : 0.55)
+                            .scaleEffect(reduceMotion || phase != .bottomTrailing ? 1 : 0.97)
+                    }
+                    // VoiceOver: Verschieben ohne Ziehen.
+                    .accessibilityAction(named: "Nach oben") { update { $0.shift(kind, by: -1) } }
+                    .accessibilityAction(named: "Nach unten") { update { $0.shift(kind, by: 1) } }
+                    .accessibilityAction(named: "Ausblenden") { update { $0.hide(kind) } }
             }
             Button { editing = true } label: {
                 Label("\(screenTitle) anpassen", systemImage: "square.grid.2x2")
                     .font(.formaCaptionStrong)
                     .padding(.horizontal, 6)
+                    .frame(minHeight: 32)
             }
             .buttonStyle(.glass)
             .padding(.top, Space.s3)
             .accessibilityHint("Kacheln sortieren, ein- und ausblenden")
         }
         .sensoryFeedback(.selection, trigger: raw)
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: dropTarget)
+        .animation(.snappy, value: dropTarget)
         .sheet(isPresented: $editing) {
             TileEditor<Kind>(raw: $raw, screenTitle: screenTitle)
                 .presentationDetents([.medium, .large])
@@ -172,6 +196,7 @@ struct TileEditor<Kind: TileKind>: View {
     @Binding var raw: String
     let screenTitle: String
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmReset = false
 
     var body: some View {
         let a = TileArrangement<Kind>(storage: raw)
@@ -205,7 +230,10 @@ struct TileEditor<Kind: TileKind>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Standard") { raw = TileArrangement<Kind>.standard.storage }
+                    Button("Standard") { confirmReset = true }
+                        .confirmationDialog("Reihenfolge auf Standard zurücksetzen?", isPresented: $confirmReset, titleVisibility: .visible) {
+                            Button("Zurücksetzen", role: .destructive) { withAnimation { raw = TileArrangement<Kind>.standard.storage } }
+                        }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Fertig") { dismiss() }
@@ -234,6 +262,8 @@ struct TileEditor<Kind: TileKind>: View {
                     .font(.system(size: 22))
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(Theme.onSelection, shown ? Theme.textTertiary : Theme.younger)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(shown ? "\(kind.title) ausblenden" : "\(kind.title) einblenden")

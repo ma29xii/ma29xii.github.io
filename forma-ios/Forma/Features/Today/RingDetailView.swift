@@ -4,17 +4,36 @@ struct RingDetailView: View {
     @Environment(DataHub.self) private var hub
     let kind: RingKind
 
-    private var tint: Color {
+    private var isMissing: Bool {
+        let a = hub.availability
         switch kind {
+        case .recovery: return !a.recovery
+        case .sleep: return !a.sleep
+        case .strain: return !a.strain
+        }
+    }
+
+    private var tint: Color? {
+        if isMissing { return nil }
+        let color: Color = switch kind {
         case .recovery: Theme.recovery(hub.ringScores.recovery)
         case .sleep: Theme.sleep
         case .strain: Theme.strain
         }
+        return color
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if isMissing {
+                    Label(kind == .sleep ? "Für heute ist keine Nacht gespeichert. Die Werte unten beruhen auf älteren Tagen."
+                                         : "Für heute fehlen Messwerte. Die Zahl ist nicht aussagekräftig.",
+                          systemImage: "exclamationmark.circle")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.warning)
+                        .padding(.top, Space.s3)
+                }
                 switch kind {
                 case .recovery: RecoveryDetail()
                 case .sleep: SleepDetail()
@@ -122,7 +141,7 @@ private struct RecoveryDetail: View {
                     }
                     .buttonStyle(.plain)
                     if showMethod {
-                        Text("Startwert 55. Dazu kommt deine HRV gegenüber dem Mittel der letzten 30 Tage (stärkster Faktor), abzüglich eines erhöhten Ruhepulses und einer erhöhten Atemfrequenz, plus der Schlafwert der letzten Nacht. Ergebnis auf 1 bis 99 begrenzt. Für einen Normalwert braucht Forma mindestens 4 Tage.")
+                        Text("Startwert 58. Dazu kommt deine HRV gegenüber dem Mittel der letzten 30 Tage (stärkster Faktor), abzüglich eines erhöhten Ruhepulses und einer erhöhten Atemfrequenz, plus der Schlafwert der letzten Nacht. Ergebnis auf 1 bis 99 begrenzt. Für einen Normalwert braucht Forma mindestens 4 Tage.")
                             .font(.formaBody)
                             .foregroundStyle(Theme.textSecondary)
                             .padding([.horizontal, .bottom], Space.s4)
@@ -132,19 +151,25 @@ private struct RecoveryDetail: View {
         }
     }
 
+    /// Beiträge in echten Score-Punkten, alle auf derselben Skala (Codex R-01-18).
     private var contributions: [(String, String, Double)] {
+        func z(_ x: Double) -> Double { Swift.min(2, Swift.max(-2, x)) }
+        func points(_ p: Double) -> String { "\(p >= 0 ? "+" : "−")\(Int(abs(p).rounded())) Pkt" }
+        let scale = 20.0 // ±20 Punkte füllen den Balken
         var result: [(String, String, Double)] = []
         if let v = hub.today.hrv, let b = hub.baseline(\.hrv) {
-            let d = v - b.mean
-            result.append(("HRV", "\(d >= 0 ? "+" : "")\(Int(d.rounded())) ms", b.z(v) / 2.5))
+            let d = v - b.mean, p = 10 * z(b.z(v))
+            result.append(("HRV", "\(d >= 0 ? "+" : "−")\(Int(abs(d).rounded())) ms · \(points(p))", p / scale))
         }
         if let v = hub.today.restingHR, let b = hub.baseline(\.restingHR) {
-            let d = v - b.mean
-            result.append(("Ruhepuls", "\(d >= 0 ? "+" : "")\(Int(d.rounded())) bpm", -b.z(v) / 2.5))
+            let d = v - b.mean, p = -7 * z(b.z(v))
+            result.append(("Ruhepuls", "\(d >= 0 ? "+" : "−")\(Int(abs(d).rounded())) bpm · \(points(p))", p / scale))
         }
-        result.append(("Schlaf", "\(hub.scores.sleep)", Double(hub.scores.sleep - 70) / 50))
+        let sleepPoints = 0.25 * Double(hub.scores.sleep - 70)
+        result.append(("Schlaf", "Schlafscore \(hub.scores.sleep) · \(points(sleepPoints))", sleepPoints / scale))
         if let v = hub.today.respiratoryRate, let b = hub.baseline(\.respiratoryRate) {
-            result.append(("Atemfrequenz", Format.number(v - b.mean, decimals: 1), -b.z(v) / 2.5))
+            let d = v - b.mean, p = -4 * z(b.z(v))
+            result.append(("Atemfrequenz", "\(d >= 0 ? "+" : "−")\(Format.number(abs(d), decimals: 1)) /min · \(points(p))", p / scale))
         }
         return result
     }
@@ -217,7 +242,7 @@ private struct SleepDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             DetailHero(value: s.sleep, color: Theme.sleep,
                        headline: night.map { "\(Format.duration($0.asleep)) geschlafen" } ?? "Keine Schlafdaten",
-                       detail: night.map { "\(Format.clock($0.start)) bis \(Format.clock($0.end)) · Bedarf zu \(Int(min(1, $0.asleep / max(1, s.sleepNeed)) * 100)) % gedeckt." } ?? "Trag deine Uhr oder deinen Tracker in der Nacht.",
+                       detail: night.map { "Schlafscore \(s.sleep) von 100 · \(Format.clock($0.start)) bis \(Format.clock($0.end)) · \(Int(min(1, $0.asleep / max(1, s.sleepNeed)) * 100)) % des geschätzten Bedarfs." } ?? "Trag deine Uhr oder deinen Tracker in der Nacht.",
                        dimmed: hub.waitingForFitbit)
 
             if let night {
@@ -231,7 +256,7 @@ private struct SleepDetail: View {
                     Plate {
                         Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                             GridRow {
-                                stat("Effizienz", "\(Int(night.efficiency * 100))", "%")
+                                stat("Schlafeffizienz", "\(Int(night.efficiency * 100))", "%")
                                 stat("Im Bett", Format.duration(night.inBed), nil)
                             }
                             Divider().overlay(Theme.hairline).gridCellColumns(2)
@@ -246,7 +271,7 @@ private struct SleepDetail: View {
 
             FormaSection(title: "Heute Nacht") {
                 Plate {
-                    MetricRow(title: "Ins Bett", subtitle: "für einen Wecker um 6:55", value: CoachEngine.bedtime(s))
+                    MetricRow(title: "Ins Bett", subtitle: "Beispiel: Wecker um 6:55", value: CoachEngine.bedtime(s))
                     RowDivider()
                     MetricRow(title: "Schlafbedarf", subtitle: "Grundbedarf, Belastung von heute und Schlafschuld", value: Format.duration(s.sleepNeed))
                     RowDivider()
@@ -400,7 +425,7 @@ private struct StrainDetail: View {
                 Plate {
                     let values = (Swift.max(0, hub.days.count - 7)..<hub.days.count).map { Double(hub.scores(for: $0).strain) }
                     DayBars(values: values, labels: lastDaysLabels(hub.days), maximum: 100) { _ in Theme.strain }
-                    Text("Summe \(Int(values.reduce(0, +)))")
+                    Text("Ø \(Int((values.reduce(0, +) / Swift.max(1, Double(values.count))).rounded())) pro Tag · \(values.count) Tage")
                         .font(.formaCaption).foregroundStyle(Theme.textSecondary)
                         .padding(Space.s4)
                 }

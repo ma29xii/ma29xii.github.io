@@ -26,6 +26,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("forma.onboarded") private var onboarded = false
+    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var showOnboarding = false
 
     var body: some View {
@@ -44,7 +45,7 @@ struct RootView: View {
                 CoachView()
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(.never) // vier gleichrangige Tabs immer erreichbar (Codex R-01-12)
         .fullScreenCover(item: $app.liveWorkout) { workout in
             LiveWorkoutView(workout: workout)
         }
@@ -68,6 +69,12 @@ struct RootView: View {
             }
             if !onboarded && !FormaApp.isUITest { showOnboarding = true }
             await hub.refresh()
+        }
+        .onChange(of: sessions.count, initial: true) { _, _ in
+            let since = Date.now.startOfDay.adding(days: -30)
+            hub.setFormaWorkouts(sessions.filter { $0.start >= since }.map {
+                WorkoutSummary(name: $0.title, start: $0.start, duration: max(0, $0.duration), energy: nil, isStrength: true)
+            })
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await hub.refresh() } }

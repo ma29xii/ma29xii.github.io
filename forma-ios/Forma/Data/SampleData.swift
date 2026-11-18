@@ -15,7 +15,7 @@ enum SampleData {
             day.restingHR = (53 - wave * 2 - (index == 0 ? 1 : 0)).rounded()
             day.respiratoryRate = ((14.3 + sin(t * 0.5) * 0.3) * 10).rounded() / 10
             day.spo2 = (96.5 + sin(t * 0.7) * 0.8).rounded()
-            day.vo2max = ((44.0 + Double(offset) / Double(max(1, count - 1)) * 3.0) * 10).rounded() / 10
+            if index % 7 == 0 { day.vo2max = ((44.0 + Double(offset) / Double(max(1, count - 1)) * 3.0) * 10).rounded() / 10 }
             day.steps = index == 0 ? 6240 : (8200 + wave * 2600).rounded()
             day.activeEnergy = index == 0 ? 410 : (520 + wave * 160).rounded()
             day.sleep = night(for: date, variation: wave, isToday: index == 0)

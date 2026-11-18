@@ -72,11 +72,7 @@ actor HealthService {
             days[key]?.sleep = nights[key]
             days[key]?.workouts = workouts[key] ?? []
         }
-        // VO₂max wird selten gemessen: letzten Wert fortschreiben.
-        var lastVO2: Double?
-        for key in days.keys.sorted() {
-            if let v = days[key]?.vo2max { lastVO2 = v } else { days[key]?.vo2max = lastVO2 }
-        }
+        // VO₂max nicht fortschreiben: nur echte Messtage zählen (Codex R-01-09). Anzeigen nehmen den letzten Wert.
         return days.keys.sorted().compactMap { days[$0] }
     }
 
@@ -102,7 +98,10 @@ actor HealthService {
         }
     }
 
-    /// Schlaf je Aufwachtag: alle Phasen, die zwischen 18 Uhr am Vortag und 18 Uhr enden.
+    /// Schlaf je Aufwachtag (Codex R-01-06):
+    /// 1. Phasen pro Quelle (Uhr, Ring, App) getrennt halten – keine Doppelzählung überlappender Tracker.
+    /// 2. Pro Quelle zusammenhängende Blöcke bilden (Lücke über 90 min trennt) – Nickerchen werden kein Teil der Nacht.
+    /// 3. Pro Aufwachtag den längsten Block wählen; bei Gleichstand die Quelle mit Tief-/REM-Phasen.
     private func sleepNights(from start: Date) async -> [Date: SleepNight] {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: nil)
         let descriptor = HKSampleQueryDescriptor(
@@ -110,7 +109,7 @@ actor HealthService {
             sortDescriptors: [SortDescriptor(\.startDate)]
         )
         guard let samples = try? await descriptor.result(for: store) else { return [:] }
-        var grouped: [Date: [SleepNight.Segment]] = [:]
+        var bySource: [String: [SleepNight.Segment]] = [:]
         for sample in samples {
             guard let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) else { continue }
             let stage: SleepNight.Stage
@@ -121,16 +120,11 @@ actor HealthService {
             case .asleepCore, .asleepUnspecified: stage = .core
             default: continue // „Im Bett“ wird nicht als Phase gezählt
             }
-            let wakeDay = sample.endDate.addingTimeInterval(6 * 3600).startOfDay
-            grouped[wakeDay, default: []].append(.init(stage: stage, start: sample.startDate, end: sample.endDate))
+            guard sample.endDate > sample.startDate else { continue }
+            let source = sample.sourceRevision.source.bundleIdentifier
+            bySource[source, default: []].append(.init(stage: stage, start: sample.startDate, end: sample.endDate))
         }
-        var nights: [Date: SleepNight] = [:]
-        for (day, segments) in grouped {
-            let sorted = segments.sorted { $0.start < $1.start }
-            guard let first = sorted.first, let last = sorted.max(by: { $0.end < $1.end }) else { continue }
-            nights[day] = SleepNight(start: first.start, end: last.end, segments: sorted)
-        }
-        return nights
+        return SleepNight.mainNights(bySource: bySource)
     }
 
     private func workouts(from start: Date) async -> [Date: [WorkoutSummary]] {

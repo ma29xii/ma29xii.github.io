@@ -44,6 +44,7 @@ struct TrainingView: View {
     @Environment(AppState.self) private var app
     @Query(sort: \Routine.createdAt) private var routines: [Routine]
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @State private var editingTiles = false
     @State private var path: [TrainingRoute] = []
 
     private var next: Routine? { routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) } }
@@ -52,7 +53,7 @@ struct TrainingView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    TileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training", screenTitle: "Training") { tile in
+                    TileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training", screenTitle: "Training", isEditing: $editingTiles) { tile in
                         AnyView(view(for: tile))
                     }
                     .padding(.top, Space.s3)
@@ -63,6 +64,10 @@ struct TrainingView: View {
             .formaScreen()
             .navigationTitle("Training")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { editingTiles = true } label: { Image(systemName: "square.grid.2x2") }
+                        .accessibilityLabel("Training anpassen")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { app.showProfile = true } label: { Image(systemName: "person.crop.circle") }
                         .accessibilityLabel("Profil und Einstellungen")
@@ -115,7 +120,7 @@ struct TrainingView: View {
                 }
             }
         case .weeklySets:
-            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "ab RIR 3") { weeklySets }
+            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "höchstens 3 Wdh. übrig") { weeklySets }
         case .library:
             WidgetCard(title: tile.title, systemImage: tile.systemImage) {
                 Button { path.append(.library) } label: {
@@ -142,9 +147,14 @@ struct TrainingView: View {
                     Label("Coach-Anpassung für heute: \(adjustment.title)", systemImage: "sparkles")
                         .font(.formaCaption).foregroundStyle(Theme.textSecondary).padding(.top, 6)
                 }
-                Button("Training starten") { start(routine) }
+                Button("\(routine.name) starten") { start(routine) }
                     .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityIdentifier("training.start")
                     .padding(.top, Space.s4)
+                Button { app.liveWorkout = LiveWorkout.empty() } label: {
+                    Text("Freies Training").font(.formaBody).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, Space.s4)
             .padding(.top, 6)
@@ -168,9 +178,17 @@ struct TrainingView: View {
         let library = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
         let muscleFor: (String) -> String = { name in library.first { $0.name == name }?.muscle ?? "Andere" }
         let groups = ["Brust", "Rücken", "Beine", "Schultern", "Arme"]
+        // Unbekannte Reserve (rir < 0) zählt nicht als hart (Codex R-01-23).
+        let unknown = sets.filter { $0.rir < 0 }.count
         return VStack(spacing: 0) {
+            if sets.isEmpty {
+                Text("Nach deinem ersten Training siehst du hier, wie viele harte Sätze jede Muskelgruppe diese Woche bekommen hat. Hart heißt: höchstens 3 Wiederholungen übrig.")
+                    .font(.formaBody).foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Space.s4)
+            } else {
             ForEach(groups, id: \.self) { g in
-                let n = sets.filter { muscleFor($0.exerciseName) == g && ($0.rir < 0 || $0.rir <= 3) }.count
+                let n = sets.filter { muscleFor($0.exerciseName) == g && $0.rir >= 0 && $0.rir <= 3 }.count
                 HStack(spacing: Space.s3) {
                     Text(g).font(.formaCaption).foregroundStyle(Theme.textSecondary).frame(width: 76, alignment: .leading)
                     ZStack(alignment: .leading) {
@@ -183,10 +201,11 @@ struct TrainingView: View {
                 .padding(.horizontal, Space.s4)
                 .frame(minHeight: 40)
             }
-            Text("Strich: 10 Sätze pro Woche als Richtwert")
+            Text("Strich: 10 Sätze pro Woche als grober Orientierungswert, kein persönliches Ziel." + (unknown > 0 ? " \(unknown) Sätze ohne Reserve-Angabe sind nicht mitgezählt." : ""))
                 .font(.formaCaption).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding([.horizontal, .bottom], Space.s4)
+            }
         }
         .padding(.top, Space.s2)
     }

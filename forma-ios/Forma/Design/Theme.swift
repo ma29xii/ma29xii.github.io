@@ -10,8 +10,8 @@ enum Theme {
     // Text
     static let textPrimary = Color(hex: 0xF5F5F7)
     static let textSecondary = Color(hex: 0x9A9AA0)
-    static let textTertiary = Color.white.opacity(0.40)
-    static let textQuaternary = Color.white.opacity(0.22)
+    static let textTertiary = Color.white.opacity(0.56)   // ≈ 6:1 auf Schwarz (WCAG AA)
+    static let textQuaternary = Color.white.opacity(0.36)  // ≈ 3:1 für Symbole und Konturen
 
     // Flächen und Linien
     static let plate = Color.white.opacity(0.05)
@@ -103,10 +103,11 @@ extension Font {
 /// Auf „Heute“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
 struct ScreenBackground: View {
     var tint: Color? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Gelb wirkt auf Schwarz schnell schmutzig (oliv): dort schwächer leuchten.
     private var strength: Double {
         guard let tint else { return 0.07 }
-        return tint == Theme.recoveryMid ? 0.11 : 0.20
+        return tint == Theme.recoveryMid ? 0.09 : 0.14
     }
 
     var body: some View {
@@ -114,7 +115,7 @@ struct ScreenBackground: View {
             Theme.background
             RadialGradient(
                 colors: [(tint ?? .white).opacity(strength), .clear],
-                center: .top, startRadius: 0, endRadius: 380
+                center: .top, startRadius: 0, endRadius: 300
             )
             .scaleEffect(x: 1.7, y: 1, anchor: .top)
             .frame(height: 520)
@@ -125,7 +126,7 @@ struct ScreenBackground: View {
             .frame(height: 420)
         }
         .ignoresSafeArea()
-        .animation(.smooth(duration: 0.8), value: tint)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: tint)
     }
 }
 

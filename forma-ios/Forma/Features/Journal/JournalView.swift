@@ -64,7 +64,7 @@ struct JournalView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, Space.s5)
 
-                    Text("Nach etwa zwei Wochen zeigt dir der Coach, wie diese Gewohnheiten deine Erholung beeinflussen.")
+                    Text("Halte fest, was gestern zutraf. Die Antworten bleiben auf deinem iPhone.")
                         .font(.formaCaption)
                         .foregroundStyle(Theme.textTertiary)
                         .padding(.top, Space.s4)

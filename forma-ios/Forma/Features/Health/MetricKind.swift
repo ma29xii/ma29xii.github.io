@@ -85,7 +85,8 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Zeile mit aktuellem Wert und Normalbereich (Mittel ± 1 Standardabweichung der letzten 30 Tage).
+/// Zeile mit aktuellem Wert und deinem üblichen Bereich (Mittel ± 1 Standardabweichung der letzten 30 Tage).
+/// Bewusst nicht „Normal“: Das ist dein persönlicher Bereich, kein medizinischer Referenzwert (Codex R-01-30).
 struct MetricSummaryRow: View {
     @Environment(DataHub.self) private var hub
     let kind: MetricKind
@@ -93,7 +94,9 @@ struct MetricSummaryRow: View {
     var body: some View {
         let values = hub.days.compactMap { kind.value($0) }
         let history = hub.history.compactMap { kind.value($0) }
-        let current = kind.value(hub.today) ?? values.last
+        let todayValue = kind.value(hub.today)
+        let lastDay = hub.days.last { kind.value($0) != nil }
+        let current = todayValue ?? values.last
         let base = ScoreEngine.baseline(history)
         let low = base.map { $0.mean - $0.sd }, high = base.map { $0.mean + $0.sd }
         let outside: Bool = {
@@ -102,7 +105,7 @@ struct MetricSummaryRow: View {
         }()
         MetricRow(
             title: kind.title,
-            subtitle: (low != nil && high != nil) ? "Normal \(kind.formattedShort(low!))–\(kind.formattedShort(high!))\(kind.unit.isEmpty ? "" : " " + kind.unit)" : "noch kein Normalwert",
+            subtitle: subtitleText(low: low, high: high, stale: todayValue == nil ? lastDay?.date : nil),
             value: current.map { kind == .sleepDuration ? kind.formatted($0) : kind.formatted($0) },
             unit: kind == .sleepDuration ? nil : kind.unit,
             valueColor: outside ? Theme.warning : Theme.textPrimary,
@@ -114,5 +117,16 @@ struct MetricSummaryRow: View {
                          dotColor: outside ? Theme.warning : Theme.textPrimary)
             }
         }
+    }
+
+    private func subtitleText(low: Double?, high: Double?, stale: Date?) -> String {
+        var parts: [String] = []
+        if let low, let high {
+            parts.append("Dein Bereich \(kind.formattedShort(low))–\(kind.formattedShort(high))\(kind.unit.isEmpty ? "" : " " + kind.unit)")
+        } else {
+            parts.append("noch kein üblicher Bereich")
+        }
+        if let stale { parts.append("zuletzt am \(Format.shortDate(stale))") }
+        return parts.joined(separator: " · ")
     }
 }

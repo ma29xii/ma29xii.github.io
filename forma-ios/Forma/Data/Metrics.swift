@@ -76,9 +76,61 @@ struct SleepNight: Equatable, Sendable {
     var segments: [Segment]
 
     var inBed: TimeInterval { end.timeIntervalSince(start) }
-    func total(_ stage: Stage) -> TimeInterval { segments.filter { $0.stage == stage }.reduce(0) { $0 + $1.duration } }
-    var asleep: TimeInterval { total(.rem) + total(.core) + total(.deep) }
-    var efficiency: Double { inBed > 0 ? asleep / inBed : 0 }
+    func total(_ stage: Stage) -> TimeInterval { SleepNight.unionLength(segments.filter { $0.stage == stage }) }
+    /// Schlafzeit als Vereinigung der Intervalle: Überlappungen zählen nur einmal.
+    var asleep: TimeInterval { SleepNight.unionLength(segments.filter { $0.stage != .awake }) }
+    var efficiency: Double { inBed > 0 ? min(1, asleep / inBed) : 0 }
+    /// Hat die Nacht echte Phasen (Tief/REM)? Sonst ist nur „geschlafen“ bekannt.
+    var hasStages: Bool { segments.contains { $0.stage == .deep || $0.stage == .rem } }
+
+    static func unionLength(_ segments: [Segment]) -> TimeInterval {
+        let sorted = segments.sorted { $0.start < $1.start }
+        var total: TimeInterval = 0
+        var current: (start: Date, end: Date)?
+        for s in sorted {
+            if let c = current, s.start <= c.end {
+                current = (c.start, max(c.end, s.end))
+            } else {
+                if let c = current { total += c.end.timeIntervalSince(c.start) }
+                current = (s.start, s.end)
+            }
+        }
+        if let c = current { total += c.end.timeIntervalSince(c.start) }
+        return total
+    }
+
+    /// Wählt pro Aufwachtag die Hauptnacht aus Phasen mehrerer Quellen.
+    static func mainNights(bySource: [String: [Segment]], gap: TimeInterval = 90 * 60) -> [Date: SleepNight] {
+        var best: [Date: SleepNight] = [:]
+        for (_, segments) in bySource {
+            let sorted = segments.sorted { $0.start < $1.start }
+            var blocks: [[Segment]] = []
+            var blockEnd: Date?
+            for s in sorted {
+                if let end = blockEnd, s.start.timeIntervalSince(end) <= gap {
+                    blocks[blocks.count - 1].append(s)
+                    blockEnd = max(end, s.end)
+                } else {
+                    blocks.append([s])
+                    blockEnd = s.end
+                }
+            }
+            for block in blocks {
+                guard let first = block.first, let last = block.max(by: { $0.end < $1.end }) else { continue }
+                let night = SleepNight(start: first.start, end: last.end, segments: block)
+                guard night.asleep >= 20 * 60 else { continue }
+                let wakeDay = last.end.addingTimeInterval(6 * 3600).startOfDay
+                if let current = best[wakeDay] {
+                    let better = night.asleep > current.asleep + 15 * 60
+                        || (abs(night.asleep - current.asleep) <= 15 * 60 && night.hasStages && !current.hasStages)
+                    if better { best[wakeDay] = night }
+                } else {
+                    best[wakeDay] = night
+                }
+            }
+        }
+        return best
+    }
 }
 
 struct WorkoutSummary: Equatable, Sendable, Identifiable {

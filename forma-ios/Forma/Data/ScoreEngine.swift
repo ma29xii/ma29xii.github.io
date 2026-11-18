@@ -22,7 +22,8 @@ enum ScoreEngine {
         guard let night, night.asleep > 0 else { return 0 }
         let duration = min(1, night.asleep / max(need, 1)) * 60
         let efficiency = clamp((night.efficiency - 0.75) / 0.2) * 20
-        let restorative = clamp(((night.total(.deep) + night.total(.rem)) / night.asleep - 0.25) / 0.2) * 20
+        // Ohne gemessene Phasen neutral werten statt mit 0 bestrafen (Codex R-01-06).
+        let restorative = night.hasStages ? clamp(((night.total(.deep) + night.total(.rem)) / night.asleep - 0.25) / 0.2) * 20 : 10
         return Int((duration + efficiency + restorative).rounded()).clamped(1, 100)
     }
 

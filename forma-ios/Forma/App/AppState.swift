@@ -13,6 +13,8 @@ enum AppTab: Hashable {
 final class AppState {
     var selectedTab: AppTab = .today
     var coachPrompt: String?
+    /// Thema der ersten Coach-Antwort (z. B. „schlaf“), damit sie zum Einstieg passt.
+    var coachTopic: String = "erholung"
     var liveWorkout: LiveWorkout? {
         didSet {
             if let liveWorkout {
@@ -36,7 +38,8 @@ final class AppState {
         weightUnit = WeightUnit(rawValue: UserDefaults.standard.string(forKey: "forma.weightUnit") ?? "") ?? .kg
     }
 
-    func openCoach(with prompt: String) {
+    func openCoach(with prompt: String, topic: String = "erholung") {
+        coachTopic = topic
         coachPrompt = prompt
         selectedTab = .coach
     }
@@ -76,6 +79,10 @@ struct LiveSet: Identifiable, Equatable, Codable {
     var rir: Int?
     var isWarmup: Bool
     var done = false
+    /// Gewicht aus dem Plan. Nur unveränderte Folgesätze übernehmen das Gewicht des letzten Satzes (Codex R-01-26).
+    var plannedWeight: Double? = nil
+    /// Was du beim letzten Mal in diesem Satz geschafft hast, z. B. „72,5 × 8“.
+    var previous: String? = nil
 }
 
 struct LiveExercise: Identifiable, Equatable, Codable {
@@ -215,7 +222,11 @@ final class LiveWorkout: Identifiable {
             var weight = plan.weight
             if adjustment == .minusOneSet { setCount = max(1, setCount - 1) }
             if adjustment == .plusWeight && index == 0 && !plan.increased { weight += 2.5 }
-            var sets = (0..<setCount).map { _ in LiveSet(weight: weight, reps: item.reps, isWarmup: false) }
+            let previousSets = (lastSession?.workSets ?? []).filter { $0.exerciseName == item.exerciseName }.sorted { $0.order < $1.order }
+            var sets = (0..<setCount).map { i in
+                LiveSet(weight: weight, reps: item.reps, isWarmup: false, plannedWeight: weight,
+                        previous: previousSets.indices.contains(i) ? "\(Format.number(previousSets[i].weight, decimals: previousSets[i].weight.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) × \(previousSets[i].reps)" : nil)
+            }
             if index == 0 && weight >= 40 {
                 sets.insert(LiveSet(weight: (weight * 0.55 / 2.5).rounded() * 2.5, reps: 10, isWarmup: true), at: 0)
             }
@@ -239,6 +250,12 @@ final class LiveWorkout: Identifiable {
     var currentSet: LiveSet? {
         guard let ex = currentExercise, ex.sets.indices.contains(setIndex) else { return nil }
         return ex.sets[setIndex]
+    }
+
+    /// „Bankdrücken · Satz 2“ bzw. „Bankdrücken · Aufwärmen“ für den aktuellen Satz.
+    var currentLabel: String? {
+        guard let ex = currentExercise, let set = currentSet else { return nil }
+        return set.isWarmup ? "\(ex.name) · Aufwärmen" : "\(ex.name) · Satz \(workSetNumber(exercise: exerciseIndex, set: setIndex))"
     }
 
     func workSetNumber(exercise: Int, set: Int) -> Int {
@@ -274,7 +291,11 @@ final class LiveWorkout: Identifiable {
         // Gleiche Werte in den nächsten offenen Satz übernehmen, falls noch Standard
         let done = exercises[exerciseIndex].sets[setIndex]
         if let next = exercises[exerciseIndex].sets.firstIndex(where: { !$0.done }), !done.isWarmup {
-            exercises[exerciseIndex].sets[next].weight = done.weight
+            let candidate = exercises[exerciseIndex].sets[next]
+            if !candidate.isWarmup, candidate.plannedWeight == nil || candidate.weight == candidate.plannedWeight {
+                exercises[exerciseIndex].sets[next].weight = done.weight
+                exercises[exerciseIndex].sets[next].plannedWeight = done.weight
+            }
         }
         restTotal = exercises[exerciseIndex].restSeconds
         restEndsAt = .now.addingTimeInterval(TimeInterval(restTotal))
@@ -326,8 +347,9 @@ final class LiveWorkout: Identifiable {
         if !keepRest { restEndsAt = nil }
     }
 
-    /// Speichert das Training. Gibt die Sitzung zurück.
-    func save(into context: ModelContext) -> WorkoutSession? {
+    /// Speichert das Training. Gibt die Sitzung zurück (nil, wenn kein Satz erledigt wurde).
+    /// Wirft bei Schreibfehlern und nimmt dann alles zurück, damit kein halbes Training bleibt.
+    func save(into context: ModelContext) throws -> WorkoutSession? {
         var records: [SetRecord] = []
         var order = 0
         for ex in exercises {
@@ -343,7 +365,12 @@ final class LiveWorkout: Identifiable {
             context.insert(r)
             r.session = session
         }
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
         return session
     }
 }

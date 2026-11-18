@@ -9,9 +9,30 @@ final class DataHub {
     let fitbit = FitbitService()
 
     /// Bis zu 180 Tage für das Körperalter.
-    private(set) var longDays: [DayMetrics] = SampleData.days()
-    /// Die letzten 30 Tage für Ringe und Trends.
-    var days: [DayMetrics] { Array(longDays.suffix(30)) }
+    private(set) var longDays: [DayMetrics]
+    /// Wurde seit dem Start schon einmal erfolgreich geladen? Vorher keine Beispielwerte vortäuschen.
+    private(set) var hasLoaded = false
+    /// Die letzten 30 Tage für Ringe und Trends, inklusive Forma-Krafttrainings (zählen in die Belastung).
+    var days: [DayMetrics] {
+        var recent = Array(longDays.suffix(30))
+        guard !formaWorkouts.isEmpty else { return recent }
+        for i in recent.indices {
+            let day = recent[i].date
+            for w in formaWorkouts where w.start.startOfDay == day {
+                let end = w.start.addingTimeInterval(w.duration)
+                // Nicht doppelt zählen, wenn dasselbe Training auch in Apple Health steht.
+                let overlaps = recent[i].workouts.contains { h in h.start < end && w.start < h.start.addingTimeInterval(h.duration) }
+                if !overlaps { recent[i].workouts.append(w) }
+            }
+        }
+        return recent
+    }
+
+    /// Trainings aus Forma (SwiftData), gesetzt von der Oberfläche.
+    private(set) var formaWorkouts: [WorkoutSummary] = []
+    func setFormaWorkouts(_ workouts: [WorkoutSummary]) {
+        if workouts != formaWorkouts { formaWorkouts = workouts }
+    }
     private(set) var healthPerson: (birthDate: Date?, sex: BiologicalSex) = (nil, .unknown)
     /// Fitbit erlaubt etwa 150 Anfragen pro Stunde: ältere Tage nur einmal laden.
     private var fitbitCache: [Date: DayMetrics] = [:]
@@ -49,8 +70,29 @@ final class DataHub {
     }
 
     init() {
-        preferredSource = DataSourceKind(rawValue: UserDefaults.standard.string(forKey: "forma.source") ?? "") ?? .automatic
-        if ProcessInfo.processInfo.arguments.contains("-uitest") { preferredSource = .sample }
+        var source = DataSourceKind(rawValue: UserDefaults.standard.string(forKey: "forma.source") ?? "") ?? .automatic
+        // Die alte Fitbit-Schnittstelle ist abgeschaltet (Google, 2.11.2026).
+        if source == .fitbit { source = .automatic }
+        if ProcessInfo.processInfo.arguments.contains("-uitest") { source = .sample }
+        preferredSource = source
+        let expectsRealData = source != .sample && UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
+        longDays = expectsRealData ? [] : SampleData.days()
+        hasLoaded = !expectsRealData
+    }
+
+    /// Welche Ringe haben heute eine echte Grundlage? (Codex R-01-03)
+    struct Availability: Equatable {
+        var recovery: Bool
+        var sleep: Bool
+        var strain: Bool
+    }
+
+    var availability: Availability {
+        let t = waitingForFitbit ? (yesterday ?? today) : today
+        return Availability(
+            recovery: t.hrv != nil || t.restingHR != nil,
+            sleep: t.sleep != nil,
+            strain: today.activeEnergy != nil || !today.workouts.isEmpty || today.steps != nil)
     }
 
     var isSample: Bool { activeSource == .sample }
@@ -96,6 +138,7 @@ final class DataHub {
         do {
             try await health.requestAuthorization()
             healthAuthorized = true
+            if preferredSource == .sample { preferredSource = .automatic }
             UserDefaults.standard.set(true, forKey: "forma.healthAuthorized")
             await refresh()
         } catch {
@@ -106,7 +149,7 @@ final class DataHub {
     func refresh() async {
         guard !isLoading else { return }
         isLoading = true
-        defer { isLoading = false; lastUpdate = .now }
+        defer { isLoading = false; hasLoaded = true }
         let source = resolveSource()
         switch source {
         case .fitbit:
@@ -126,6 +169,8 @@ final class DataHub {
             if loaded.contains(where: { $0.hrv != nil || $0.sleep != nil }) {
                 longDays = loaded
                 activeSource = .fitbit
+                lastUpdate = .now
+                lastError = nil
             } else {
                 longDays = SampleData.days()
                 activeSource = .sample
@@ -135,12 +180,15 @@ final class DataHub {
             let loaded = await health.loadDays(count: 180).map { $0.sanitized() }
             healthPerson = await health.person()
             let hasData = loaded.suffix(30).contains { $0.hrv != nil || $0.sleep != nil || ($0.steps ?? 0) > 0 }
+            // Keine stillen Beispieldaten mehr, wenn Apple Health freigegeben ist (Codex R-01-03):
+            // leere Tage bleiben leer und werden als „keine Daten“ gezeigt.
+            longDays = loaded
+            activeSource = .health
             if hasData {
-                longDays = loaded
-                activeSource = .health
+                lastUpdate = .now
+                lastError = nil
             } else {
-                longDays = SampleData.days()
-                activeSource = .sample
+                lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Forma, ob alles freigegeben ist."
             }
         case .sample, .automatic:
             longDays = SampleData.days()
@@ -154,7 +202,6 @@ final class DataHub {
         case .fitbit: return fitbit.isConnected ? .fitbit : .sample
         case .health: return healthAuthorized ? .health : .sample
         case .automatic:
-            if fitbit.isConnected { return .fitbit }
             if healthAuthorized { return .health }
             return .sample
         }

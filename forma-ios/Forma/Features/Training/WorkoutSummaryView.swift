@@ -27,8 +27,8 @@ struct WorkoutSummaryView: View {
                     Plate {
                         Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                             GridRow {
-                                stat("Dauer", Format.duration(session.duration))
-                                stat("Volumen", "\(Format.number(session.volume)) kg")
+                                stat("Dauer", session.duration < 60 ? "< 1 min" : Format.duration(session.duration))
+                                stat("Trainingsvolumen", "\(Format.weight(session.volume, unit: app.weightUnit)) \(app.weightUnit.rawValue)")
                             }
                             Divider().overlay(Theme.hairline).gridCellColumns(2)
                             GridRow {
@@ -39,7 +39,7 @@ struct WorkoutSummaryView: View {
                     }
                     .padding(.top, Space.s5)
 
-                    FormaSection(title: "Geschätztes Maximum (1RM)") {
+                    FormaSection(title: "Geschätztes Gewicht für 1 Wiederholung") {
                         Plate {
                             ForEach(Array(session.exerciseNames.enumerated()), id: \.offset) { index, name in
                                 if index > 0 { RowDivider() }

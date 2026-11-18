@@ -240,14 +240,14 @@ final class TileArrangementTests: XCTestCase {
 
     func testMoveBeforeAndShowHide() {
         var a = TileArrangement<HealthTile>(storage: "")
-        a.move(.sleepActivity, before: .bodyAge)
-        XCTAssertEqual(a.visible.first, .sleepActivity)
+        a.move(.bodyAge, before: .heart)
+        XCTAssertEqual(a.visible.first, .bodyAge)
         a.hide(.fitness)
         XCTAssertFalse(a.visible.contains(.fitness))
         a.show(.fitness)
         XCTAssertEqual(a.visible.last, .fitness)
-        a.shift(.sleepActivity, by: -1) // schon oben: nichts passiert
-        XCTAssertEqual(a.visible.first, .sleepActivity)
+        a.shift(.bodyAge, by: -1) // schon oben: nichts passiert
+        XCTAssertEqual(a.visible.first, .bodyAge)
     }
 }
 
@@ -316,5 +316,98 @@ final class LiveWorkoutTests: XCTestCase {
         let w = workout()
         w.persist()
         XCTAssertNil(LiveWorkout.restore(now: Date.now.addingTimeInterval(9 * 3600)))
+    }
+}
+
+/// Regressionstests zu Codex-Review 01.
+final class ReviewRegressionTests: XCTestCase {
+    private let t0 = Calendar.forma.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 23))!
+
+    private func seg(_ stage: SleepNight.Stage, _ startMin: Double, _ endMin: Double) -> SleepNight.Segment {
+        .init(stage: stage, start: t0.addingTimeInterval(startMin * 60), end: t0.addingTimeInterval(endMin * 60))
+    }
+
+    // R-01-06: Überlappende Phasen zählen nur einmal.
+    func testUnionLengthCountsOverlapOnce() {
+        let length = SleepNight.unionLength([seg(.core, 0, 60), seg(.core, 30, 90), seg(.deep, 120, 150)])
+        XCTAssertEqual(length, 120 * 60, accuracy: 0.1)
+    }
+
+    // R-01-06: Nickerchen am Nachmittag wird nicht Teil der Nacht, zwei Tracker werden nicht addiert.
+    func testMainNightIgnoresNapAndDuplicateTracker() {
+        let watch = [seg(.core, 0, 120), seg(.deep, 120, 200), seg(.rem, 200, 260), seg(.core, 260, 450)]
+        let phone = [seg(.core, 10, 440)]                      // zweiter Tracker, gleiche Nacht, ohne Phasen
+        let nap = [seg(.core, 900, 940)]                        // am nächsten Nachmittag
+        let nights = SleepNight.mainNights(bySource: ["watch": watch + nap, "phone": phone])
+        let wakeDay = t0.addingTimeInterval(450 * 60).addingTimeInterval(6 * 3600).startOfDay
+        let night = nights[wakeDay]
+        XCTAssertNotNil(night)
+        XCTAssertEqual(night!.asleep, 450 * 60, accuracy: 1)   // nicht 450 + 430
+        XCTAssertTrue(night!.hasStages)                         // Uhr mit Phasen gewinnt
+        XCTAssertLessThan(night!.end, t0.addingTimeInterval(500 * 60)) // Nickerchen nicht angehängt
+    }
+
+    // R-01-06: Ohne Phasen nicht bestraft.
+    func testSleepScoreWithoutStagesIsNeutral() {
+        let night = SleepNight(start: t0, end: t0.addingTimeInterval(8 * 3600), segments: [seg(.core, 0, 480)])
+        let score = ScoreEngine.sleepScore(night, need: 8 * 3600)
+        XCTAssertGreaterThanOrEqual(score, 85)
+    }
+
+    private func context(strain: Int, target: ClosedRange<Int>, trained: Bool, hrvDelta: Double?) -> CoachEngine.Context {
+        let scores = DayScores(recovery: 70, sleep: 80, strain: strain, target: target, energy: 60, stress: 1.2, sleepNeed: 8 * 3600, sleepDebt: 0)
+        return CoachEngine.Context(scores: scores, today: DayMetrics(date: Date.now.startOfDay), hrvDelta: hrvDelta, rhrDelta: nil,
+                                   plannedRoutine: "Push", trainedToday: trained, isSample: false, hour: 10)
+    }
+
+    // R-01-05: 39 im Bereich 35–55 ist „im Zielbereich“, kein „es fehlen noch Punkte“.
+    func testCoachMatchesTargetBand() {
+        XCTAssertTrue(CoachEngine.dailyLine(context(strain: 39, target: 35...55, trained: true, hrvDelta: 3)).contains("Zielbereich (35–55)"))
+        XCTAssertTrue(CoachEngine.dailyLine(context(strain: 34, target: 35...55, trained: true, hrvDelta: 3)).contains("noch 1 Punkte"))
+        XCTAssertTrue(CoachEngine.dailyLine(context(strain: 56, target: 35...55, trained: true, hrvDelta: 3)).contains("über deinem Zielbereich"))
+        XCTAssertTrue(CoachEngine.dailyLine(context(strain: 55, target: 35...55, trained: true, hrvDelta: 3)).contains("Zielbereich (35–55)"))
+    }
+
+    // R-01-05: Fehlende HRV wird nicht als „im Normalbereich“ behauptet.
+    func testCoachSaysWhenHRVMissing() {
+        let line = CoachEngine.dailyLine(context(strain: 10, target: 35...55, trained: false, hrvDelta: nil))
+        XCTAssertTrue(line.contains("fehlt ein HRV-Wert"))
+        XCTAssertNil(CoachEngine.suggestion(context(strain: 10, target: 35...55, trained: false, hrvDelta: nil)))
+    }
+
+    // C-01-06: „Wie viel Belastung ist heute gut?“ bekommt die Belastungsantwort.
+    func testCoachRoutesStrainQuestion() {
+        let answer = CoachEngine.localAnswer(to: "Wie viel Belastung ist heute gut?", context(strain: 20, target: 35...55, trained: false, hrvDelta: 1))
+        XCTAssertTrue(answer.contains("Belastung bisher"))
+    }
+}
+
+@MainActor
+final class LiveWorkoutRegressionTests: XCTestCase {
+    // R-01-26: Ein bewusst geändertes Folgegewicht wird nicht überschrieben.
+    func testChangedFollowUpWeightIsKept() {
+        defer { LiveWorkout.clearSaved() }
+        let w = LiveWorkout(title: "Test", exercises: [
+            LiveExercise(name: "Kniebeuge", muscle: "Beine", restSeconds: 90, sets: [
+                LiveSet(weight: 100, reps: 5, isWarmup: false, plannedWeight: 100),
+                LiveSet(weight: 90, reps: 8, isWarmup: false, plannedWeight: 100)   // vom Nutzer auf Backoff gesenkt
+            ])
+        ])
+        w.changeWeight(by: 2.5)      // erster Satz 102,5
+        w.completeCurrentSet()
+        XCTAssertEqual(w.exercises[0].sets[1].weight, 90, "Backoff-Satz bleibt")
+    }
+
+    func testUnchangedFollowUpWeightFollows() {
+        defer { LiveWorkout.clearSaved() }
+        let w = LiveWorkout(title: "Test", exercises: [
+            LiveExercise(name: "Kniebeuge", muscle: "Beine", restSeconds: 90, sets: [
+                LiveSet(weight: 100, reps: 5, isWarmup: false, plannedWeight: 100),
+                LiveSet(weight: 100, reps: 5, isWarmup: false, plannedWeight: 100)
+            ])
+        ])
+        w.changeWeight(by: 2.5)
+        w.completeCurrentSet()
+        XCTAssertEqual(w.exercises[0].sets[1].weight, 102.5)
     }
 }

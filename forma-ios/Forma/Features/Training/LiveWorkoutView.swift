@@ -9,6 +9,7 @@ struct LiveWorkoutView: View {
     @State private var showPicker = false
     @State private var confirmEnd = false
     @State private var completedCount = 0
+    @State private var saveError: String?
 
     var body: some View {
         NavigationStack {
@@ -26,7 +27,7 @@ struct LiveWorkoutView: View {
                         Button { showPicker = true } label: { Label("Übung hinzufügen", systemImage: "plus") }
                             .buttonStyle(.glass)
                             .padding(.top, Space.s5)
-                        Color.clear.frame(height: 300)
+                        Color.clear.frame(height: Space.s5)
                     }
                     .padding(.horizontal, Space.page)
                 }
@@ -55,6 +56,12 @@ struct LiveWorkoutView: View {
                 Button("Speichern und beenden") { finish() }
                 Button("Verwerfen", role: .destructive) { app.liveWorkout = nil }
                 Button("Weiter trainieren", role: .cancel) {}
+            }
+            .alert("Training konnte nicht gespeichert werden", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("Erneut versuchen") { finish() }
+                Button("Weiter trainieren", role: .cancel) {}
+            } message: {
+                Text("Dein Training ist nicht verloren, es bleibt hier offen. \(saveError ?? "")")
             }
             .sheet(isPresented: $showPicker) {
                 ExercisePickerView { ex in workout.addExercise(name: ex.name, muscle: ex.muscle) }
@@ -103,18 +110,28 @@ struct LiveWorkoutView: View {
 
     private func setRow(_ exIndex: Int, _ setIndex: Int, _ set: LiveSet) -> some View {
         let active = exIndex == workout.exerciseIndex && setIndex == workout.setIndex && !set.done
-        let number = set.isWarmup ? "A" : "\(workout.workSetNumber(exercise: exIndex, set: setIndex))"
-        return Button { if !set.done { workout.select(exercise: exIndex, set: setIndex) } } label: {
+        let number = set.isWarmup ? "Auf" : "\(workout.workSetNumber(exercise: exIndex, set: setIndex))"
+        return Button { workout.select(exercise: exIndex, set: setIndex) } label: {
             HStack {
                 Text(number).font(.formaValue).foregroundStyle(set.isWarmup ? Theme.textTertiary : Theme.textSecondary).frame(width: 40, alignment: .leading)
-                Text(Format.weight(set.weight, unit: app.weightUnit)).font(.system(size: 17, weight: .semibold)).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Format.weight(set.weight, unit: app.weightUnit)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
+                        .contentTransition(.numericText(value: set.weight))
+                    if let previous = set.previous, !set.done {
+                        Text("vorher \(previous)").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                            .accessibilityLabel("Letztes Mal \(previous)")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(set.reps)").font(.system(size: 17, weight: .semibold)).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading)
                 Text(set.rir.map { $0 >= 4 ? "4+" : "\($0)" } ?? "–").font(.formaCaption).foregroundStyle(Theme.textSecondary).frame(width: 36, alignment: .leading)
                 ZStack {
                     Circle().strokeBorder(Theme.textQuaternary, lineWidth: 1.5).opacity(set.done ? 0 : 1)
                     if set.done {
                         Circle().fill(Theme.selection)
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
                         Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.onSelection)
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
                 .frame(width: 28, height: 28)
@@ -129,7 +146,10 @@ struct LiveWorkoutView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Satz \(number), \(Format.weight(set.weight, unit: app.weightUnit)) \(app.weightUnit.rawValue), \(set.reps) Wiederholungen\(set.done ? ", erledigt" : "")")
+        .disabled(set.done)
+        .accessibilityLabel("\(set.isWarmup ? "Aufwärmsatz" : "Satz \(number)"), \(Format.weight(set.weight, unit: app.weightUnit)) \(app.weightUnit.rawValue), \(set.reps) Wiederholungen")
+        .accessibilityValue(set.done ? "erledigt\(set.rir.map { ", \($0) übrig" } ?? "")" : (active ? "aktiv" : "offen"))
+        .accessibilityHint(set.done ? "" : "Wählt diesen Satz aus")
     }
 
     // MARK: Dock (Glas, Daumenzone)
@@ -150,6 +170,8 @@ struct LiveWorkoutView: View {
             }
             .padding(Space.s4)
             .glassEffect(.regular, in: .rect(cornerRadius: Radius.dock, style: .continuous))
+            // Spürbares Signal, wenn die Pause abläuft (zusätzlich zur Benachrichtigung).
+            .sensoryFeedback(.impact(weight: .heavy), trigger: remaining > 0) { old, new in old && !new }
             .padding(.horizontal, Space.s2)
             .padding(.bottom, Space.s1)
         }
@@ -162,27 +184,45 @@ struct LiveWorkoutView: View {
                     .animation(.linear(duration: 1), value: remaining)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Pause").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                    Text(Format.timer(remaining)).font(.system(size: 34, weight: .semibold)).monospacedDigit()
+                    Text(Format.timer(remaining)).font(.system(size: 34, weight: .semibold, design: .rounded)).monospacedDigit()
                         .contentTransition(.numericText(countsDown: true))
+                        .accessibilityLabel("Noch \(remaining) Sekunden Pause")
+                    if let next = workout.currentLabel {
+                        Text("Als Nächstes: \(next)").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
                 }
                 Spacer()
             }
-            GlassEffectContainer(spacing: Space.s2) {
-                HStack(spacing: Space.s2) {
-                    Button { workout.extendRest(by: 15) } label: { Text("+15 s").frame(maxWidth: .infinity) }
-                        .buttonStyle(.glass)
-                    Button { workout.skipRest() } label: { Text("Weiter").fontWeight(.semibold).foregroundStyle(Theme.onSelection).frame(maxWidth: .infinity) }
-                        .buttonStyle(.glassProminent)
+            // Eine Glasebene (der Dock), darin matte Knöpfe – kein Glas auf Glas (Codex R-01-27).
+            HStack(spacing: Space.s2) {
+                Button { workout.extendRest(by: 15) } label: {
+                    Text("+15 s").font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity).frame(height: 52)
+                        .background(Capsule().fill(Color.white.opacity(0.12)))
                 }
-                .controlSize(.large)
+                .buttonStyle(.plain)
+                .accessibilityLabel("15 Sekunden mehr Pause")
+                Button("Pause beenden") { workout.skipRest() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityIdentifier("rest.skip")
             }
         }
     }
 
     private var setControls: some View {
         let set = workout.currentSet
-        let step = app.weightUnit == .kg ? 2.5 : 2.5 / 2.20462 * 2
+        let step = app.weightUnit == .kg ? 2.5 : 5 / 2.20462   // 2,5 kg bzw. 5 lb
         return VStack(spacing: Space.s3) {
+            if let label = workout.currentLabel {
+                Text(label)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .contentTransition(.opacity)
+                    .accessibilityAddTraits(.isHeader)
+            }
             HStack(spacing: Space.s3) {
                 stepper(value: Format.weight(set?.weight ?? 0, unit: app.weightUnit), unit: app.weightUnit.rawValue,
                         minus: { workout.changeWeight(by: -step) }, plus: { workout.changeWeight(by: step) })
@@ -199,19 +239,22 @@ struct LiveWorkoutView: View {
             }
             if set?.isWarmup == false {
                 HStack(spacing: 6) {
-                    Text("Reserve").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                    Spacer()
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Reserve").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                        Text("Wdh. übrig").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                    }
+                    Spacer(minLength: 4)
                     ForEach(0..<5, id: \.self) { i in
                         Button { workout.currentRIR = i } label: {
                             Text(i == 4 ? "4+" : "\(i)")
                                 .font(.system(size: 15, weight: .semibold))
-                                .frame(width: 40, height: 36)
+                                .frame(width: 44, height: 44)
                                 .foregroundStyle(workout.currentRIR == i ? Theme.onSelection : Theme.textSecondary)
                                 .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
                                     .fill(workout.currentRIR == i ? Theme.selection : Color.white.opacity(0.05)))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(i) Wiederholungen in Reserve")
+                        .accessibilityLabel(i == 4 ? "4 oder mehr Wiederholungen übrig" : "\(i) Wiederholungen übrig")
                         .accessibilityAddTraits(workout.currentRIR == i ? .isSelected : [])
                     }
                 }
@@ -239,6 +282,7 @@ struct LiveWorkoutView: View {
         .buttonStyle(.plain)
         .font(.system(size: 18, weight: .medium))
         .frame(height: 56)
+        .sensoryFeedback(.selection, trigger: value)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.06)))
         .buttonRepeatBehavior(.enabled)
     }
@@ -253,7 +297,13 @@ struct LiveWorkoutView: View {
     }
 
     private func finish() {
-        let session = workout.save(into: context)
+        let session: WorkoutSession?
+        do {
+            session = try workout.save(into: context)
+        } catch {
+            saveError = error.localizedDescription
+            return
+        }
         app.liveWorkout = nil
         if let session {
             Task { @MainActor in

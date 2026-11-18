@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var fitbitBusy = false
     @State private var message: String?
     @AppStorage("forma.birthYear") private var birthYear = 0
+    @AppStorage("forma.claudeConsent") private var claudeConsent = false
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
 
     var body: some View {
@@ -19,7 +20,7 @@ struct ProfileView: View {
             Form {
                 Section {
                     Picker("Quelle", selection: $hub.preferredSource) {
-                        ForEach(DataSourceKind.allCases) { Text($0.title).tag($0) }
+                        ForEach(DataSourceKind.allCases.filter { $0 != .fitbit }) { Text($0.title).tag($0) }
                     }
                     LabeledContent("Gerade aktiv", value: hub.activeSource.title)
                     if let last = hub.lastUpdate {
@@ -28,7 +29,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Datenquelle")
                 } footer: {
-                    Text("Automatisch: Fitbit, wenn verbunden, sonst Apple Health. Ohne Berechtigung oder Daten zeigt Forma gekennzeichnete Beispieldaten.")
+                    Text("Automatisch: Apple Health, wenn freigegeben. Beispieldaten nur, wenn du sie wählst oder noch keine Daten da sind – dann immer gekennzeichnet.")
                 }
 
                 Section {
@@ -58,35 +59,18 @@ struct ProfileView: View {
                 }
 
                 Section {
+                    Label("Wird umgestellt", systemImage: "clock.arrow.circlepath")
+                        .foregroundStyle(Theme.warning)
                     if hub.fitbit.isConnected {
-                        Label("Verbunden", systemImage: "checkmark.circle")
-                        Button("Trennen", role: .destructive) {
+                        Button("Alte Verbindung entfernen", role: .destructive) {
                             hub.fitbit.disconnect()
                             Task { await hub.refresh() }
                         }
-                    } else {
-                        Button {
-                            Task { await connectFitbit() }
-                        } label: {
-                            HStack {
-                                Label("Mit Fitbit verbinden", systemImage: "link")
-                                if fitbitBusy { Spacer(); ProgressView() }
-                            }
-                        }
-                        .disabled(fitbitBusy)
                     }
                 } header: {
                     Text("Fitbit")
                 } footer: {
-                    if hub.fitbit.needsReconnect {
-                        Text("Die Fitbit-Anmeldung ist abgelaufen. Bitte neu verbinden.").foregroundStyle(Theme.warning)
-                    } else if let until = hub.fitbit.rateLimitedUntil, until > .now {
-                        Text("Fitbit-Limit erreicht (etwa 150 Abrufe pro Stunde). Neue Daten ab \(Format.clock(until)).").foregroundStyle(Theme.warning)
-                    } else {
-                        Text(hub.fitbit.isConfigured
-                             ? "Liest Schlaf, HRV, Ruhepuls, Aktivität, SpO₂ und Atemfrequenz über die Fitbit Web API."
-                             : "Noch nicht eingerichtet: Die Fitbit-Client-ID fehlt in Config.xcconfig (Anleitung im README).")
-                    }
+                    Text("Google hat die alte Fitbit-Schnittstelle am 2. November 2026 abgeschaltet. Forma wird auf die neue Google Health API umgestellt; bis dahin nutze Apple Health.")
                 }
 
                 Section("Einheiten") {
@@ -101,6 +85,9 @@ struct ProfileView: View {
                         .textContentType(.password)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                    if claudeConsent {
+                        Button("Zustimmung zum Senden widerrufen", role: .destructive) { claudeConsent = false }
+                    }
                     Button("Speichern") {
                         Keychain.set(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : apiKey.trimmingCharacters(in: .whitespacesAndNewlines), for: "anthropic.key")
                         message = apiKey.isEmpty ? "Schlüssel entfernt. Der Coach antwortet lokal." : "Gespeichert. Freie Fragen gehen jetzt an Claude."
@@ -108,7 +95,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Coach")
                 } footer: {
-                    Text("Ohne Schlüssel rechnet der Coach komplett auf dem iPhone. Mit Schlüssel werden deine Frage und eine kurze Zusammenfassung deiner Tageswerte an die Anthropic-API gesendet.")
+                    Text("Ohne Schlüssel rechnet der Coach komplett auf dem iPhone. Mit Schlüssel fragt Forma vor dem ersten Senden, ob deine Frage, der Chat und eine Zusammenfassung deiner Tageswerte an Anthropic gehen dürfen.")
                 }
 
                 Section("Journal") {
@@ -118,7 +105,7 @@ struct ProfileView: View {
                 Section {
                     LabeledContent("Version", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0")
                 } footer: {
-                    Text("Forma ersetzt keine ärztliche Beratung. Alle Werte bleiben auf diesem iPhone, außer du nutzt Fitbit oder den Claude-Coach.")
+                    Text("Forma ersetzt keine ärztliche Beratung. Alle Werte bleiben auf diesem iPhone, außer du schaltest den Claude-Coach ein.")
                 }
             }
             .scrollContentBackground(.hidden)

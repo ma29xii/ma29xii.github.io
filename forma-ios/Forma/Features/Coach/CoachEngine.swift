@@ -24,9 +24,14 @@ enum CoachEngine {
     static func dailyLine(_ c: Context) -> String {
         let s = c.scores
         if c.trainedToday {
-            let remaining = s.target.upperBound - s.strain
-            if remaining > 0 { return "Gut trainiert. Bis zum Zielbereich fehlen noch \(remaining) Punkte – ein lockerer Spaziergang reicht." }
-            return "Gut trainiert. Dein Ziel für heute ist erreicht, jetzt zählt die Erholung: ins Bett gegen \(bedtime(s))."
+            // Gleiche Logik wie der Zielbogen am Belastungsring (Codex R-01-05).
+            if s.strain < s.target.lowerBound {
+                return "Gut trainiert. Bis zur Untergrenze deines Zielbereichs fehlen noch \(s.target.lowerBound - s.strain) Punkte – etwas lockere Bewegung reicht."
+            }
+            if s.strain <= s.target.upperBound {
+                return "Gut trainiert – du bist in deinem Zielbereich (\(s.target.lowerBound)–\(s.target.upperBound)). Jetzt zählt die Erholung: ins Bett gegen \(bedtime(s))."
+            }
+            return "Heute warst du über deinem Zielbereich. Mach morgen eher locker und geh gegen \(bedtime(s)) ins Bett."
         }
         if c.hour >= 20 {
             return "Für morgen zählt jetzt der Schlaf: ins Bett gegen \(bedtime(s)), dann holst du \(Format.duration(s.sleepNeed)) Schlaf."
@@ -34,8 +39,10 @@ enum CoachEngine {
         let hrvPart: String
         if let d = c.hrvDelta, abs(d) >= 2 {
             hrvPart = d > 0 ? "Deine HRV liegt \(Int(d.rounded())) ms über deinem Normalwert" : "Deine HRV liegt \(Int((-d).rounded())) ms unter deinem Normalwert"
-        } else {
+        } else if c.hrvDelta != nil {
             hrvPart = "Deine HRV liegt im Normalbereich"
+        } else {
+            hrvPart = "Für heute fehlt ein HRV-Wert"
         }
         let plan = c.plannedRoutine.map { " \($0) passt" } ?? ""
         switch s.recovery {
@@ -57,7 +64,8 @@ enum CoachEngine {
 
     /// Vorschlag zur Trainingsanpassung (Maxi muss bestätigen).
     static func suggestion(_ c: Context) -> TrainingAdjustment? {
-        guard c.plannedRoutine != nil, !c.trainedToday else { return nil }
+        // Nur mit vollständigen Daten von heute vorschlagen (Codex R-01-05).
+        guard c.plannedRoutine != nil, !c.trainedToday, c.today.hrv != nil, c.today.sleep != nil else { return nil }
         if c.scores.recovery < 40 { return .minusOneSet }
         if c.scores.recovery >= 80 { return .plusWeight }
         return nil
@@ -81,10 +89,10 @@ enum CoachEngine {
             parts.append("Schlafwert \(s.sleep)")
             return "Deine Erholung liegt bei \(s.recovery). Grundlage: \(parts.joined(separator: ", ")). HRV zählt am stärksten, danach Ruhepuls und Schlaf."
         }
-        if q.contains("bett") || q.contains("schlaf") {
+        if q.contains("bett") || q.contains("schlaf") || q.contains("nacht") {
             return "Geh gegen \(bedtime(s)) ins Bett. Dein Bedarf heute Nacht: \(Format.duration(s.sleepNeed)), inklusive \(Format.duration(s.sleepDebt)) Schlafschuld, die du nach und nach abbaust."
         }
-        if q.contains("train") || q.contains("heute") || q.contains("push") || q.contains("pull") || q.contains("bein") {
+        if q.contains("train") || q.contains("push") || q.contains("pull") || q.contains("bein") {
             let plan = c.plannedRoutine ?? "dein nächstes Training"
             switch s.recovery {
             case 67...: return "\(plan) wie geplant. Dein Belastungsziel liegt bei \(s.target.lowerBound) bis \(s.target.upperBound)."

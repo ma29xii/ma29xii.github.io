@@ -28,21 +28,15 @@ struct OnboardingView: View {
                     }
                 } label: { Text("Mit Apple Health verbinden") }
                 .buttonStyle(PrimaryButtonStyle())
-                Button {
+                Button("Erst mit Beispieldaten ansehen") {
+                    hub.preferredSource = .sample
                     finish()
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(700))
-                        app.showProfile = true
-                    }
-                } label: { Text("Fitbit verbinden").frame(maxWidth: .infinity) }
-                .buttonStyle(.glass)
-                .controlSize(.large)
-                Button("Erst mit Beispieldaten ansehen") { finish() }
+                }
                     .font(.formaBody)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minHeight: 44)
             }
-            Text("Deine Gesundheitsdaten bleiben auf dem iPhone.")
+            Text("Forma rechnet auf deinem iPhone. Nur wenn du später den Claude-Coach einschaltest, gehen ausgewählte Werte an Anthropic – das fragt dich Forma vorher.")
                 .font(.formaCaption).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.top, Space.s2)
