@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct TodayView: View {
@@ -9,15 +10,23 @@ struct TodayView: View {
     @State private var page = TodayPage.overview
 
     var body: some View {
-        let today = Date.now.startOfDay
+        let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
+        TimelineView(.periodic(from: minute, by: 60)) { context in
+            dashboard(at: context.date)
+        }
+    }
+
+    private func dashboard(at now: Date) -> some View {
+        let today = now.startOfDay
         let daily = hub.days
         let history = hub.dashboardHistory(recent: daily)
         let firstDay = min(daily.first?.date ?? today, today)
         let date = min(today, max(firstDay, selectedDate ?? today))
         let day = daily.first { $0.date == date } ?? DayMetrics(date: date)
         let snapshot = DashboardDay(day: day, history: history)
+        let period = date == today ? WeeklyInsight.period(at: now) : nil
 
-        NavigationStack {
+        return NavigationStack {
             VStack(spacing: 0) {
                 VStack(spacing: Space.s2) {
                     DateStepper(title: date == today ? "Heute" : Format.dayTitle(date),
@@ -41,7 +50,8 @@ struct TodayView: View {
                             sourceStatus(for: date, today: today)
                             switch page {
                             case .overview:
-                                overview(snapshot, history: history, today: today)
+                                overview(snapshot, history: history, today: today, weeklyPeriod: period)
+                                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
                                     .transition(.opacity)
                             case .ring(let kind):
                                 RingDetailView(kind: kind, snapshot: snapshot, history: history)
@@ -55,6 +65,11 @@ struct TodayView: View {
                     }
                     .refreshable { await hub.refresh() }
                     .onChange(of: page) { _, _ in proxy.scrollTo(Self.top, anchor: .top) }
+                }
+            }
+            .background(alignment: .top) {
+                if let recovery = snapshot.recovery {
+                    TodayRecoveryGlow(recovery: recovery, isOverview: page == .overview)
                 }
             }
             .dashboardScreen()
@@ -150,14 +165,16 @@ struct TodayView: View {
         }
     }
 
-    static func hasAnyMeasurement(_ day: DayMetrics) -> Bool {
+    nonisolated static func hasAnyMeasurement(_ day: DayMetrics) -> Bool {
         day.steps != nil || day.sleep != nil || day.hrv != nil || day.restingHR != nil
-            || day.activeEnergy != nil || !day.workouts.isEmpty
+            || day.activeEnergy != nil || day.respiratoryRate != nil || day.spo2 != nil
+            || day.skinTemperature != nil || day.vo2max != nil || !day.workouts.isEmpty
     }
 
     // MARK: Overview
 
-    private func overview(_ snapshot: DashboardDay, history: [DayMetrics], today: Date) -> some View {
+    private func overview(_ snapshot: DashboardDay, history: [DayMetrics], today: Date,
+                          weeklyPeriod: WeeklyInsight.Period?) -> some View {
         // Stundenwerte gibt es nur für heute (bzw. als Beispiel); frühere Tage zeigen eine Lücke statt Ersatzwerten.
         let hours: [HourlyMetrics] = if hub.isSample {
             HourlyMetrics.samples(for: snapshot.day)
@@ -182,8 +199,12 @@ struct TodayView: View {
                 .accessibilityIdentifier("today.insight")
             comparison(snapshot, history: history, hours: hours)
             HealthMonitor(snapshot: snapshot)
+            if let weeklyPeriod {
+                WeeklyRecapLink(period: weeklyPeriod, days: history)
+                    .transition(.opacity)
+            }
             StressMonitorCard(day: snapshot.day, slots: slots, energy: estimates.compactMap(\.energy).last,
-                              isLoading: false)
+                              isLoading: false, history: history)
             activities(snapshot.day)
         }
     }
@@ -293,6 +314,7 @@ struct TodayView: View {
         HStack(spacing: Space.s3) {
             Text(entry.amount)
                 .font(.formaValue)
+                .formaNumberTransition(entry.number)
                 .foregroundStyle(entry.tint)
                 .frame(minWidth: 52)
                 .padding(.horizontal, Space.s2)
@@ -306,6 +328,7 @@ struct TodayView: View {
             Text(entry.clock)
                 .font(.formaCaption)
                 .monospacedDigit()
+                .formaNumberTransition(entry.date.timeIntervalSinceReferenceDate)
                 .foregroundStyle(Theme.textSecondary)
             Image(systemName: "chevron.right")
                 .font(.system(.caption, weight: .semibold))
@@ -321,10 +344,40 @@ struct TodayView: View {
     }
 }
 
+private struct TodayRecoveryGlow: View {
+    let recovery: Int
+    let isOverview: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    var body: some View {
+        let calm = reduceMotion || scenePhase != .active || lowPower || !isOverview
+        let tint = Theme.recovery(recovery)
+        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: calm)) { context in
+            let drift: Float = calm ? 0 : Float(sin(context.date.timeIntervalSinceReferenceDate * 0.6)) * 0.055
+            MeshGradient(width: 3, height: 3,
+                         points: [SIMD2<Float>(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
+                                  SIMD2(0, 0.5), SIMD2(0.5 + drift, 0.26 + drift / 2), SIMD2(1, 0.5),
+                                  SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)],
+                         colors: [.clear, tint.opacity(0.2), .clear,
+                                  .clear, tint.opacity(0.13), .clear,
+                                  .clear, .clear, .clear])
+        }
+        .frame(height: 235)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+    }
+}
+
 struct DayActivity: Identifiable {
     let id: String
     let title: String
     let amount: String
+    let number: Double
     let spokenAmount: String
     let date: Date
     let clock: String
@@ -335,13 +388,14 @@ struct DayActivity: Identifiable {
     static func entries(for day: DayMetrics) -> [Self] {
         var entries = day.workouts.map { workout in
             let load = ScoreEngine.strain(DayMetrics(date: day.date, activeEnergy: workout.energy, workouts: [workout]))
-            return Self(id: workout.id.uuidString, title: workout.name, amount: String(load),
+            return Self(id: workout.id.uuidString, title: workout.name, amount: String(load), number: Double(load),
                         spokenAmount: "Geschätzte Belastung \(load) von 100", date: workout.start,
                         clock: Format.clock(workout.start), tint: DashboardRing.tint(kind: .strain, value: load),
                         kind: .strain)
         }
         if let sleep = day.sleep, sleep.asleep > 0 {
             entries.append(Self(id: "sleep", title: "Schlaf", amount: RingDetailView.clock(sleep.asleep),
+                                number: sleep.asleep,
                                 spokenAmount: Format.duration(sleep.asleep), date: sleep.end,
                                 clock: "\(Format.clock(sleep.start))–\(Format.clock(sleep.end))",
                                 tint: Theme.sleep, kind: .sleep))

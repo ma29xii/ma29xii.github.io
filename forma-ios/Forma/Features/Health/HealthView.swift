@@ -148,6 +148,7 @@ struct MetricDetailView: View {
                     if hub.isSample { SampleDataBadge().padding(.bottom, Space.s2) }
                     Text(all.last.map { kind.measurement($0.1) } ?? "–")
                         .font(.formaDisplay)
+                        .formaNumberTransition(all.last?.1 ?? 0)
                     HStack(spacing: 6) {
                         Text(status.title).foregroundStyle(status.color(for: kind))
                         // Bei älteren Werten steht das Datum schon im Zustandswort.
@@ -174,12 +175,14 @@ struct MetricDetailView: View {
                             if let sel = selectedPoint(points) {
                                 Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.measurement(sel.1))")
                                     .foregroundStyle(Theme.textPrimary)
+                                    .formaNumberTransition(sel.1)
                             } else if let selection {
                                 Text("\(selection.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): keine Messung")
                                     .foregroundStyle(Theme.textSecondary)
                             } else if !points.isEmpty {
                                 Text("\(points.count) von \(range) Tagen gemessen")
                                     .foregroundStyle(Theme.textSecondary)
+                                    .formaNumberTransition(Double(points.count))
                             }
                         }
                         .font(.formaCaptionStrong)
@@ -267,7 +270,7 @@ struct MetricDetailView: View {
         }
         .chartPlotStyle { $0.padding(.trailing, 6) }
         .frame(height: 220)
-        .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0)
+        .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0) { _, new in new != nil }
         .accessibilityLabel("\(kind.title), \(points.count) Messungen in \(range) Tagen")
         .accessibilityValue(points.last.map { "zuletzt \(kind.measurement($0.1))" } ?? "keine Messung")
     }

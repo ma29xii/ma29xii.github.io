@@ -11,15 +11,20 @@ extension View {
 
 /// Ruhige Inhaltskarte (Radius 20) für Today und die Ring-Details.
 struct DashboardCard<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewBuilder var content: Content
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.plate, style: .continuous)
+        let calm = reduceMotion
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.card, in: shape)
             .overlay { shape.strokeBorder(Theme.hairline, lineWidth: 0.75).allowsHitTesting(false) }
             .clipShape(shape)
+            .scrollTransition(.interactive, axis: .vertical) { card, phase in
+                card.opacity(calm || phase != .bottomTrailing ? 1 : 0.90)
+            }
     }
 }
 
@@ -172,7 +177,7 @@ struct DashboardRing: View {
     let size: CGFloat
     var expanded = false
 
-    static func tint(kind: RingKind, value: Int?) -> Color {
+    nonisolated static func tint(kind: RingKind, value: Int?) -> Color {
         switch kind {
         case .sleep: Theme.sleep
         case .recovery: value.map(Theme.recovery) ?? Theme.textSecondary

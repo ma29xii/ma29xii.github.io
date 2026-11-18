@@ -98,6 +98,7 @@ struct MetricSummaryRow: View {
                         Text(kind.measurement(last.value))
                             .monospacedDigit()
                             .foregroundStyle(Theme.textSecondary)
+                            .formaNumberTransition(last.value)
                     }
                 }
                 .font(.formaCaptionStrong)

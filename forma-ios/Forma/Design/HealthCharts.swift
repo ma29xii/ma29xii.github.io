@@ -7,6 +7,48 @@ struct HealthChartPoint: Identifiable {
     var id: Date { date }
 }
 
+func insightDayCenter(_ day: Date) -> Date {
+    day.addingTimeInterval(day.adding(days: 1).timeIntervalSince(day) / 2)
+}
+
+func insightSegments<Value>(_ days: [InsightDay<Value>]) -> [(date: Date, value: Value, segment: Int)] {
+    var segment = 0
+    return days.compactMap { day in
+        guard let value = day.value else {
+            segment += 1
+            return nil
+        }
+        return (day.date, value, segment)
+    }
+}
+
+func insightSelectionRule(_ date: Date) -> some ChartContent {
+    RuleMark(x: .value("Auswahl", insightDayCenter(date)))
+        .foregroundStyle(Theme.textTertiary)
+        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        .accessibilityHidden(true)
+}
+
+@AxisContentBuilder
+func insightScale(_ ticks: [Double]) -> some AxisContent {
+    AxisMarks(position: .leading, values: ticks) { _ in
+        AxisGridLine().foregroundStyle(Theme.hairline)
+        AxisValueLabel().foregroundStyle(Theme.textSecondary)
+    }
+}
+
+extension View {
+    func insightDateAxis(from start: Date, through end: Date, stride: Int) -> some View {
+        chartXScale(domain: start...end.adding(days: 1))
+            .chartXAxis {
+                AxisMarks(preset: .aligned, values: .stride(by: .day, count: stride)) { _ in
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+    }
+}
+
 /// Tageswerte bleiben auf ihrem Kalenderdatum. Tage ohne Messung bleiben leer.
 struct DailyHistoryChart: View {
     let title: String
@@ -23,7 +65,8 @@ struct DailyHistoryChart: View {
         let end = anchor ?? Date.now.startOfDay
         let start = end.adding(days: 1 - range)
         let visible = points.filter { (start...end).contains($0.date) }
-        let selectedDay = selection?.startOfDay
+        let selectedDay = selection.map { min(end, max(start, $0.startOfDay)) }
+        let selectedPoint = visible.first { $0.date == selectedDay }
         FormaSection(title: title) {
             Picker("Zeitraum", selection: $range) {
                 Text("7 Tage").tag(7)
@@ -38,8 +81,9 @@ struct DailyHistoryChart: View {
                         ChartEmptyState(text: "Keine Daten in diesem Zeitraum")
                     } else {
                         if let selectedDay {
-                            let value = visible.first { $0.date == selectedDay }.map { valueText($0.value) } ?? "Keine Messung"
+                            let value = selectedPoint.map { valueText($0.value) } ?? "Keine Messung"
                             Text("\(Format.shortDate(selectedDay)) · \(value)").font(.formaCaptionStrong)
+                                .formaNumberTransition(selectedPoint?.value ?? 0)
                         }
                         Chart {
                             ForEach(visible) { p in
@@ -55,6 +99,7 @@ struct DailyHistoryChart: View {
                         .chartXScale(domain: start...end.adding(days: 1))
                         .chartYScale(domain: 0...max(1, maximum ?? 0, visible.map(\.value).max() ?? 0))
                         .chartXSelection(value: $selection)
+                        .sensoryFeedback(.selection, trigger: selectedDay) { _, new in new != nil }
                         .chartXAxis {
                             AxisMarks(preset: .aligned, values: .stride(by: .day, count: range == 7 ? 2 : 7)) { _ in
                                 AxisValueLabel(format: .dateTime.day().month(.abbreviated))
@@ -71,6 +116,7 @@ struct DailyHistoryChart: View {
                         .accessibilityLabel("\(title), \(visible.count) Messungen in \(range) Tagen")
                         Text("\(visible.count) von \(range) Tagen erfasst")
                             .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                            .formaNumberTransition(Double(visible.count))
                     }
                 }
                 .padding(Space.s4)
@@ -119,6 +165,7 @@ struct HourlyValueChart: View {
                              ?? (selection == nil ? "Heute" : "Keine Messung"))
                         .font(.formaCaptionStrong)
                         .foregroundStyle(Theme.textSecondary)
+                        .formaNumberTransition(selected?.value ?? 0)
                         Chart {
                             ForEach(segments(points), id: \.point.id) { entry in
                                 LineMark(x: .value("Uhrzeit", entry.point.date), y: .value(title, entry.point.value),
@@ -136,6 +183,7 @@ struct HourlyValueChart: View {
                         .chartXScale(domain: start...end)
                         .chartYScale(domain: 0...maximum)
                         .chartXSelection(value: $selection)
+                        .sensoryFeedback(.selection, trigger: selected?.date) { _, new in new != nil }
                         .chartXAxis {
                             AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 6)) { _ in
                                 AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))

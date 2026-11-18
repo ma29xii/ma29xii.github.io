@@ -44,6 +44,11 @@ struct RingDetailView: View {
                     .padding(Space.s4)
             }
             .accessibilityIdentifier("ring.detail.summary")
+            if kind == .sleep {
+                SleepConsistencyLink(end: day.date, history: history)
+            } else if kind == .strain {
+                StrainPathLink(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
+            }
             if kind == .sleep, let night = day.sleep, night.asleep > 0 {
                 sleepPhases(night)
             }
@@ -122,7 +127,7 @@ struct RingDetailView: View {
     private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
 
     /// „6:08“ für Kapseln (Stunden:Minuten).
-    static func clock(_ seconds: TimeInterval) -> String {
+    nonisolated static func clock(_ seconds: TimeInterval) -> String {
         let minutes = max(0, Int((seconds / 60).rounded()))
         return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
     }
@@ -146,6 +151,7 @@ struct RingDetailView: View {
     private func sleepPill(_ title: String, value: TimeInterval, tint: Color) -> some View {
         VStack(spacing: Space.s1) {
             Text(Self.clock(value)).font(.formaBigNumber).foregroundStyle(tint)
+                .formaNumberTransition(value)
             Text(title).font(.formaMicro).textCase(.uppercase).tracking(Tracking.micro)
         }
         .foregroundStyle(Theme.textSecondary)
@@ -208,6 +214,7 @@ struct RingDetailView: View {
                 Text("\(percent(fraction)) · \(Format.duration(duration))")
                     .font(.formaValue)
                     .multilineTextAlignment(.trailing)
+                    .formaNumberTransition(duration)
             }
             ProgressLine(fraction: fraction, color: Theme.sleep.opacity(stage == .awake ? 0.55 : 1), height: 5)
                 .accessibilityHidden(true)
@@ -255,8 +262,10 @@ private struct SleepTimeline: View {
             .frame(height: CGFloat(stages.count) * laneHeight)
             HStack {
                 Text(Format.clock(night.start))
+                    .formaNumberTransition(night.start.timeIntervalSinceReferenceDate)
                 Spacer()
                 Text(Format.clock(night.end))
+                    .formaNumberTransition(night.end.timeIntervalSinceReferenceDate)
             }
             .font(.formaCaption).monospacedDigit().foregroundStyle(Theme.textSecondary)
         }

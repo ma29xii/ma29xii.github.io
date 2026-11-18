@@ -96,10 +96,12 @@ struct RingTrendChart: View {
                     if let selected {
                         Text("\(Format.shortDate(selected)) · \(selectionValue.map { valueText($0.value) } ?? "Keine Messung")")
                             .font(.formaCaptionStrong)
+                            .formaNumberTransition(selectionValue?.value ?? 0)
                     } else {
                         Text(points.isEmpty ? "Keine Messung in diesem Zeitraum" : "\(points.count) Tage mit Messung")
                             .font(.formaCaption)
                             .foregroundStyle(Theme.textSecondary)
+                            .formaNumberTransition(Double(points.count))
                     }
                     if !points.isEmpty {
                         chart(points, start: start, end: end, selected: selected, average: average)
@@ -110,7 +112,7 @@ struct RingTrendChart: View {
             }
         }
         .accessibilityIdentifier("ring.trend")
-        .sensoryFeedback(.selection, trigger: selection?.startOfDay)
+        .sensoryFeedback(.selection, trigger: selected) { _, new in new != nil }
         .onChange(of: range) { _, _ in resetPage() }
         .onChange(of: anchor) { _, _ in resetPage() }
     }
@@ -129,7 +131,7 @@ struct RingTrendChart: View {
         return Chart {
             ForEach(entries, id: \.point.date) { entry in
                 let point = entry.point
-                let center = point.date.addingTimeInterval(point.date.adding(days: 1).timeIntervalSince(point.date) / 2)
+                let center = insightDayCenter(point.date)
                 LineMark(x: .value("Tag", center), y: .value(kind.title, point.value),
                          series: .value("Abschnitt", entry.segment))
                     .foregroundStyle(color)
@@ -143,6 +145,7 @@ struct RingTrendChart: View {
                             Text(Format.number(point.value))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(Theme.textPrimary)
+                                .formaNumberTransition(point.value)
                         }
                     }
             }
@@ -151,12 +154,7 @@ struct RingTrendChart: View {
                     .foregroundStyle(Theme.textQuaternary)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 4]))
             }
-            if let selected {
-                let center = selected.addingTimeInterval(selected.adding(days: 1).timeIntervalSince(selected) / 2)
-                RuleMark(x: .value("Auswahl", center))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-            }
+            if let selected { insightSelectionRule(selected) }
         }
         .chartXScale(domain: start...end)
         .chartYScale(domain: 0.0...110.0)

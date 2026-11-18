@@ -75,6 +75,7 @@ struct HealthAgeHero: View {
                 .font(.formaHeadline)
                 .foregroundStyle(result.map { BodyAgeText.color($0.difference) } ?? Theme.textSecondary)
                 .multilineTextAlignment(.center)
+                .formaNumberTransition(result?.difference ?? 0)
             HStack(spacing: 4) {
                 Text(caption)
                 Image(systemName: "chevron.right").imageScale(.small)
@@ -250,6 +251,7 @@ private struct AgeFactorRow: View {
                 Text(BodyAgeText.signedYears(years))
                     .font(.formaValue)
                     .foregroundStyle(tint)
+                    .formaNumberTransition(years)
                 Image(systemName: "chevron.right")
                     .font(.formaMicro)
                     .foregroundStyle(Theme.textTertiary)
@@ -311,6 +313,7 @@ struct FactorRangeBar: View {
                         .font(.formaMicro)
                         .monospacedDigit()
                         .foregroundStyle(Theme.textPrimary)
+                        .formaNumberTransition(factor.value)
                         .fixedSize()
                         .position(x: min(max(valueX, 34), max(34, width - 34)), y: 6)
                 }
@@ -318,8 +321,10 @@ struct FactorRangeBar: View {
             .frame(height: 32)
             HStack {
                 Text(FactorScale.end(domain.lowerBound, id: factor.id))
+                    .formaNumberTransition(domain.lowerBound)
                 Spacer()
                 Text(FactorScale.end(domain.upperBound, id: factor.id))
+                    .formaNumberTransition(domain.upperBound)
             }
             .font(.formaMicro)
             .monospacedDigit()
@@ -343,9 +348,11 @@ struct AgeFactorDetail: View {
                     Text(BodyAgeText.signedYears(years))
                         .font(.formaDisplay)
                         .foregroundStyle(tint)
+                        .formaNumberTransition(years)
                     Text(factor.valueText)
                         .font(.formaBody)
                         .foregroundStyle(Theme.textSecondary)
+                        .formaNumberTransition(factor.value)
                 }
                 .accessibilityElement(children: .combine)
                 DashboardCard {
@@ -468,7 +475,7 @@ private struct HealthAgeTrendCard: View {
                 }
             }
             .frame(height: 168)
-            .sensoryFeedback(.selection, trigger: selected?.date)
+            .sensoryFeedback(.selection, trigger: selected?.date) { _, new in new != nil }
             .accessibilityLabel("Health Age Trend, \(points.count) Wochen")
             .accessibilityValue("zuletzt \(Format.number(last.bodyAge, decimals: 1)) Jahre bei echtem Alter \(Format.number(last.age, decimals: 1))")
             HStack(spacing: Space.s4) {

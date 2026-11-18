@@ -4,13 +4,13 @@ import SwiftUI
 struct HealthMonitor: View {
     let snapshot: DashboardDay
 
-    private var readings: [MonitorReading] { MonitorReading.all(for: snapshot) }
-
     var body: some View {
-        let items = readings
+        let check = NightVitals(day: snapshot.day, history: snapshot.history)
+        let items = check.readings.map(MonitorReading.init)
         let summary = MonitorSummary(readings: items)
+        let status = check.isMarked ? "\(check.outliers.count) Vitalwerte weichen ab" : summary.text
         NavigationLink {
-            HealthMonitorDetail(date: snapshot.day.date, readings: items)
+            HealthMonitorDetail(date: snapshot.day.date, readings: items, markedNight: check.isMarked)
         } label: {
             DashboardCard {
                 VStack(alignment: .leading, spacing: Space.s4) {
@@ -34,9 +34,10 @@ struct HealthMonitor: View {
                             ForEach(items) { indicator($0) }
                         }
                     }
-                    Label(summary.text, systemImage: summary.icon)
+                    Label(status, systemImage: check.isMarked ? "moon" : summary.icon)
                         .font(.formaCaptionStrong)
-                        .foregroundStyle(summary.tint)
+                        .foregroundStyle(check.isMarked ? Theme.warning : summary.tint)
+                        .formaNumberTransition(Double(check.outliers.count))
                         .padding(.horizontal, Space.s3)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                         .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
@@ -47,7 +48,7 @@ struct HealthMonitor: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Health Monitor")
-        .accessibilityValue(summary.text)
+        .accessibilityValue(status)
         .accessibilityIdentifier("health.monitor")
     }
 
@@ -81,8 +82,8 @@ struct MonitorSummary {
         let inside = compared.filter { $0 }.count
         if !compared.isEmpty {
             text = "\(inside)/\(compared.count) Werte im Normalbereich"
-            icon = inside == compared.count ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
-            tint = inside == compared.count ? Theme.younger : Theme.warning
+            icon = inside == compared.count ? "checkmark.circle.fill" : "circle.lefthalf.filled"
+            tint = inside == compared.count ? Theme.younger : Theme.textSecondary
         } else {
             text = readings.contains { $0.value != nil } ? "Noch kein Vergleich" : "Keine Messung"
             icon = "minus.circle"
@@ -101,12 +102,9 @@ struct MonitorReading: Identifiable {
     let decimals: Int
     let unit: String
 
-    /// Persönlicher Normalbereich: Mittel ± eine Standardabweichung der 30 Tage davor.
+    /// Persönlicher Bereich: zwei Standardabweichungen um das Mittel der 30 Tage davor.
     var range: ClosedRange<Double>? {
-        baseline.map { base in
-            let upper = id == MetricKind.spo2.rawValue ? min(100, base.mean + base.sd) : base.mean + base.sd
-            return max(0, base.mean - base.sd)...max(0, upper)
-        }
+        NightVitals.range(for: id, baseline: baseline)
     }
 
     var inRange: Bool? {
@@ -136,28 +134,35 @@ struct MonitorReading: Identifiable {
         range.map { "\(formatted($0.lowerBound))–\(formatted($0.upperBound))" }
     }
 
-    static func all(for snapshot: DashboardDay) -> [Self] {
-        let keys: [(MetricKind, String, String)] = [
-            (.respiratoryRate, "lungs", "Atmung"),
-            (.spo2, "drop", "SpO₂"),
-            (.restingHR, "heart", "Ruhepuls"),
-            (.hrv, "waveform.path.ecg", "HRV")
-        ]
-        return keys.map { metric, icon, title in
-            Self(id: metric.rawValue, title: metric.title, icon: icon, shortTitle: title, value: metric.value(snapshot.day),
-                 baseline: snapshot.baseline(metric.value), decimals: metric.decimals, unit: metric.unit)
+}
+
+extension MonitorReading {
+    init(_ reading: NightVitals.Reading) {
+        let metric = MetricKind(rawValue: reading.series.rawValue)
+        let (icon, shortTitle) = switch reading.series {
+        case .respiratoryRate: ("lungs", "Atmung")
+        case .spo2: ("drop", "SpO₂")
+        case .restingHR: ("heart", "Ruhepuls")
+        case .hrv: ("waveform.path.ecg", "HRV")
+        case .skinTemperature: ("thermometer.medium", "Hauttemp.")
+        default: ("waveform", reading.series.title)
         }
+        self.init(id: reading.series.rawValue, title: metric?.title ?? reading.series.title,
+                  icon: icon, shortTitle: shortTitle, value: reading.value, baseline: reading.baseline,
+                  decimals: metric?.decimals ?? 1, unit: metric?.unit ?? "°C")
     }
 }
 
 private struct HealthMonitorDetail: View {
     let date: Date
     let readings: [MonitorReading]
+    let markedNight: Bool
     @Environment(DataHub.self) private var hub
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let summary = MonitorSummary(readings: readings)
+        let sorted = readings.filter { $0.inRange == false } + readings.filter { $0.inRange != false }
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s4) {
                 if hub.isSample { SampleDataBadge() }
@@ -165,15 +170,27 @@ private struct HealthMonitorDetail: View {
                     Text(Format.dayTitle(date))
                         .font(.formaCaption)
                         .foregroundStyle(Theme.textSecondary)
-                    Label(summary.text, systemImage: summary.icon)
+                    Label(markedNight ? "Auffällige Nacht" : summary.text,
+                          systemImage: markedNight ? "moon" : summary.icon)
                         .font(.formaRowTitle)
-                        .foregroundStyle(summary.tint)
+                        .foregroundStyle(markedNight ? Theme.warning : summary.tint)
+                }
+                if markedNight {
+                    VStack(alignment: .leading, spacing: Space.s1) {
+                        DashboardHeading(title: "Außerhalb deines Bereichs")
+                        Text(sorted.filter { $0.inRange == false }.map(\.title).joined(separator: " · "))
+                            .font(.formaBody)
+                            .accessibilityIdentifier("health.monitor.outliers")
+                    }
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s3),
                                           count: typeSize.isAccessibilitySize ? 1 : 2),
                           alignment: .leading, spacing: Space.s3) {
-                    ForEach(readings) { tile($0) }
+                    ForEach(sorted) { tile($0) }
                 }
+                Text("Der persönliche Bereich nutzt mindestens sieben gemessene Nächte aus den letzten 30 Tagen. Der Ruhepuls ist ein Tageswert.")
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, Space.page)
             .padding(.vertical, Space.s4)
@@ -195,6 +212,7 @@ private struct HealthMonitorDetail: View {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(reading.value.map { reading.formatted($0) } ?? "–")
                         .font(.formaBigNumber)
+                        .formaNumberTransition(reading.value ?? 0)
                         .minimumScaleFactor(0.7)
                     if reading.value != nil {
                         Text(reading.unit)
@@ -203,7 +221,7 @@ private struct HealthMonitorDetail: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Label(reading.rangeText ?? (reading.value == nil ? "Keine Messung" : "Noch kein Vergleich"),
+                Label(reading.value == nil ? "Keine Messung" : (reading.rangeText ?? "Noch kein Vergleich"),
                       systemImage: reading.statusIcon)
                     .font(.formaCaptionStrong)
                     .monospacedDigit()

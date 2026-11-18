@@ -17,6 +17,7 @@ struct StepsDetail: View {
                         DashboardHeading(title: Format.dayTitle(snapshot.day.date))
                         Text(snapshot.day.steps.map { Format.number($0) } ?? "Keine Messung")
                             .font(.formaBigNumber)
+                            .formaNumberTransition(snapshot.day.steps ?? 0)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Space.s4)
