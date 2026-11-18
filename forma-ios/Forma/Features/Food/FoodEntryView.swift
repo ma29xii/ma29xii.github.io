@@ -10,6 +10,20 @@ enum FoodText {
         value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)).locale(.german))
     }
 
+    static func liters(_ milliliters: Double) -> String {
+        number(milliliters / 1_000, digits: 2) + " l"
+    }
+
+    /// Dauer als „h:mm“ für Fasten-Zeiten.
+    static func clock(_ seconds: TimeInterval) -> String {
+        let minutes = Int(max(0, seconds) / 60)
+        return String(format: "%d:%02d", minutes / 60, minutes % 60)
+    }
+
+    static func hours(_ seconds: TimeInterval) -> String {
+        clock(seconds) + " h"
+    }
+
     static func decimal(_ text: String) -> Double? {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.range(of: #"^[0-9]+(?:[.,][0-9]+)?$"#, options: .regularExpression) != nil,

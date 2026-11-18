@@ -117,6 +117,76 @@ final class FoodTests: XCTestCase {
         XCTAssertNil(FoodCatalog.barcode("/3017620422003", isUPCE: false))
     }
 
+    func testRecipeCombinesMillilitersAndGramsByTheirOwnReferenceAndDividesByServings() throws {
+        let grain = FoodProduct(code: "grain", name: "Hafer", brand: nil, base: .grams, servingSize: nil,
+                                per100: FoodNutrients(values: [.energy: 400, .protein: 10]), perServing: .init())
+        let milk = FoodProduct(code: "milk", name: "Milch", brand: nil, base: .milliliters, servingSize: nil,
+                               per100: FoodNutrients(values: [.energy: 50]), perServing: .init())
+        let ingredients = [FoodRecipeIngredient(product: grain, amount: 50, unit: .base),
+                           FoodRecipeIngredient(product: milk, amount: 200, unit: .base)]
+        let recipe = try XCTUnwrap(FoodRecipeMath.product(code: "recipe", name: "Porridge", servings: 2,
+                                                         ingredients: ingredients))
+        XCTAssertFalse(recipe.canUseBase)
+        XCTAssertEqual(recipe.nutrients(for: 1.5, in: .servings)?.values[.energy], 225)
+        XCTAssertNil(recipe.perServing.values[.protein])
+        XCTAssertNil(FoodRecipeMath.product(code: "recipe", name: "Porridge", servings: 0, ingredients: ingredients))
+    }
+
+    func testPhotoPortionRescalesEnergyAndMacrosAndKeepsUnknownValuesEmpty() throws {
+        let guess = FoodGuess(name: "Reis", grams: 200, kcal: 260, protein: 6, carbs: 56, fat: 0.5, confidence: 0.75)
+        let portion = try XCTUnwrap(FoodPhotoPortion(guess: guess))
+        let half = try XCTUnwrap(portion.product.nutrients(for: 100, in: .base))
+        XCTAssertEqual(half.values[.energy], 130)
+        XCTAssertEqual(half.values[.carbohydrates], 28)
+        XCTAssertNil(half.values[.sugar])
+        let invalid = FoodGuess(name: "Reis", grams: .nan, kcal: 260, protein: 6, carbs: 56, fat: 0.5, confidence: 0.75)
+        XCTAssertNil(FoodPhotoPortion(guess: invalid))
+    }
+
+    func testStreakUsesCalendarDaysAcrossSpringClockChangeAndIgnoresFutureEntries() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 30, hour: 12)))
+        func day(_ offset: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: now))
+        }
+        XCTAssertEqual(FoodTracking.streak(dates: [try day(-1), try day(-1), try day(-2), try day(1)],
+                                           now: now, calendar: calendar), 2)
+        XCTAssertEqual(FoodTracking.streak(dates: [try day(-2)], now: now, calendar: calendar), 0)
+    }
+
+    func testFastingUsesElapsedTimeCapsTheRingAndFreezesAnEndedSession() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let end = start.addingTimeInterval(8 * 3_600)
+        XCTAssertEqual(FoodTracking.fast(start: start, end: end, hours: 16, now: end.addingTimeInterval(1)).fraction, 0.5)
+        XCTAssertEqual(FoodTracking.fast(start: start, end: nil, hours: 16, now: start.addingTimeInterval(70_000)).fraction, 1)
+        XCTAssertEqual(FoodTracking.fast(start: start, end: nil, hours: 16, now: start.addingTimeInterval(-60)).elapsed, 0)
+    }
+
+    @MainActor
+    func testLibraryPreservesRecipeIngredientsAndUsesLoggedAmountsForLegacyHistory() throws {
+        let product = FoodProduct(code: "grain", name: "Hafer", brand: nil, base: .grams, servingSize: nil,
+                                  per100: FoodNutrients(values: [.energy: 400]), perServing: .init())
+        let ingredient = FoodRecipeIngredient(product: product, amount: 80, unit: .base)
+        let recipe = try XCTUnwrap(FoodRecipeMath.product(code: "recipe", name: "Haferbrei", servings: 2,
+                                                         ingredients: [ingredient]))
+        let container = try ModelContainer(for: FoodEntry.self, FoodLibraryItem.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        let item = try FoodLibraryItem(product: recipe, kind: .recipe, servings: 2, ingredients: [ingredient])
+        let entry = FoodEntry(meal: .lunch, product: product, amount: 50, in: .base,
+                              nutrients: FoodNutrients(values: [.energy: 200]))
+        entry.productSnapshot = nil
+        try FoodEntry.saveChange(in: context) {
+            context.insert(item)
+            context.insert(entry)
+        }
+        let saved = try XCTUnwrap(ModelContext(container).fetch(FetchDescriptor<FoodLibraryItem>()).first)
+        XCTAssertEqual(saved.ingredients.first?.amount, 80)
+        XCTAssertEqual(saved.product?.perServing.values[.energy], 160)
+        XCTAssertEqual(entry.reusableProduct?.nutrients(for: 75, in: .base)?.values[.energy], 300)
+    }
+
     @MainActor
     func testEntrySavesAndDeletesWithoutReplacingMissingNutrients() throws {
         let data = Data(#"{"status":1,"code":"20003166","product":{"nutriments":{"energy-kcal_100g":400}}}"#.utf8)

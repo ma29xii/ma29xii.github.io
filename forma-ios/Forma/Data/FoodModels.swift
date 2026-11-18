@@ -62,7 +62,7 @@ enum FoodBase: String, Codable, Sendable {
     var title: String { self == .grams ? "Gramm" : "Milliliter" }
 }
 
-enum FoodAmountUnit: String, CaseIterable, Identifiable {
+enum FoodAmountUnit: String, CaseIterable, Identifiable, Codable, Sendable {
     case base, servings
 
     var id: Self { self }
@@ -114,6 +114,8 @@ final class FoodEntry {
     var saturatedFat: Double?
     var fiber: Double?
     var salt: Double?
+    /// Das eingetragene Produkt als JSON, damit „Zuletzt“ und „Häufig“ es wieder eintragen können.
+    var productSnapshot: Data?
 
     init(date: Date = .now, meal: FoodMeal, product: FoodProduct, amount: Double,
          in unit: FoodAmountUnit, nutrients: FoodNutrients) {
@@ -131,6 +133,35 @@ final class FoodEntry {
         self.saturatedFat = nutrients.values[.saturatedFat]
         self.fiber = nutrients.values[.fiber]
         self.salt = nutrients.values[.salt]
+        self.productSnapshot = try? JSONEncoder().encode(product)
+    }
+
+    /// Gleiche Lebensmittel erkennen, auch bei Einträgen ohne Produkt-Snapshot.
+    var productKey: String { (name + "|" + (brand ?? "")).lowercased() }
+
+    var loggedNutrients: FoodNutrients {
+        let pairs: [(FoodNutrient, Double?)] = [
+            (.energy, energy), (.protein, protein), (.carbohydrates, carbohydrates), (.sugar, sugar),
+            (.fat, fat), (.saturatedFat, saturatedFat), (.fiber, fiber), (.salt, salt)
+        ]
+        var values: [FoodNutrient: Double] = [:]
+        for (nutrient, value) in pairs { if let value { values[nutrient] = value } }
+        return FoodNutrients(values: values)
+    }
+
+    /// Produkt zum erneuten Eintragen. Alte Einträge ohne Snapshot rechnen aus der eingetragenen Menge zurück.
+    var reusableProduct: FoodProduct? {
+        if let productSnapshot, let product = try? JSONDecoder().decode(FoodProduct.self, from: productSnapshot) {
+            return product
+        }
+        guard amount.isFinite, amount > 0 else { return nil }
+        let code = "entry-" + productKey
+        if unit == "Portion" {
+            return FoodProduct(code: code, name: name, brand: brand, base: .grams, servingSize: nil,
+                               per100: FoodNutrients(), perServing: loggedNutrients.scaled(by: 1 / amount))
+        }
+        return FoodProduct(code: code, name: name, brand: brand, base: FoodBase(rawValue: unit) ?? .grams,
+                           servingSize: nil, per100: loggedNutrients.scaled(by: 100 / amount), perServing: FoodNutrients())
     }
 
     var meal: FoodMeal { FoodMeal(rawValue: mealRaw) ?? .snack }
