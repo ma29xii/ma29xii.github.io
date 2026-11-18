@@ -57,7 +57,12 @@ struct ProfileView: View {
                     }
                     .disabled(!hub.health.isAvailable || hub.requestingHealthAccess)
 
-                    LabeledContent("Google Health", value: "Kommt bald")
+                    NavigationLink {
+                        GoogleHealthSharingView()
+                    } label: {
+                        LabeledContent("Google Health", value: "Über Apple Health")
+                    }
+                    .accessibilityIdentifier("profile.googleHealth")
                 } header: {
                     Text("Datenquellen")
                 } footer: {
@@ -153,6 +158,23 @@ struct ProfileView: View {
 
     private func stamp(_ date: Date?) -> String {
         date.map { "\(Format.shortDate($0)), \(Format.clock($0))" } ?? "Noch keiner"
+    }
+}
+
+private struct GoogleHealthSharingView: View {
+    var body: some View {
+        Form {
+            Section("Fitbit-Daten teilen") {
+                Text("Öffne Google Health und tippe auf dein Profilbild → Partner-Apps → Apple Health.")
+                Text("Erlaube das Teilen von Schritten und Schlaf. Sobald diese Werte in Apple Health erscheinen, kann Health sie beim nächsten Abruf lesen.")
+            }
+            Section("Schrittquellen") {
+                Text("In Apple Health kannst du unter Schritte → Datenquellen & -zugriff die Reihenfolge deiner Tracker ändern.")
+            }
+        }
+        .formaScreen()
+        .navigationTitle("Google Health")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

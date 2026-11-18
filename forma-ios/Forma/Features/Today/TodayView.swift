@@ -94,7 +94,7 @@ struct TodayView: View {
                     .font(.formaCaption)
                     .foregroundStyle(Theme.textSecondary)
             } else if let updated = hub.lastUpdate {
-                Text(Calendar.forma.isDateInToday(updated) ? "Stand \(Format.clock(updated))" : "Stand \(Format.shortDate(updated))")
+                Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))" : "Abgerufen am \(Format.shortDate(updated))")
                     .font(.formaCaption)
                     .foregroundStyle(Theme.textSecondary)
             }
