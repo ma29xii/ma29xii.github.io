@@ -53,6 +53,51 @@ final class CoachProvidersTests: XCTestCase {
         XCTAssertEqual(result, "Schau in Google Health nach.")
     }
 
+    func testTruncatedAnthropicReplyFallsBackWithTheSameSelectedFields() async throws {
+        let calls = ProviderCalls()
+        let context = CoachEngine.Context(
+            scores: DayScores(recovery: 78, sleep: 82, strain: 38, target: 35...55,
+                              energy: 68, stress: 1.4, sleepNeed: 8 * 3600, sleepDebt: 0),
+            today: DayMetrics(date: .now, hrv: 45, restingHR: 60), hrvDelta: 3, rhrDelta: nil,
+            plannedRoutine: "Privater Trainingsname", trainedToday: false, isSample: false, hour: 9
+        )
+        let result = try await CoachProviders.reply(
+            context: CoachEngine.contextSummary(context),
+            history: [ChatMessage(role: .user, text: "Wie ist meine HRV?")],
+            anthropicKey: "fixture-a", openAIKey: "fixture-o", maySend: { true }
+        ) { request in
+            let host = try XCTUnwrap(request.url?.host)
+            await calls.record(host)
+            let body = try XCTUnwrap(request.httpBody)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let prompt = try XCTUnwrap((json["system"] ?? json["instructions"]) as? String)
+            XCTAssertEqual(prompt.components(separatedBy: "Daten von heute:\n").last, "HRV: 45 ms")
+            if host == "api.anthropic.com" {
+                return Data(#"{"stop_reason":"max_tokens","content":[{"type":"text","text":"Unvollständige Antwort."}]}"#.utf8)
+            }
+            XCTAssertEqual(json["store"] as? Bool, false)
+            return Data(#"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Deine HRV liegt bei 45 ms."}]}]}"#.utf8)
+        }
+        let hosts = await calls.hosts
+        XCTAssertEqual(hosts, ["api.anthropic.com", "api.openai.com"])
+        XCTAssertEqual(result, "Deine HRV liegt bei 45 ms.")
+        XCTAssertEqual(CoachEngine.transmittedFields(for: "Wie ist meine HRV?", context), ["HRV"])
+    }
+
+    func testTruncatedAnthropicReplyWithoutFallbackThrows() async {
+        do {
+            _ = try await CoachProviders.reply(
+                context: "", history: [ChatMessage(role: .user, text: "Wann soll ich ins Bett?")],
+                anthropicKey: "fixture-a", openAIKey: nil, maySend: { true }
+            ) { _ in
+                Data(#"{"stop_reason":"max_tokens","content":[{"type":"text","text":"Unvollständige Antwort."}]}"#.utf8)
+            }
+            XCTFail("Eine abgeschnittene Antwort darf nicht angezeigt werden.")
+        } catch {
+            XCTAssertEqual(error as? CoachProviders.ReplyError, .invalidResponse)
+        }
+    }
+
     func testRevokedConsentStopsFallback() async {
         let consent = LockedConsent()
         do {
@@ -90,21 +135,37 @@ final class CoachProvidersTests: XCTestCase {
 
     func testParserAcceptsOptionalNonemptyKeys() throws {
         let keys = try BundledKeys.parse(Data(#"{"anthropic":" fixture-a ","openai":"fixture-o"}"#.utf8))
-        XCTAssertEqual(keys.anthropic, "fixture-a")
-        XCTAssertEqual(keys.openai, "fixture-o")
+        XCTAssertEqual(keys.anthropic, .set("fixture-a"))
+        XCTAssertEqual(keys.openai, .set("fixture-o"))
         let openAIOnly = try BundledKeys.parse(Data(#"{"openai":"fixture-o"}"#.utf8))
-        XCTAssertNil(openAIOnly.anthropic)
-        XCTAssertEqual(openAIOnly.openai, "fixture-o")
+        XCTAssertEqual(openAIOnly.anthropic, .keep)
+        XCTAssertEqual(openAIOnly.openai, .set("fixture-o"))
     }
 
     func testParserHandlesEmptyAndInvalidBundles() throws {
         let empty = try BundledKeys.parse(Data(#"{"openai":null,"anthropic":"  "}"#.utf8))
-        XCTAssertNil(empty.anthropic)
-        XCTAssertNil(empty.openai)
+        XCTAssertEqual(empty.anthropic, .keep)
+        XCTAssertEqual(empty.openai, .remove)
         XCTAssertNoThrow(try BundledKeys.parse(Data("{}".utf8)))
         XCTAssertThrowsError(try BundledKeys.parse(Data()))
         XCTAssertThrowsError(try BundledKeys.parse(Data(#"{"anthropic":12}"#.utf8)))
         XCTAssertThrowsError(try BundledKeys.parse(Data(#"{"anthropic": "#.utf8)))
+    }
+
+    func testBundleKeepsOmittedAccountAndDeletesExplicitNull() throws {
+        let keys = try BundledKeys.parse(Data(#"{"openai":null}"#.utf8))
+        let anthropic = BundledKeys.anthropicAccount
+        let openAI = BundledKeys.openAIAccount
+        var stored = [anthropic: "fixture-a", openAI: "fixture-o"]
+        var touched: [String] = []
+
+        XCTAssertTrue(keys.apply { value, account in
+            touched.append(account)
+            stored[account] = value
+            return true
+        })
+        XCTAssertEqual(touched, [openAI])
+        XCTAssertEqual(stored, [anthropic: "fixture-a"])
     }
 }
 

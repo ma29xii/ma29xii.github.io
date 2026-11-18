@@ -23,6 +23,45 @@ enum CoachEngine {
         /// Gibt es heute eine Messgrundlage? Ohne sie keine Empfehlungen aus Ersatzwerten (Codex R-02-03).
         var recoveryAvailable: Bool = true
         var strainAvailable: Bool = true
+        var history: [DayMetrics] = []
+
+        var sleepDuration: TimeInterval? { CoachEngine.measuredSleep(in: today) }
+
+        var sleepDebt: TimeInterval? {
+            CoachEngine.measuredSleepDebt(scores, history: history)
+        }
+
+        var sleepNeed: TimeInterval? {
+            CoachEngine.measuredSleepNeed(scores, strainAvailable: strainAvailable, history: history)
+        }
+
+        var energy: Int? {
+            recoveryAvailable && strainAvailable && sleepDuration != nil ? scores.energy : nil
+        }
+
+        var stress: Double? {
+            guard strainAvailable, today.hrv?.isFinite == true, today.restingHR?.isFinite == true,
+                  hrvDelta?.isFinite == true, rhrDelta?.isFinite == true,
+                  (0...3).contains(scores.stress) else { return nil }
+            return scores.stress
+        }
+    }
+
+    private static func measuredSleep(in day: DayMetrics) -> TimeInterval? {
+        guard let duration = day.sleep?.asleep, duration > 0, duration <= 24 * 3600 else { return nil }
+        return duration
+    }
+
+    private static func measuredSleepDebt(_ scores: DayScores, history: [DayMetrics]) -> TimeInterval? {
+        guard history.suffix(7).contains(where: { measuredSleep(in: $0) != nil }),
+              scores.sleepDebt >= 0, scores.sleepDebt <= 7 * 24 * 3600 else { return nil }
+        return scores.sleepDebt
+    }
+
+    static func measuredSleepNeed(_ scores: DayScores, strainAvailable: Bool, history: [DayMetrics]) -> TimeInterval? {
+        guard strainAvailable, measuredSleepDebt(scores, history: history) != nil,
+              scores.sleepNeed > 0, scores.sleepNeed < 14 * 3600 else { return nil }
+        return scores.sleepNeed
     }
 
     /// Ein Satz für die Startseite. Morgens Ausblick, nach dem Training Rückblick, abends Schlaf.
@@ -35,17 +74,19 @@ enum CoachEngine {
             return "Für heute fehlen Herzwerte mit Vergleich. Ich gebe dir erst eine Empfehlung, wenn Messwerte da sind – trag deine Uhr auch nachts."
         }
         if c.trainedToday {
+            let sleepLine = c.sleepNeed.map { "Geh gegen \(bedtime(s)) ins Bett." } ?? "Schlafbedarf: keine Messung."
             // Gleiche Logik wie der Zielbogen am Belastungsring (Codex R-01-05).
             if s.strain < s.target.lowerBound {
                 return "Gut trainiert. Bis zur Untergrenze deines Zielbereichs fehlen noch \(s.target.lowerBound - s.strain) Punkte – etwas lockere Bewegung reicht."
             }
             if s.strain <= s.target.upperBound {
-                return "Gut trainiert – du bist in deinem Zielbereich (\(s.target.lowerBound)–\(s.target.upperBound)). Jetzt zählt die Erholung: ins Bett gegen \(bedtime(s))."
+                return "Gut trainiert – du bist in deinem Zielbereich (\(s.target.lowerBound)–\(s.target.upperBound)). \(sleepLine)"
             }
-            return "Heute warst du über deinem Zielbereich. Mach morgen eher locker und geh gegen \(bedtime(s)) ins Bett."
+            return "Heute warst du über deinem Zielbereich. Mach morgen eher locker. \(sleepLine)"
         }
         if c.hour >= 20 {
-            return "Für morgen zählt jetzt der Schlaf: ins Bett gegen \(bedtime(s)), dann holst du \(Format.duration(s.sleepNeed)) Schlaf."
+            guard let need = c.sleepNeed else { return "Schlafbedarf: keine Messung." }
+            return "Für morgen zählt jetzt der Schlaf: ins Bett gegen \(bedtime(s)), dann holst du \(Format.duration(need)) Schlaf."
         }
         let hrvPart: String
         if let d = c.hrvDelta, abs(d) >= 2 {
@@ -98,6 +139,13 @@ enum CoachEngine {
     static func localAnswer(to question: String, _ c: Context) -> String {
         let q = question.lowercased()
         let s = c.scores
+        let selected = selectedFields(for: question)
+        let measurements: [ExternalField] = [.energy, .stress, .sleepNeed, .sleepDebt]
+        let requested = measurements.filter { selected.contains($0) }
+        if requested == [.sleepNeed] { return sleepAdvice(c) }
+        if !requested.isEmpty {
+            return requested.map { "\($0.rawValue): \($0.value(in: c) ?? "keine Messung")." }.joined(separator: " ")
+        }
         if q.contains("hrv") || q.contains("erhol") {
             guard c.recoveryAvailable else {
                 return "Für heute fehlen HRV oder Ruhepuls mit Vergleichswerten. Sobald Messwerte aus Google Health da sind, kann ich deine Erholung erklären."
@@ -105,11 +153,11 @@ enum CoachEngine {
             var parts: [String] = []
             if let d = c.hrvDelta { parts.append("HRV \(d >= 0 ? "+" : "")\(Int(d.rounded())) ms zum Normalwert") }
             if let d = c.rhrDelta { parts.append("Ruhepuls \(d >= 0 ? "+" : "")\(Int(d.rounded())) bpm") }
-            parts.append("Schlafwert \(s.sleep)")
+            if c.sleepDuration != nil { parts.append("Schlafwert \(s.sleep)") }
             return "Deine Erholung liegt bei \(s.recovery). Grundlage: \(parts.joined(separator: ", ")). HRV zählt am stärksten, danach Ruhepuls und Schlaf."
         }
         if q.contains("bett") || q.contains("schlaf") || q.contains("nacht") {
-            return "Geschätzter Bedarf heute Nacht: \(Format.duration(s.sleepNeed)) (inklusive Schlafschuld). Bei Wecker \(wakeTime()) heißt das: gegen \(bedtime(s)) ins Bett. Die Weckzeit stellst du im Profil ein."
+            return sleepAdvice(c)
         }
         if q.contains("train") || q.contains("push") || q.contains("pull") || q.contains("bein") {
             let plan = c.plannedRoutine ?? "dein nächstes Training"
@@ -128,27 +176,119 @@ enum CoachEngine {
             }
             return "Belastung bisher \(s.strain), dein Zielbereich heute ist \(s.target.lowerBound) bis \(s.target.upperBound). Er richtet sich nach deiner Erholung."
         }
-        if q.contains("stress") || q.contains("energie") {
-            return "Energie \(s.energy) von 100, Stress etwa \(Format.number(s.stress, decimals: 1)) von 3 (geschätzt aus Ruhepuls und HRV)."
-        }
         return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training oder Belastung."
     }
 
+    private static func sleepAdvice(_ c: Context) -> String {
+        guard let need = c.sleepNeed else { return "Schlafbedarf: keine Messung." }
+        return "Geschätzter Bedarf heute Nacht: \(Format.duration(need)) (inklusive Schlafschuld). Bei Wecker \(wakeTime()) heißt das: gegen \(bedtime(c.scores)) ins Bett. Die Weckzeit stellst du im Profil ein."
+    }
+
+    /// Vollständiger lokaler Entwurf für bestehende Aufrufer. CoachProviders filtert vor dem Versand.
     static func contextSummary(_ c: Context) -> String {
-        let s = c.scores
-        var lines = [
-            c.recoveryAvailable ? "Erholung \(s.recovery)/100." : "Erholung: heute keine Messgrundlage (nicht raten).",
-            c.today.sleep != nil ? "Schlaf \(s.sleep)/100." : "Schlaf: keine Nacht gespeichert.",
-            c.strainAvailable ? "Belastung \(s.strain)/100 (Ziel \(s.target.lowerBound)–\(s.target.upperBound))." : "Belastung: keine Messgrundlage.",
-            "Energie \(s.energy)/100, Stress \(Format.number(s.stress, decimals: 1))/3 geschätzt.",
-            "Schlafbedarf heute Nacht \(Format.duration(s.sleepNeed)), Schlafschuld \(Format.duration(s.sleepDebt))."
-        ]
-        if let hrv = c.today.hrv { lines.append("HRV \(Int(hrv)) ms" + (c.hrvDelta.map { " (\($0 >= 0 ? "+" : "")\(Int($0.rounded())) zum Normalwert)" } ?? "")) }
-        if let rhr = c.today.restingHR { lines.append("Ruhepuls \(Int(rhr)) bpm") }
-        if let sleep = c.today.sleep { lines.append("Letzte Nacht \(Format.duration(sleep.asleep)) geschlafen") }
-        if let p = c.plannedRoutine { lines.append("Geplantes Training: \(p)") }
-        if c.isSample { lines.append("Hinweis: Es sind Beispieldaten, keine echten Messwerte.") }
-        return lines.joined(separator: "\n")
+        fields(in: c, selecting: Set(ExternalField.allCases)).map { $0.line }.joined(separator: "\n")
+    }
+
+    static func contextSummary(_ c: Context, for question: String) -> String {
+        fields(in: c, selecting: selectedFields(for: question)).map { $0.line }.joined(separator: "\n")
+    }
+
+    /// Die Feldnamen für den Dialog, einschließlich übertragener Hinweise auf fehlende Messungen.
+    static func transmittedFields(for question: String, _ c: Context) -> [String] {
+        fields(in: c, selecting: selectedFields(for: question)).map { $0.name }
+    }
+
+    /// Dieselbe Positivliste gilt auch für Aufrufer, die noch den lokalen Entwurf übergeben.
+    static func filteredContextSummary(_ summary: String, for question: String) -> String {
+        let allowed = selectedFields(for: question)
+        return summary.split(whereSeparator: \.isNewline).filter { line in
+            guard let separator = line.firstIndex(of: ":"),
+                  let field = ExternalField(rawValue: String(line[..<separator])) else { return false }
+            return allowed.contains(field)
+        }.joined(separator: "\n")
+    }
+
+    private enum ExternalField: String, CaseIterable {
+        case recovery = "Erholung"
+        case sleep = "Schlafwert"
+        case sleepDuration = "Schlafdauer"
+        case strain = "Belastung"
+        case target = "Belastungsziel"
+        case energy = "Energie"
+        case stress = "Stress"
+        case sleepNeed = "Schlafbedarf"
+        case sleepDebt = "Schlafschuld"
+        case hrv = "HRV"
+        case hrvDelta = "HRV-Abweichung"
+        case restingHR = "Ruhepuls"
+        case routine = "Geplantes Training"
+
+        func value(in c: Context) -> String? {
+            let s = c.scores
+            switch self {
+            case .recovery: return c.recoveryAvailable ? "\(s.recovery)/100" : nil
+            case .sleep: return c.sleepDuration.map { _ in "\(s.sleep)/100" }
+            case .sleepDuration: return c.sleepDuration.map(Format.duration)
+            case .strain: return c.strainAvailable ? "\(s.strain)/100" : nil
+            case .target: return c.recoveryAvailable ? "\(s.target.lowerBound)–\(s.target.upperBound)" : nil
+            case .energy: return c.energy.map { "\($0)/100" }
+            case .stress: return c.stress.map { "\(Format.number($0, decimals: 1))/3 (geschätzt)" }
+            case .sleepNeed: return c.sleepNeed.map(Format.duration)
+            case .sleepDebt: return c.sleepDebt.map(Format.duration)
+            case .hrv: return c.today.hrv.flatMap { $0.isFinite ? "\(Format.number($0)) ms" : nil }
+            case .hrvDelta:
+                return c.hrvDelta.flatMap { $0.isFinite ? "\($0 >= 0 ? "+" : "")\(Format.number($0)) ms zum Normalwert" : nil }
+            case .restingHR: return c.today.restingHR.flatMap { $0.isFinite ? "\(Format.number($0)) bpm" : nil }
+            case .routine:
+                guard let name = c.plannedRoutine else { return nil }
+                // Der Routinenname muss in einer Zeile bleiben, auch bei frei eingegebenen Namen.
+                return String(decoding: name.utf8.prefix(800), as: UTF8.self)
+                    .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            }
+        }
+    }
+
+    private static func fields(in c: Context, selecting selected: Set<ExternalField>) -> [(name: String, line: String)] {
+        guard !c.isSample else { return [] }
+        return ExternalField.allCases.filter { selected.contains($0) }.compactMap { field in
+            let value = field.value(in: c)
+            if field == .routine && (value == nil || value == "") { return nil }
+            return (field.rawValue, "\(field.rawValue): \(value ?? "keine Messung")")
+        }
+    }
+
+    private static func selectedFields(for question: String) -> Set<ExternalField> {
+        let words = Set(CoachProviders.outgoingMessageText(question).lowercased().split(whereSeparator: { !$0.isLetter }))
+        func has(_ options: String...) -> Bool { options.contains { words.contains(Substring($0)) } }
+
+        var fields: Set<ExternalField> = []
+        if has("erholung", "erholt", "recovery") {
+            fields.formUnion([.recovery, .hrv, .hrvDelta, .restingHR, .sleep])
+        }
+        if has("hrv", "herzfrequenzvariabilität") {
+            fields.insert(.hrv)
+            if has("normal", "normalwert", "vergleich", "abweichung", "höher", "niedriger") { fields.insert(.hrvDelta) }
+        }
+        if has("ruhepuls", "ruheherzfrequenz") { fields.insert(.restingHR) }
+        let asksForNeed = has("schlafbedarf", "bett", "bettzeit", "schlafenszeit", "schlafen") ||
+            (has("schlaf", "sleep") && has("brauche", "bedarf", "braucht", "empfohlen"))
+        let asksForDuration = has("schlafdauer", "geschlafen", "schlafzeit")
+        if has("schlaf", "sleep", "nacht"), !asksForNeed, !asksForDuration { fields.formUnion([.sleep, .sleepDuration]) }
+        if has("schlafwert", "schlafscore", "schlafqualität") { fields.insert(.sleep) }
+        if asksForDuration { fields.insert(.sleepDuration) }
+        if asksForNeed { fields.insert(.sleepNeed) }
+        if has("schlafschuld", "schlafdefizit") { fields.insert(.sleepDebt) }
+        if has("trainieren", "training", "trainingsplan", "workout", "push", "pull", "beintraining") {
+            fields.formUnion([.recovery, .strain, .target, .routine])
+        }
+        if has("belastung", "strain") {
+            fields.insert(.strain)
+            if has("gut", "soll", "ziel", "zielbereich", "empfohlen") { fields.insert(.target) }
+        }
+        if has("belastungsziel", "belastungsbereich") { fields.insert(.target) }
+        if has("energie", "energy", "energielevel") { fields.insert(.energy) }
+        if has("stress", "stresswert", "stresslevel") { fields.insert(.stress) }
+        return fields
     }
 }
 

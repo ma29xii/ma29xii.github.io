@@ -73,17 +73,19 @@ enum CoachProviders {
         }
         let messages = history.filter { !$0.localOnly }.suffix(12).drop(while: { $0.role != .user })
             .map { ["role": $0.role == .user ? "user" : "assistant",
-                    "content": limited($0.text, characters: 2000, bytes: 8000)] }
-        let model = anthropicModel(for: limited(question.text, characters: 2000, bytes: 8000))
+                    "content": outgoingMessageText($0.text)] }
+        let model = anthropicModel(for: outgoingMessageText(question.text))
         let short = model == .haiku
+        let dailyContext = CoachEngine.filteredContextSummary(context, for: question.text)
         let system = """
         Du bist der Coach in der App Health. Antworte auf Deutsch, in der du-Form, freundlich und konkret. \
         Verwende höchstens \(short ? 2 : 3) Sätze. Stütze dich auf die Daten unten und sage klar, wenn Werte fehlen. \
+        Erfinde keine persönlichen Messwerte. \
         Die einzige Datenquelle für Messwerte in dieser App heißt Google Health. \
         Nenne keine anderen Gesundheitsdienste als Quelle und wiederhole deren Namen auch auf Nachfrage nicht. \
         Du darfst Trainingsänderungen nur vorschlagen. Stelle keine medizinischen Diagnosen.
         Daten von heute:
-        \(limited(context, characters: 4000, bytes: 16000))
+        \(dailyContext.isEmpty ? "Keine Tageswerte für diese Frage." : limited(dailyContext, characters: 4000, bytes: 16000))
         """
         let primaryKey = anthropicKey.flatMap { $0.isEmpty ? nil : $0 }
         let fallbackKey = openAIKey.flatMap { $0.isEmpty ? nil : $0 }
@@ -96,8 +98,11 @@ enum CoachProviders {
                 try checkConsent(maySend)
                 let data = try await send(request)
                 try checkConsent(maySend)
-                let blocks = try JSONDecoder().decode(AnthropicResponse.self, from: data).content
-                return try checkedAnswer(blocks.filter { $0.type == "text" }.compactMap(\.text), short: short)
+                let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+                guard response.stopReason != "max_tokens", response.stopReason != "model_context_window_exceeded" else {
+                    throw ReplyError.invalidResponse
+                }
+                return try checkedAnswer(response.content.filter { $0.type == "text" }.compactMap(\.text), short: short)
             } catch {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
                     throw CancellationError()
@@ -148,6 +153,8 @@ enum CoachProviders {
     private static func openAIRequest(
         key: String, system: String, messages: [[String: String]], short: Bool, timeout: TimeInterval
     ) throws -> URLRequest {
+        // store: false deaktiviert die Speicherung der Antwort für späteren API-Abruf.
+        // https://developers.openai.com/api/reference/resources/responses/methods/create
         var request = try post(
             to: URL(string: "https://api.openai.com/v1/responses")!, timeout: timeout,
             body: ["model": openAIModel, "instructions": system, "input": messages,
@@ -183,6 +190,10 @@ enum CoachProviders {
         return data
     }
 
+    static func outgoingMessageText(_ text: String) -> String {
+        limited(text, characters: 2000, bytes: 8000)
+    }
+
     private static func limited(_ text: String, characters: Int, bytes: Int) -> String {
         let bounded = String(decoding: text.utf8.prefix(bytes), as: UTF8.self)
         return String(bounded.prefix(characters))
@@ -216,7 +227,13 @@ enum CoachProviders {
     }
 
     private struct AnthropicResponse: Decodable {
+        let stopReason: String?
         let content: [TextBlock]
+
+        enum CodingKeys: String, CodingKey {
+            case stopReason = "stop_reason"
+            case content
+        }
     }
 
     private struct OpenAIResponse: Decodable {

@@ -14,6 +14,7 @@ enum CoachNotifier {
     static let bedtimeKey = "forma.coach.bedtime"       // Einstellung an/aus
     static let detailsKey = "forma.coach.showValues"    // Werte in der Mitteilung zeigen (Standard: aus)
     nonisolated static let wakeKey = "forma.wakeMinutes"            // Weckzeit in Minuten nach Mitternacht
+    private static var morningReportsInFlight: Set<String> = []
 
     static var morningEnabled: Bool { UserDefaults.standard.object(forKey: morningKey) as? Bool ?? true }
     static var bedtimeEnabled: Bool { UserDefaults.standard.object(forKey: bedtimeKey) as? Bool ?? true }
@@ -51,10 +52,9 @@ enum CoachNotifier {
     static func sendMorningReportIfDue(_ hub: DataHub, now: Date = .now) async {
         let hour = Calendar.forma.component(.hour, from: now)
         let stamp = dayStamp(now)
-        let sentKey = "forma.coach.morningSent." + stamp
         // Nur mit einer Nacht von *heute* – nie aus einem alten Stand (Codex R-02-07/24).
         guard morningEnabled, !hub.isSample, (4...13).contains(hour), Calendar.forma.isDate(hub.today.date, inSameDayAs: now),
-              hub.today.sleep != nil, !UserDefaults.standard.bool(forKey: sentKey) else { return }
+              let asleep = hub.today.sleep?.asleep, asleep > 0 else { return }
         let content = UNMutableNotificationContent()
         content.threadIdentifier = "coach"
         content.sound = .default
@@ -73,10 +73,21 @@ enum CoachNotifier {
             content.body = "Deine Nacht ist da. Öffne Health für Erholung, Schlaf und deinen Plan für heute."
         }
         let id = "forma.morning." + stamp
-        do {
+        await enqueueMorningReportOnce(day: stamp) {
             try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        }
+    }
+
+    static func enqueueMorningReportOnce(
+        day: String, defaults: UserDefaults = .standard, enqueue: @MainActor () async throws -> Void
+    ) async {
+        let sentKey = "forma.coach.morningSent." + day
+        guard !defaults.bool(forKey: sentKey), morningReportsInFlight.insert(sentKey).inserted else { return }
+        defer { morningReportsInFlight.remove(sentKey) }
+        do {
+            try await enqueue()
             // Erst nach erfolgreicher Annahme als erledigt merken (Codex R-02-07).
-            UserDefaults.standard.set(true, forKey: sentKey)
+            defaults.set(true, forKey: sentKey)
         } catch {
             // Beim nächsten Abruf erneut versuchen.
         }
@@ -84,18 +95,18 @@ enum CoachNotifier {
 
     static func scheduleBedtimeReminder(_ hub: DataHub, now: Date = .now) async {
         let center = UNUserNotificationCenter.current()
-        guard bedtimeEnabled, !hub.isSample else {
+        guard bedtimeEnabled, !hub.isSample,
+              let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history),
+              let plan = bedtimePlan(sleepNeed: need, now: now) else {
             center.removePendingNotificationRequests(withIdentifiers: ["forma.bedtime"])
             return
         }
-        let s = hub.scores
-        guard let plan = bedtimePlan(sleepNeed: s.sleepNeed, now: now) else { return }
         let remind = plan.bed.addingTimeInterval(-30 * 60)
         guard remind > now.addingTimeInterval(60) else { return }
         let content = UNMutableNotificationContent()
         content.title = "In 30 Minuten Schlafenszeit"
         content.body = showValues
-            ? "Geschätzter Bedarf \(Format.duration(s.sleepNeed)). Bei Wecker \(Format.clock(plan.wake)): gegen \(Format.clock(plan.bed)) ins Bett."
+            ? "Geschätzter Bedarf \(Format.duration(need)). Bei Wecker \(Format.clock(plan.wake)): gegen \(Format.clock(plan.bed)) ins Bett."
             : "Bei Wecker \(Format.clock(plan.wake)): gegen \(Format.clock(plan.bed)) ins Bett."
         content.sound = .default
         content.threadIdentifier = "coach"
