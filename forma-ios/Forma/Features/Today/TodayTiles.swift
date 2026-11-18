@@ -174,26 +174,65 @@ struct EnergyStressDetail: View {
 
     var body: some View {
         let estimates = hub.hourlyEstimates
+        let stress = estimates.compactMap { hour in
+            hour.stress.map { HealthChartPoint(date: hour.at, value: $0) }
+        }
+        let energy = estimates.compactMap { hour in
+            hour.energy.map { HealthChartPoint(date: hour.at, value: Double($0)) }
+        }
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if hub.isSample { SampleDataBadge().padding(.bottom, Space.s2) }
-                HourlyValueChart(title: "Stress im Tagesverlauf", points: estimates.compactMap { hour in
-                    hour.stress.map { HealthChartPoint(date: hour.at, value: $0) }
-                }, color: Theme.warning, maximum: 3, valueText: { Format.number($0, decimals: 1) + " von 3" },
+                if hub.isSample { SampleDataBadge().padding(.bottom, Space.s3) }
+                latestReadings(stress: stress.last, energy: energy.last)
+                HourlyValueChart(title: "Stress im Tagesverlauf", points: stress,
+                                 color: Theme.warning, maximum: 3, valueText: { Format.number($0, decimals: 1) + " von 3" },
                 emptyText: "Für die Schätzung fehlen Herzwerte")
-                HourlyValueChart(title: "Energie im Tagesverlauf", points: estimates.compactMap { hour in
-                    hour.energy.map { HealthChartPoint(date: hour.at, value: Double($0)) }
-                }, color: Theme.younger, maximum: 100, valueText: { Format.number($0) + " %" },
+                HourlyValueChart(title: "Energie im Tagesverlauf", points: energy,
+                                 color: Theme.younger, maximum: 100, valueText: { Format.number($0) + " %" },
                 emptyText: "Für die Schätzung fehlen Schlaf-, Bewegungs- oder Herzwerte")
-                Text("Stündliche Schätzungen").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                    .padding(.top, Space.s3)
             }
             .padding(.horizontal, Space.page)
-            .padding(.bottom, Space.s6)
+            .padding(.vertical, Space.s4)
         }
         .formaScreen()
         .navigationTitle("Energie und Stress")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func latestReadings(stress: HealthChartPoint?, energy: HealthChartPoint?) -> some View {
+        Plate {
+            VStack(alignment: .leading, spacing: Space.s3) {
+                Text("Letzte Schätzungen")
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(Theme.textSecondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: Space.s5) {
+                        reading("Stress", point: stress, tint: Theme.warning) { Format.number($0, decimals: 1) + " von 3" }
+                        reading("Energie", point: energy, tint: Theme.younger) { Format.number($0) + " %" }
+                    }
+                    VStack(alignment: .leading, spacing: Space.s3) {
+                        reading("Stress", point: stress, tint: Theme.warning) { Format.number($0, decimals: 1) + " von 3" }
+                        reading("Energie", point: energy, tint: Theme.younger) { Format.number($0) + " %" }
+                    }
+                }
+            }
+            .padding(Space.s4)
+        }
+    }
+
+    private func reading(_ title: String, point: HealthChartPoint?, tint: Color, formatted: (Double) -> String) -> some View {
+        VStack(alignment: .leading, spacing: Space.s1) {
+            Text(title).font(.formaRowTitle)
+            Text(point.map { formatted($0.value) } ?? "–")
+                .font(.formaBigNumber)
+                .foregroundStyle(tint)
+            if let point {
+                Text(Format.clock(point.date)).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 

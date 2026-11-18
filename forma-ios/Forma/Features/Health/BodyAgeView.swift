@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 @MainActor
 func bodyAgeOutcome(hub: DataHub, sessions: [WorkoutSession]) -> BodyAge.Outcome {
@@ -32,27 +33,17 @@ enum BodyAgeText {
         abs(difference) < 1 ? Theme.textPrimary : (difference < 0 ? Theme.younger : Theme.older)
     }
 }
-
-
 struct HealthAgeHero: View {
     let outcome: BodyAge.Outcome
+    var showsDetails = true
 
     var body: some View {
         Plate {
-            VStack(spacing: Space.s2) {
+            VStack(spacing: Space.s3) {
                 if case .ready(let result) = outcome {
-                    AgeArc(age: result.age, estimate: result.bodyAge)
-                    Text(BodyAgeText.difference(result))
-                        .font(.formaHeadline)
-                        .multilineTextAlignment(.center)
-                    Text("Geschätztes Alter")
-                        .font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                    if let trend = result.trend {
-                        Label("30-Tage-Trend · \(BodyAgeText.signedYears(trend))", systemImage: "chart.line.uptrend.xyaxis")
-                            .font(.formaCaptionStrong)
-                            .foregroundStyle(Theme.textSecondary)
-                            .accessibilityLabel("Trend, \(BodyAgeText.signedYears(trend)) gegenüber dem vorherigen 30-Tage-Zeitraum")
-                    }
+                    AgePortrait(result: result)
+                    RowDivider(inset: 0)
+                    comparison(result)
                 } else {
                     Text("–").font(.formaHero).foregroundStyle(Theme.textSecondary)
                     Text(status)
@@ -60,18 +51,47 @@ struct HealthAgeHero: View {
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                 }
-                Label("Details", systemImage: "chevron.right")
-                    .font(.formaCaptionStrong)
+                if showsDetails {
+                    HStack {
+                        Text("Details").font(.formaCaptionStrong)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.formaCaptionStrong)
+                            .accessibilityHidden(true)
+                    }
                     .foregroundStyle(Theme.textSecondary)
-                    .padding(.top, Space.s1)
+                    .frame(minHeight: 44)
+                }
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, Space.s4)
-            .padding(.bottom, Space.s5)
-            .padding(.top, Space.s2)
+            .padding(Space.s4)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    private func comparison(_ result: BodyAge.Result) -> some View {
+        let age = BodyAgeText.years(result.age.rounded(.down)) + " Jahre"
+        let trend = result.trend.map(BodyAgeText.signedYears) ?? "Noch kein Vergleich"
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: Space.s4) {
+                statistic("Dein Alter", value: age)
+                statistic("30-Tage-Trend", value: trend)
+            }
+            VStack(alignment: .leading, spacing: Space.s3) {
+                statistic("Dein Alter", value: age)
+                statistic("30-Tage-Trend", value: trend)
+            }
+        }
+    }
+
+    private func statistic(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.s1) {
+            Text(title).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            Text(value).font(.formaValue)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var status: String {
@@ -124,25 +144,25 @@ struct BodyAgeDetailView: View {
 
     private func resultView(_ result: BodyAge.Result) -> some View {
         VStack(spacing: 0) {
-            AgeArc(age: result.age, estimate: result.bodyAge)
-            Text(BodyAgeText.difference(result))
-                .font(.formaHeadline)
-                .multilineTextAlignment(.center)
-                .padding(.top, Space.s4)
+            HealthAgeHero(outcome: .ready(result), showsDetails: false)
+                .padding(.top, Space.s3)
             Text(hub.person.origin == .assumed ? "Beispiel mit angenommenem Alter" : "Nicht validierte Schätzung")
                 .font(.formaCaption).foregroundStyle(Theme.textSecondary)
                 .padding(.top, Space.s1)
 
-            FormaSection(title: "Trend") {
+            FormaSection(title: "30-Tage-Vergleich") {
+                if let previous = result.previousBodyAge, let recent = result.recentBodyAge {
+                    AgeWindowChart(previous: previous, recent: recent, age: result.age)
+                } else {
+                    Plate { MetricRow(title: "Noch kein Vergleich verfügbar") }
+                }
+            }
+
+            FormaSection(title: "Messwerte im Altersmodell") {
                 Plate {
-                    if let previous = result.previousBodyAge, let recent = result.recentBodyAge, let change = result.trend {
-                        MetricRow(title: "Letzte 30 Tage", value: "\(BodyAgeText.years(recent)) Jahre")
-                        RowDivider()
-                        MetricRow(title: "30 Tage davor", value: "\(BodyAgeText.years(previous)) Jahre")
-                        RowDivider()
-                        MetricRow(title: "Veränderung", value: BodyAgeText.signedYears(change))
-                    } else {
-                        MetricRow(title: "Noch kein Vergleich verfügbar")
+                    ForEach(result.factors) { factor in
+                        AgeFactorRow(factor: factor)
+                        if factor.id != result.factors.last?.id { RowDivider() }
                     }
                 }
             }
@@ -184,62 +204,144 @@ struct BodyAgeDetailView: View {
     }
 }
 
-/// Ein offener Bogen mit dem eigenen Alter in der Mitte und der Schätzung auf der Skala.
-private struct AgeArc: View {
-    let age: Double
-    let estimate: Double
-    private let span = 15.0
+
+private struct AgePortrait: View {
+    let result: BodyAge.Result
 
     var body: some View {
-        let tint = BodyAgeText.color(estimate - age)
-        VStack(spacing: Space.s2) {
-            ZStack(alignment: .bottom) {
-                Canvas { context, size in
-                    let radius = min(size.width / 2 - 12, size.height - 12)
-                    guard radius > 0 else { return }
-                    let center = CGPoint(x: size.width / 2, y: size.height - 6)
-                    func point(_ degrees: Double, radius: CGFloat) -> CGPoint {
-                        let angle = degrees * .pi / 180
-                        return CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+        let tint = BodyAgeText.color(result.difference)
+        VStack(spacing: Space.s1) {
+            Text(BodyAgeText.years(result.bodyAge))
+                .font(.formaHero)
+                .foregroundStyle(Theme.textPrimary)
+            Text("Geschätztes Alter · in Jahren")
+                .font(.formaCaptionStrong)
+                .foregroundStyle(Theme.textSecondary)
+            Text(BodyAgeText.difference(result))
+                .font(.formaRowTitle)
+                .foregroundStyle(tint)
+                .padding(.top, Space.s1)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Space.s4)
+        .padding(.vertical, Space.s6)
+        .frame(maxWidth: .infinity, minHeight: 180)
+        .background {
+            GeometryReader { geometry in
+                let width = min(geometry.size.width, 400)
+                let height = geometry.size.height
+                ZStack {
+                    RadialGradient(colors: [tint.opacity(0.15), .clear],
+                                   center: .center, startRadius: 25, endRadius: width * 0.58)
+                    ForEach(0..<6) { index in
+                        let offset = CGFloat(index)
+                        let contourWidth = width * (0.9 - offset * 0.055)
+                        let contourHeight = height * (0.67 + offset * 0.027)
+                        Ellipse()
+                            .stroke(
+                                LinearGradient(colors: [.clear, tint.opacity(0.18), tint.opacity(0.59)],
+                                               startPoint: .topTrailing, endPoint: .bottomLeading),
+                                lineWidth: index == 0 ? 1.3 : 0.75
+                            )
+                            .frame(width: contourWidth, height: contourHeight)
+                            .rotationEffect(.degrees(Double(index) * 5 - 18))
                     }
-                    var arc = Path()
-                    arc.addArc(center: center, radius: radius, startAngle: .degrees(180), endAngle: .degrees(360), clockwise: false)
-                    context.stroke(arc, with: .color(Theme.track), lineWidth: 9)
-                    for step in 0...30 {
-                        let angle = 180 + Double(step) * 6
-                        var tick = Path()
-                        tick.move(to: point(angle, radius: radius - (step % 5 == 0 ? 8 : 3)))
-                        tick.addLine(to: point(angle, radius: radius + 4))
-                        context.stroke(tick, with: .color(step == 15 ? Theme.textSecondary : Theme.textQuaternary), lineWidth: 1)
-                    }
-                    let fraction = (min(span, max(-span, estimate - age)) + span) / (span * 2)
-                    let mark = point(180 + fraction * 180, radius: radius)
-                    let marker = Path(ellipseIn: CGRect(x: mark.x - 5, y: mark.y - 5, width: 10, height: 10))
-                    context.fill(marker, with: .color(tint))
                 }
-                .accessibilityHidden(true)
-                VStack(spacing: 0) {
-                    Text(BodyAgeText.years(estimate)).font(.formaHero)
-                        .minimumScaleFactor(0.5)
-                        .foregroundStyle(tint)
-                    Text("Jahre").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                }
-                .padding(.bottom, Space.s2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: 145)
-
-            HStack(spacing: Space.s1) {
-                Text(BodyAgeText.years(age - span)).frame(maxWidth: .infinity, alignment: .leading)
-                Text("Dein Alter \(BodyAgeText.years(age.rounded(.down)))").frame(maxWidth: .infinity)
-                Text(BodyAgeText.years(age + span)).frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .font(.formaCaption).monospacedDigit().foregroundStyle(Theme.textSecondary)
-            .multilineTextAlignment(.center)
             .accessibilityHidden(true)
         }
-        .frame(maxWidth: 310)
-        .padding(.top, Space.s5)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Geschätzt \(BodyAgeText.years(estimate)) Jahre. Dein Alter \(BodyAgeText.years(age.rounded(.down))) Jahre.")
+        .accessibilityLabel("Geschätztes Alter \(BodyAgeText.years(result.bodyAge)) Jahre. \(BodyAgeText.difference(result)).")
+    }
+}
+
+private struct AgeWindowChart: View {
+    let previous: Double
+    let recent: Double
+    let age: Double
+
+    private struct Window: Identifiable {
+        let title: String
+        let years: Double
+        var id: String { title }
+    }
+
+    var body: some View {
+        let windows = [Window(title: "30 Tage davor", years: previous), Window(title: "Letzte 30 Tage", years: recent)]
+        let tint = BodyAgeText.color(recent - age)
+        Plate {
+            VStack(alignment: .leading, spacing: Space.s3) {
+                Chart {
+                    RuleMark(y: .value("Dein Alter", age))
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    ForEach(windows) { window in
+                        LineMark(x: .value("Zeitraum", window.title), y: .value("Geschätztes Alter", window.years))
+                            .foregroundStyle(tint)
+                        PointMark(x: .value("Zeitraum", window.title), y: .value("Geschätztes Alter", window.years))
+                            .foregroundStyle(tint)
+                            .symbolSize(52)
+                    }
+                }
+                .chartXScale(domain: windows.map(\.title))
+                .chartYScale(domain: (min(previous, recent, age) - 1)...(max(previous, recent, age) + 1))
+                .chartYAxis {
+                    AxisMarks(position: .trailing) { _ in
+                        AxisGridLine().foregroundStyle(Theme.hairline)
+                        AxisValueLabel().foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                .frame(height: 144)
+                .accessibilityLabel("Health Age im Vergleich zu deinem Alter")
+                Text("Dein Alter · \(BodyAgeText.years(age.rounded(.down))) Jahre")
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(Space.s4)
+            RowDivider()
+            MetricRow(title: "30 Tage davor", value: BodyAgeText.years(previous), unit: "Jahre")
+            RowDivider()
+            MetricRow(title: "Letzte 30 Tage", value: BodyAgeText.years(recent), unit: "Jahre")
+        }
+    }
+}
+
+private struct AgeFactorRow: View {
+    let factor: BodyAge.Factor
+
+    var body: some View {
+        let years = factor.years * BodyAge.overlapDamping
+        let normalized = max(-1, min(1, years / 4.5))
+        let tint = years < 0 ? Theme.younger : Theme.older
+        VStack(alignment: .leading, spacing: Space.s2) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text(factor.title).font(.formaRowTitle)
+                    Text(factor.valueText).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
+                Spacer(minLength: Space.s2)
+                Text(BodyAgeText.signedYears(years))
+                    .font(.formaValue)
+                    .foregroundStyle(abs(years) < 0.5 ? Theme.textSecondary : tint)
+            }
+            GeometryReader { geometry in
+                let center = geometry.size.width / 2
+                let length = center * CGFloat(abs(normalized))
+                Capsule().fill(Theme.track)
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(tint)
+                            .frame(width: length, height: 4)
+                            .offset(x: normalized < 0 ? center - length : center)
+                    }
+                    .overlay {
+                        Rectangle().fill(Theme.textTertiary).frame(width: 1, height: 9)
+                    }
+            }
+            .frame(height: 4)
+            .accessibilityHidden(true)
+        }
+        .padding(Space.s4)
+        .accessibilityElement(children: .combine)
     }
 }

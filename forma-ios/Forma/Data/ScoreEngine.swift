@@ -63,13 +63,19 @@ enum ScoreEngine {
         return nights.reduce(0) { $0 + max(0, base - $1) } / 3
     }
 
+    /// Bedarf der vergangenen Nacht anhand der Daten vor dem Aufwachen.
+    static func sleepNeedForLastNight(history: [DayMetrics]) -> TimeInterval {
+        sleepNeed(strain: history.last.map { strain($0) } ?? 0,
+                  debt: sleepDebt(history: Array(history.dropLast())))
+    }
+
     static func scores(today: DayMetrics, history: [DayMetrics], now: Date = .now) -> DayScores {
         let debt = sleepDebt(history: history)
         let strainValue = strain(today)
         let need = sleepNeed(strain: strainValue, debt: debt)
         // Die vergangene Nacht wird am Bedarf von *gestern* gemessen – sonst ändert sich ihr Wert,
         // nur weil du heute trainierst (Codex R-02-09/A-13).
-        let nightNeed = sleepNeed(strain: history.last.map { strain($0) } ?? 0, debt: sleepDebt(history: Array(history.dropLast())))
+        let nightNeed = sleepNeedForLastNight(history: history)
         let sleepValue = sleepScore(today.sleep, need: nightNeed)
         let rec = recovery(today: today, history: history, sleepScore: sleepValue)
         let hour = Double(Calendar.forma.component(.hour, from: now))

@@ -687,7 +687,9 @@ final class ReviewTwoTests: XCTestCase {
     func testSleepScoreStableAfterTraining() {
         let history = Array(SampleData.days(count: 30).dropLast())
         var today = SampleData.days(count: 30).last!
+        let previousNightNeed = ScoreEngine.sleepNeedForLastNight(history: history)
         let before = ScoreEngine.scores(today: today, history: history).sleep
+        XCTAssertEqual(before, ScoreEngine.sleepScore(today.sleep, need: previousNightNeed))
         today.activeEnergy = 1500
         today.workouts.append(WorkoutSummary(name: "Beine", start: .now, duration: 5400, energy: 700, isStrength: true))
         let after = ScoreEngine.scores(today: today, history: history).sleep

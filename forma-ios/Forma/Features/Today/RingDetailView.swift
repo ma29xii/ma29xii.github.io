@@ -15,6 +15,7 @@ struct RingDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if hub.isSample { SampleDataBadge() }
                 hero(value: value, tint: tint)
+                    .padding(.top, hub.isSample ? Space.s3 : 0)
                 switch kind {
                 case .strain: strain
                 case .recovery: recovery
@@ -56,23 +57,45 @@ struct RingDetailView: View {
             case .recovery:
                 return Theme.recoveryWord(value)
             case .sleep:
-                return recentNight.map { Format.duration($0.asleep) + " Schlaf" } ?? "Schlaf"
+                return "Schlafqualität"
             }
         }()
         let target = hub.ringScores.target
-        return VStack(spacing: Space.s3) {
-            RingView(value: Double(value ?? 0), color: tint, size: 166, lineWidth: 7,
-                     target: kind == .strain && hub.availability.recovery
-                        ? Double(target.lowerBound)...Double(target.upperBound) : nil,
-                     numberSize: 58, missing: value == nil)
-                .accessibilityLabel(value.map { "\(kind.title), \($0) von 100" } ?? "Keine Messung")
-            Text(status).font(.formaHeadline).multilineTextAlignment(.center)
-            if hub.waitingForFitbit && kind != .strain {
-                Text("Stand gestern").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+        let ring = RingView(value: Double(value ?? 0), color: tint, size: 116, lineWidth: 6,
+                            target: kind == .strain && hub.availability.recovery
+                                ? Double(target.lowerBound)...Double(target.upperBound) : nil,
+                            showsNumber: false, missing: value == nil)
+            .padding(Space.s2)
+            .accessibilityHidden(true)
+        return Plate {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Space.s3) {
+                    scoreLabel(value, status: status)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ring
+                }
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    scoreLabel(value, status: status)
+                    ring
+                }
             }
+            .padding(Space.s5)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Space.s4)
+    }
+
+    private func scoreLabel(_ value: Int?, status: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.s1) {
+            Text(hub.waitingForFitbit && kind != .strain ? "Gestern" : "Heute")
+                .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+            HStack(alignment: .firstTextBaseline, spacing: Space.s1) {
+                Text(value.map(String.init) ?? "–").font(.formaHero)
+                if value != nil {
+                    Text("von 100").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
+            }
+            Text(status).font(.formaRowTitle)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var strain: some View {
@@ -89,6 +112,10 @@ struct RingDetailView: View {
                         RowDivider()
                         MetricRow(title: "Trainingszeit", value: Format.duration(minutes))
                     }
+                    if let steps = hub.today.steps {
+                        RowDivider()
+                        MetricRow(title: "Schritte", value: Format.number(steps))
+                    }
                 }
             }
             HourlyValueChart(title: "Belastung im Tagesverlauf", points: hub.hourlyEstimates.compactMap { hour in
@@ -99,15 +126,16 @@ struct RingDetailView: View {
 
     private var recovery: some View {
         let day = hub.waitingForFitbit ? hub.yesterday : hub.today
+        let baselineDays = hub.waitingForFitbit ? Array(hub.history.dropLast()) : hub.history
         let hrv = hub.hours.compactMap { hour in hour.hrv.map { HealthChartPoint(date: hour.start, value: $0) } }
         return VStack(spacing: 0) {
             FormaSection(title: "Messwerte") {
                 Plate {
-                    MetricRow(title: "HRV", value: day?.hrv.map { Format.number($0) + " ms" } ?? "–")
+                    recoveryMetric(.hrv, day: day, baselineDays: baselineDays)
                     RowDivider()
-                    MetricRow(title: "Ruhepuls", value: day?.restingHR.map { Format.number($0) + " bpm" } ?? "–")
+                    recoveryMetric(.restingHR, day: day, baselineDays: baselineDays)
                     RowDivider()
-                    MetricRow(title: "Atemfrequenz", value: day?.respiratoryRate.map { Format.number($0, decimals: 1) + " /min" } ?? "–")
+                    recoveryMetric(.respiratoryRate, day: day, baselineDays: baselineDays)
                 }
             }
             HourlyValueChart(title: "HRV pro Stunde", points: hrv, color: Theme.younger,
@@ -116,14 +144,31 @@ struct RingDetailView: View {
         }
     }
 
+    private func recoveryMetric(_ metric: MetricKind, day: DayMetrics?, baselineDays: [DayMetrics]) -> some View {
+        let baseline = ScoreEngine.baseline(baselineDays.compactMap(metric.value))
+        return MetricRow(title: metric.title,
+                         subtitle: baseline.map { "Dein Ø \(metric.measurement($0.mean))" },
+                         value: day.flatMap(metric.value).map(metric.measurement) ?? "–")
+    }
+
     private var recentNight: SleepNight? {
         hub.waitingForFitbit ? hub.yesterday?.sleep : hub.today.sleep
     }
 
     private var sleep: some View {
         let s = hub.scores
+        let prior = hub.waitingForFitbit ? Array(hub.history.dropLast()) : hub.history
         return VStack(spacing: 0) {
             if let night = recentNight {
+                FormaSection(title: hub.waitingForFitbit ? "Nacht zum Vortag" : "Letzte Nacht") {
+                    Plate {
+                        MetricRow(title: "Geschlafen", value: Format.duration(night.asleep))
+                        RowDivider()
+                        MetricRow(title: "Geschätzter Bedarf", value: Format.duration(ScoreEngine.sleepNeedForLastNight(history: prior)))
+                        RowDivider()
+                        MetricRow(title: "Schlafeffizienz", value: Format.number(night.efficiency * 100), unit: "%")
+                    }
+                }
                 FormaSection(title: "Verlauf der Nacht") {
                     Plate {
                         SleepTimeline(night: night)
