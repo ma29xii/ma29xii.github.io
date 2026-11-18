@@ -117,3 +117,110 @@ struct MetricDetailView: View {
                     Text(points.last.map { "Stand \(Format.shortDate($0.0))" } ?? "Keine Messung")
                         .font(.formaCaption)
                         .foregroundStyle(Theme.textSecondary)
+                }
+                .padding(.top, Space.s4)
+
+                Picker("Zeitraum", selection: $range) {
+                    Text("7 Tage").tag(7)
+                    Text("14 Tage").tag(14)
+                    Text("30 Tage").tag(30)
+                }
+                .pickerStyle(.segmented)
+                .padding(.top, Space.s5)
+                .onChange(of: range) { _, _ in selection = nil }
+
+                Plate {
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        // Ausgewählter Tag oder Hinweis zum Abfahren mit dem Finger.
+                        Group {
+                            if let sel = selectedPoint(points) {
+                                Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.formatted(sel.1))\(kind == .sleepDuration ? "" : " " + kind.unit)")
+                                    .foregroundStyle(Theme.textPrimary)
+                            } else if let selection {
+                                Text("\(selection.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): keine Messung")
+                                    .foregroundStyle(Theme.textSecondary)
+                            } else if !points.isEmpty {
+                                Text("\(points.count) Messungen")
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                        .font(.formaCaptionStrong)
+                        .contentTransition(.opacity)
+
+                        if points.isEmpty {
+                            Text("Keine Messungen in diesem Zeitraum")
+                                .font(.formaBody).foregroundStyle(Theme.textSecondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, minHeight: 160, alignment: .center)
+                        } else {
+                            Chart {
+                                if let b = base {
+                                    RectangleMark(xStart: .value("Start", domain.lowerBound), xEnd: .value("Ende", domain.upperBound),
+                                                  yStart: .value("unten", b.mean - b.sd), yEnd: .value("oben", b.mean + b.sd))
+                                        .foregroundStyle(Color.white.opacity(0.06))
+                                }
+                                // Linear verbinden und bei Lücken unterbrechen: keine erfundenen Zwischenwerte (Codex R-01-31).
+                                ForEach(segmented(points), id: \.date) { p in
+                                    LineMark(x: .value("Tag", p.date), y: .value(kind.title, p.value), series: .value("Abschnitt", p.segment))
+                                        .interpolationMethod(.linear)
+                                        .foregroundStyle(Theme.textPrimary)
+                                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                    PointMark(x: .value("Tag", p.date), y: .value(kind.title, p.value))
+                                        .symbolSize(14)
+                                        .foregroundStyle(Theme.textPrimary)
+                                }
+                                if let sel = selectedPoint(points) {
+                                    RuleMark(x: .value("Auswahl", sel.0))
+                                        .foregroundStyle(Theme.textTertiary)
+                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                    PointMark(x: .value("Tag", sel.0), y: .value(kind.title, sel.1))
+                                        .symbolSize(70)
+                                        .foregroundStyle(Theme.textPrimary)
+                                }
+                            }
+                            .chartXScale(domain: domain)
+                            .chartYScale(domain: .automatic(includesZero: false))
+                            .chartXSelection(value: $selection)
+                            .chartXAxis {
+                                // .aligned hält die Randbeschriftungen im Diagramm (keine abgeschnittenen Daten).
+                                AxisMarks(preset: .aligned, values: .stride(by: .day, count: range > 14 ? 7 : 2)) { _ in
+                                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                                        .foregroundStyle(Theme.textSecondary)
+                                }
+                            }
+                            .chartYAxis {
+                                AxisMarks(position: .trailing) { _ in
+                                    AxisGridLine().foregroundStyle(Theme.hairline)
+                                    AxisValueLabel().foregroundStyle(Theme.textSecondary)
+                                }
+                            }
+                            .chartPlotStyle { $0.padding(.trailing, 6) }
+                            .frame(height: 220)
+                            .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0)
+                            .accessibilityLabel("\(kind.title), \(points.count) Messungen in \(range) Tagen")
+                            .accessibilityValue(points.last.map { "zuletzt \(kind.formatted($0.1)) \(kind.unit)" } ?? "keine Messung")
+                        }
+                    }
+                    .padding(Space.s4)
+                }
+                .padding(.top, Space.s4)
+                .animation(reduceMotion ? nil : .smooth, value: range)
+
+                FormaSection(title: "Zusammenfassung") {
+                    Plate {
+                        MetricRow(title: "Mittel", value: values.isEmpty ? "–" : kind.formatted(values.reduce(0, +) / Double(values.count)), unit: kind == .sleepDuration ? nil : kind.unit)
+                        RowDivider()
+                        MetricRow(title: "Niedrigster Wert", value: values.min().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
+                        RowDivider()
+                        MetricRow(title: "Höchster Wert", value: values.max().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
+                    }
+                }
+                Color.clear.frame(height: Space.s7)
+            }
+            .padding(.horizontal, Space.page)
+        }
+        .formaScreen()
+        .navigationTitle(kind.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
