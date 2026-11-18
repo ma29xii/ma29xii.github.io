@@ -68,11 +68,7 @@ Umgesetzt (Commit nach `8f462c8`, noch **nicht** durch die CI bestätigt):
 - Profil: „Mitteilungen erlauben“, Weckzeit, „Werte in Mitteilungen zeigen“, letzter Hintergrundversuch, Hinweise zur Hintergrundzustellung.
 - Tests: neue Angriffstests für A-01, A-02, A-06, A-07, A-09, A-17, A-18, A-19.
 
-**Noch offen aus Review 02** (nächste Schritte):
-1. Erst CI-Lauf für diesen Commit prüfen (Build + 60 Unit-Tests). Bei Fehlern zuerst die beheben.
-2. In der Pausenansicht optional „Bei Pausenende benachrichtigen“ anbieten (R-02-26).
-3. R-02-09 Schlafphasen (Tief+REM als gemeinsame Vereinigung, Bedarf der Nacht von gestern), R-02-10/11 Körperalter (Altersbereich 20–79, Krafttraining nur bei Aufzeichnung, Rundung aus ungerundeter Differenz, Skala ±15), R-02-15 Claude-Verlauf (lokale Nachrichten ausschließen, Abbruch bei Widerruf), R-02-17 Dock bei großer Schrift, R-02-20 Diagramm-Lücken, R-02-22 Journal-Texte, R-02-23 CI-Pflichtbilder.
-4. `forma-ios/reviews/review-02-antwort.md` schreiben, dann Codex Runde 03.
+**Rest von Review 02 umgesetzt in `7dab922`.** Pro Befund steht der Stand in `forma-ios/reviews/review-02-antwort.md`, offene Punkte sind dort mit ⏭ markiert. Nächster Schritt: Codex Runde 03 („Lies AGENTS.md und mach Runde 03“).
 
 ## 6. Offen / bekannte Punkte
 - [x] **CI-Lauf 8** (Commit 370cc2d) komplett grün: IPA und Screenshots. Bei Lauf 7 war der IPA-Job ohne freien Mac-Runner abgebrochen worden. Falls das wieder passiert: in `forma-ios.yml` beim Job `screens` den Eintrag `needs: ipa` setzen (Jobs nacheinander).

@@ -19,6 +19,7 @@ Warum Codex nicht selbst Swift ändert: Zwei Agenten auf denselben Dateien erzeu
 - App: `forma-ios/` – SwiftUI, iOS 26, Swift 6, Liquid Glass, XcodeGen, keine Fremd-Frameworks
 - CI: `.github/workflows/forma-ios.yml` baut bei jedem Push eine unsignierte **Forma.ipa** (Artifact „Forma-IPA“) und fährt einen UI-Rundgang im Simulator. Die Screenshots landen per CI-Commit in `docs/forma-screens/` (Dateiname = Bildschirm).
 - Maxis Zusatzziel: **Synchronisierung extrem zuverlässig und automatisch im Hintergrund**, **Coach läuft immer** (Morgenbericht, Schlafenszeit, offline). Umgesetzt mit HealthKit-Hintergrundzustellung, BGAppRefresh, `SyncStore`, `CoachNotifier`.
+- Runde 02: Codex-Review 02 mit Angriffstest umgesetzt (`2ed96df`, `7dab922`), Antwort in `forma-ios/reviews/review-02-antwort.md`.
 - Runde 01: Codex-Review 01 und Prüfer-Review 01b umgesetzt (`d411500`), Antwort in `forma-ios/reviews/review-01-antwort.md`. Unit-Tests (`FormaTests`) laufen in der CI verpflichtend.
 - Fitbit Web API ist seit 2.11.2026 abgeschaltet → in der App als „wird umgestellt“ gekennzeichnet. Nächster großer Schritt: Google-Health-Importer (braucht Maxis Google-Cloud-Projekt).
 - Fertig: Heute (3 Ringe fest oben, darunter verschiebbare Kacheln), Training im Hevy-Stil (SwiftData, Live-Training, Pausentimer, 1RM), Gesundheit (Trends, **Körperalter**), Coach (lokal + optional Claude-API), Journal, Profil, Apple Health, Fitbit (PKCE).
@@ -91,6 +92,10 @@ Angriffsflächen:
 9. **Berechnungen:** Grenzwerte in `ScoreEngine`, `BodyAge`, `Progression`, `PlateMath` (Off-by-one, Rundung, Division durch 0).
 
 Ergebnis nach `forma-ios/reviews/review-02.md`, Befunde `R-02-xx`, Schweregrade wie oben, plus Abschnitt „Angriffstest“ mit Tabelle *Angriff · Ergebnis laut Code · Risiko · Testfall*. Nur diese Datei committen.
+
+## Runde 03 – Nachprüfung (für Codex)
+
+`forma-ios/reviews/review-02-antwort.md` lesen und jeden Punkt im Code und auf den neuen Screenshots kontrollieren (`docs/forma-screens/HERKUNFT.txt` nennt Build und Lauf). Danach die neue Synchronisierung und den Coach im Hintergrund erneut angreifen. Ergebnis nach `forma-ios/reviews/review-03.md`, Befunde `R-03-xx`, gleiches Format, nur diese Datei committen.
 
 ## Regeln für alle Agenten
 
