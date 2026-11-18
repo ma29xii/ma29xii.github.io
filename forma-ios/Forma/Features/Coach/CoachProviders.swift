@@ -1,5 +1,8 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import NaturalLanguage
+import UniformTypeIdentifiers
 
 enum CoachProviders {
     enum AnthropicModel: String {
@@ -10,6 +13,8 @@ enum CoachProviders {
     enum ReplyError: Error, Equatable {
         case missingQuestion
         case missingCredentials
+        case tooManyImages
+        case invalidImage
         case invalidResponse
         case httpStatus(Int)
     }
@@ -19,6 +24,7 @@ enum CoachProviders {
     // https://developers.openai.com/api/docs/models/gpt-6-luna
     static let openAIModel = "gpt-6-luna"
     static let consentKey = "forma.coach.externalConsent.v1"
+    static let maxImagesPerMessage = 4
     // Vorbereitet für eine spätere Freigabe. Kein Schlüssel, Endpunkt oder Routing für Gemini.
     private static let geminiEnabled = false
 
@@ -34,16 +40,29 @@ enum CoachProviders {
         }
     }
 
-    /// Aufrufer zeigen zuerst die Einwilligung für beide Anbieter und brechen beim Widerruf den Task ab.
+    static func allowsExternalData() -> Bool {
+        UserDefaults.standard.bool(forKey: consentKey)
+    }
+
     @MainActor
-    static func reply(context: String, history: [ChatMessage]) async throws -> String {
-        guard UserDefaults.standard.bool(forKey: consentKey) else { throw CancellationError() }
+    static func externalCredentials() throws -> (anthropic: String?, openAI: String?) {
+        try checkConsent(allowsExternalData)
         BundledKeys.installIfNeeded()
+        let anthropic = Keychain.get(BundledKeys.anthropicAccount)
+        let openAI = Keychain.get(BundledKeys.openAIAccount)
+        guard anthropic?.isEmpty == false || openAI?.isEmpty == false else {
+            throw ReplyError.missingCredentials
+        }
+        return (anthropic, openAI)
+    }
+
+    /// Bilder gehören zur letzten Nachricht. Aufrufer zeigen die Einwilligung und brechen beim Widerruf den Task ab.
+    @MainActor
+    static func reply(context: String, history: [ChatMessage], images: [Data] = []) async throws -> String {
+        let keys = try externalCredentials()
         return try await reply(
-            context: context, history: history,
-            anthropicKey: Keychain.get(BundledKeys.anthropicAccount),
-            openAIKey: Keychain.get(BundledKeys.openAIAccount),
-            maySend: { UserDefaults.standard.bool(forKey: consentKey) }
+            context: context, history: history, images: images,
+            anthropicKey: keys.anthropic, openAIKey: keys.openAI, maySend: allowsExternalData
         )
     }
 
@@ -62,19 +81,25 @@ enum CoachProviders {
     }
 
     static func reply(
-        context: String, history: [ChatMessage], anthropicKey: String?, openAIKey: String?,
+        context: String, history: [ChatMessage], images: [Data] = [], anthropicKey: String?, openAIKey: String?,
         maySend: @Sendable () -> Bool, send: Transport = fetch
     ) async throws -> String {
         try checkConsent(maySend)
+        guard images.count <= maxImagesPerMessage else { throw ReplyError.tooManyImages }
         // Die aktuelle Frage muss selbst extern sein. Sonst könnte die letzte ältere Frage erneut rausgehen.
-        guard let question = history.last, question.role == .user, !question.localOnly,
-              !question.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let question = history.last, question.role == .user, !question.localOnly else {
             throw ReplyError.missingQuestion
         }
-        let messages = history.filter { !$0.localOnly }.suffix(12).drop(while: { $0.role != .user })
+        let hasText = !question.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasText || !images.isEmpty else { throw ReplyError.missingQuestion }
+        var messages = history.dropLast().filter {
+            !$0.localOnly && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.suffix(11)
             .map { ["role": $0.role == .user ? "user" : "assistant",
                     "content": outgoingMessageText($0.text)] }
-        let model = anthropicModel(for: outgoingMessageText(question.text))
+        let text = hasText ? outgoingMessageText(question.text) : "Was siehst du auf dem Bild?"
+        messages.append(["role": "user", "content": text])
+        let model = images.isEmpty ? anthropicModel(for: text) : .sonnet
         let short = model == .haiku
         let dailyContext = CoachEngine.filteredContextSummary(context, for: question.text)
         let system = """
@@ -87,22 +112,77 @@ enum CoachProviders {
         Daten von heute:
         \(dailyContext.isEmpty ? "Keine Tageswerte für diese Frage." : limited(dailyContext, characters: 4000, bytes: 16000))
         """
+        let prompt = Prompt(
+            system: system, messages: Array(messages.drop(while: { $0["role"] != "user" })),
+            images: try images.map(prepareImage), model: model
+        )
+        return try await requestReply(
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: maySend, send: send
+        ) { try checkedAnswer($0, short: short) }
+    }
+
+    static func structuredImageReply<Result: Sendable>(
+        photo: Data, system: String, schema: String, anthropicKey: String?, openAIKey: String?,
+        maySend: @Sendable () -> Bool, send: Transport, parse: (String) throws -> Result
+    ) async throws -> Result {
+        try checkConsent(maySend)
+        let prompt = Prompt(
+            system: system, messages: [["role": "user", "content": "Schätze die sichtbare Portion auf dem Foto."]],
+            images: [try prepareImage(photo)], model: .sonnet, jsonSchema: schema
+        )
+        return try await requestReply(
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: maySend, send: send
+        ) { blocks in
+            guard blocks.count == 1, let json = blocks.first else { throw ReplyError.invalidResponse }
+            return try parse(json)
+        }
+    }
+
+    private struct Prompt {
+        let system: String
+        let messages: [[String: String]]
+        let images: [Data]
+        let model: AnthropicModel
+        var jsonSchema: String? = nil
+
+        var maxTokens: Int {
+            if jsonSchema != nil { return 1_600 }
+            return model == .haiku ? 180 : 400
+        }
+
+        func messagesWithImages(_ imageBlocks: [[String: Any]], textType: String) -> [[String: Any]] {
+            var result: [[String: Any]] = messages.map { $0 }
+            if !imageBlocks.isEmpty, let text = messages.last?["content"] {
+                result[result.count - 1]["content"] = imageBlocks + [["type": textType, "text": text]]
+            }
+            return result
+        }
+    }
+
+    private static func requestReply<Result: Sendable>(
+        _ prompt: Prompt, anthropicKey: String?, openAIKey: String?, maySend: @Sendable () -> Bool,
+        send: Transport, parse: ([String]) throws -> Result
+    ) async throws -> Result {
+        try checkConsent(maySend)
         let primaryKey = anthropicKey.flatMap { $0.isEmpty ? nil : $0 }
         let fallbackKey = openAIKey.flatMap { $0.isEmpty ? nil : $0 }
+        // Ein erstmalig verwendetes JSON-Schema braucht Zeit zur Kompilierung beim Anbieter.
+        let totalTimeout = prompt.jsonSchema == nil ? singleProviderTimeout : 60
+        let primaryTimeout = prompt.jsonSchema == nil ? primaryTimeoutWithFallback : 35
         if let primaryKey {
             do {
                 let request = try anthropicRequest(
-                    key: primaryKey, model: model, system: system, messages: messages,
-                    timeout: fallbackKey == nil ? singleProviderTimeout : primaryTimeoutWithFallback
+                    key: primaryKey, prompt: prompt, timeout: fallbackKey == nil ? totalTimeout : primaryTimeout
                 )
                 try checkConsent(maySend)
                 let data = try await send(request)
                 try checkConsent(maySend)
                 let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
-                guard response.stopReason != "max_tokens", response.stopReason != "model_context_window_exceeded" else {
+                if let reason = response.stopReason,
+                   ["max_tokens", "model_context_window_exceeded", "refusal"].contains(reason) {
                     throw ReplyError.invalidResponse
                 }
-                return try checkedAnswer(response.content.filter { $0.type == "text" }.compactMap(\.text), short: short)
+                return try parse(response.content.filter { $0.type == "text" }.compactMap(\.text))
             } catch {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
                     throw CancellationError()
@@ -113,8 +193,8 @@ enum CoachProviders {
         }
 
         guard let fallbackKey else { throw ReplyError.missingCredentials }
-        let timeout = primaryKey == nil ? singleProviderTimeout : singleProviderTimeout - primaryTimeoutWithFallback
-        let request = try openAIRequest(key: fallbackKey, system: system, messages: messages, short: short, timeout: timeout)
+        let timeout = primaryKey == nil ? totalTimeout : totalTimeout - primaryTimeout
+        let request = try openAIRequest(key: fallbackKey, prompt: prompt, timeout: timeout)
         try checkConsent(maySend)
         let data: Data
         do {
@@ -126,7 +206,8 @@ enum CoachProviders {
         let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
         guard response.status == "completed" else { throw ReplyError.invalidResponse }
         let blocks = response.output.filter { $0.type == "message" }.flatMap { $0.content ?? [] }
-        return try checkedAnswer(blocks.filter { $0.type == "output_text" }.compactMap(\.text), short: short)
+        guard !blocks.contains(where: { $0.type == "refusal" }) else { throw ReplyError.invalidResponse }
+        return try parse(blocks.filter { $0.type == "output_text" }.compactMap(\.text))
     }
 
     private static func checkConsent(_ maySend: () -> Bool) throws {
@@ -134,31 +215,55 @@ enum CoachProviders {
         guard maySend() else { throw CancellationError() }
     }
 
-    private static func anthropicRequest(
-        key: String, model: AnthropicModel, system: String, messages: [[String: String]], timeout: TimeInterval
-    ) throws -> URLRequest {
-        let short = model == .haiku
+    private static func anthropicRequest(key: String, prompt: Prompt, timeout: TimeInterval) throws -> URLRequest {
+        // https://platform.claude.com/docs/en/build-with-claude/vision
+        let images: [[String: Any]] = prompt.images.map { image in
+            ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": image.base64EncodedString()]]
+        }
+        let short = prompt.model == .haiku
+        var outputConfig: [String: Any] = ["effort": short ? "low" : "medium"]
+        if let schema = prompt.jsonSchema {
+            // https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+            let format: [String: Any] = [
+                "type": "json_schema", "schema": try JSONSerialization.jsonObject(with: Data(schema.utf8))
+            ]
+            outputConfig["format"] = format
+        }
         var request = try post(
             to: URL(string: "https://api.anthropic.com/v1/messages")!, timeout: timeout,
-            body: ["model": model.rawValue, "system": system, "messages": messages,
-                   "max_tokens": short ? 180 : 400,
+            body: ["model": prompt.model.rawValue, "system": prompt.system,
+                   "messages": prompt.messagesWithImages(images, textType: "text"),
+                   "max_tokens": prompt.maxTokens,
                    "thinking": ["type": short ? "disabled" : "between_tools"],
-                   "output_config": ["effort": short ? "low" : "medium"]]
+                   "output_config": outputConfig]
         )
         request.setValue(key, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         return request
     }
 
-    private static func openAIRequest(
-        key: String, system: String, messages: [[String: String]], short: Bool, timeout: TimeInterval
-    ) throws -> URLRequest {
+    private static func openAIRequest(key: String, prompt: Prompt, timeout: TimeInterval) throws -> URLRequest {
+        // https://developers.openai.com/api/docs/guides/images-vision
+        let images: [[String: Any]] = prompt.images.map { image in
+            ["type": "input_image", "image_url": "data:image/jpeg;base64,\(image.base64EncodedString())", "detail": "auto"]
+        }
         // store: false deaktiviert die Speicherung der Antwort für späteren API-Abruf.
         // https://developers.openai.com/api/reference/resources/responses/methods/create
+        var body: [String: Any] = [
+            "model": openAIModel, "instructions": prompt.system,
+            "input": prompt.messagesWithImages(images, textType: "input_text"),
+            "max_output_tokens": prompt.maxTokens, "reasoning": ["effort": "none"], "store": false
+        ]
+        if let schema = prompt.jsonSchema {
+            // https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses
+            let format: [String: Any] = [
+                "type": "json_schema", "name": "food_estimate", "strict": true,
+                "schema": try JSONSerialization.jsonObject(with: Data(schema.utf8))
+            ]
+            body["text"] = ["format": format]
+        }
         var request = try post(
-            to: URL(string: "https://api.openai.com/v1/responses")!, timeout: timeout,
-            body: ["model": openAIModel, "instructions": system, "input": messages,
-                   "max_output_tokens": short ? 180 : 400, "reasoning": ["effort": "none"], "store": false]
+            to: URL(string: "https://api.openai.com/v1/responses")!, timeout: timeout, body: body
         )
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         return request
@@ -172,7 +277,7 @@ enum CoachProviders {
         return request
     }
 
-    private static func fetch(_ request: URLRequest) async throws -> Data {
+    static func fetch(_ request: URLRequest) async throws -> Data {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = request.timeoutInterval
         config.timeoutIntervalForResource = request.timeoutInterval
@@ -188,6 +293,41 @@ enum CoachProviders {
             data.append(byte)
         }
         return data
+    }
+
+    /// Erzeugt ein JPEG aus den gedrehten Bildpixeln, ohne EXIF- oder GPS-Daten zu übernehmen.
+    static func prepareImage(_ data: Data) throws -> Data {
+        try Task.checkCancellation()
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetCount(source) > 0 else {
+            throw ReplyError.invalidImage
+        }
+
+        for pixels in [1_568, 1_176, 882, 662, 496] {
+            try Task.checkCancellation()
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixels,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                  max(image.width, image.height) <= pixels else {
+                throw ReplyError.invalidImage
+            }
+            for quality in [0.88, 0.7, 0.5] {
+                let bytes = NSMutableData()
+                guard let destination = CGImageDestinationCreateWithData(
+                    bytes as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil
+                ) else { throw ReplyError.invalidImage }
+                CGImageDestinationAddImage(
+                    destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+                )
+                guard CGImageDestinationFinalize(destination), bytes.length > 0 else { throw ReplyError.invalidImage }
+                if bytes.length <= 1_000_000 { return bytes as Data }
+            }
+        }
+        throw ReplyError.invalidImage
     }
 
     static func outgoingMessageText(_ text: String) -> String {
