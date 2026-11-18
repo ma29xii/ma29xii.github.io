@@ -160,8 +160,7 @@ final class GoogleHealthService {
             "client_id": configuration.clientID, "redirect_uri": configuration.redirect,
             "grant_type": "authorization_code", "code": code, "code_verifier": verifier
         ], previous: nil)
-        let granted = Set(newTokens.scope?.split(separator: " ").map(String.init) ?? [])
-        guard Set(Self.scopes).isSubset(of: granted) else { throw GoogleHealthError.incompleteConsent }
+        try Self.requireScopes(newTokens)
         let identity = try await request(path: "identity", query: [], bearer: newTokens.accessToken, generation: generation)
         guard let account = try? JSONDecoder().decode(Identity.self, from: identity),
               !account.healthUserId.isEmpty else { throw GoogleHealthError.invalidResponse }
@@ -198,6 +197,7 @@ final class GoogleHealthService {
         let generation = self.generation
         let kinds = GoogleHealthKind.dailyImport + (includePulse ? [.pulse] : [])
         let activityLookback = from.addingTimeInterval(-3600)
+        let measuredUntil = min(until, .now)
         let imported = try await withThrowingTaskGroup(of: (GoogleHealthKind, [GoogleHealthPoint]?).self) { group in
             for kind in kinds {
                 group.addTask { [self] in
@@ -206,12 +206,16 @@ final class GoogleHealthService {
                     case .pulse: max(from, calendar.startOfDay(for: .now))
                     default: from
                     }
+                    let end = switch kind {
+                    case .steps, .energy, .pulse, .sleep: measuredUntil
+                    default: until
+                    }
                     do {
-                        return (kind, try await points(kind, from: start, until: until,
+                        return (kind, try await points(kind, from: start, until: end,
                                                        calendar: calendar, generation: generation))
                     } catch let error as GoogleHealthError {
                         switch error {
-                        case .reauthorize, .notLinked, .noConnection, .keychain: throw error
+                        case .reauthorize, .incompleteConsent, .notLinked, .noConnection, .keychain: throw error
                         default: return (kind, nil)
                         }
                     } catch is CancellationError {
@@ -232,9 +236,9 @@ final class GoogleHealthService {
         }
         let result = await Task.detached(priority: .utility) {
             let activity = GoogleHealthMerge.hours(steps: imported[.steps] ?? [], energy: imported[.energy] ?? [],
-                                                   from: from, until: until, calendar: calendar)
+                                                   from: from, until: measuredUntil, calendar: calendar)
             let pulses = imported[.pulse].map {
-                GoogleHealthMerge.hours(steps: [], energy: [], pulse: $0, from: from, until: until, calendar: calendar)
+                GoogleHealthMerge.hours(steps: [], energy: [], pulse: $0, from: from, until: measuredUntil, calendar: calendar)
             }
             return Import(days: GoogleHealthMerge.days(points: imported, from: from, until: until,
                                                        calendar: calendar, activity: activity),
@@ -302,6 +306,7 @@ final class GoogleHealthService {
                     "client_id": configuration.clientID, "grant_type": "refresh_token", "refresh_token": old.refreshToken
                 ], previous: old)
                 try self.check(generation)
+                try Self.requireScopes(renewed)
                 try GoogleCredentialStore.save(renewed)
                 self.tokens = renewed
                 return renewed
@@ -323,6 +328,11 @@ final class GoogleHealthService {
         let (data, response) = try await session.data(for: Self.formRequest(url, fields: fields))
         guard let http = response as? HTTPURLResponse else { throw GoogleHealthError.invalidResponse }
         return try GoogleOAuthTokens.decode(data, status: http.statusCode, previous: previous, now: .now)
+    }
+
+    private static func requireScopes(_ tokens: GoogleOAuthTokens) throws {
+        let granted = Set(tokens.scope?.split(separator: " ").map { String($0) } ?? [])
+        guard Set(scopes).isSubset(of: granted) else { throw GoogleHealthError.incompleteConsent }
     }
 
     private func request(path: String, query: [URLQueryItem], bearer: String, generation: Int) async throws -> Data {
@@ -422,7 +432,7 @@ final class GoogleHealthService {
 
     nonisolated static func randomString() throws -> String {
         var bytes = Data(count: 32)
-        let status = bytes.withUnsafeMutableBytes { buffer in
+        let status = bytes.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
             buffer.baseAddress.map { SecRandomCopyBytes(kSecRandomDefault, buffer.count, $0) } ?? errSecParam
         }
         guard status == errSecSuccess else { throw GoogleHealthError.invalidCallback }
@@ -495,6 +505,7 @@ private final class GoogleHealthBrowser: NSObject, ASWebAuthenticationPresentati
     private var session: ASWebAuthenticationSession?
     private var continuation: CheckedContinuation<URL, any Error>?
     private var anchor: ASPresentationAnchor?
+    private var attempt: UUID?
 
     func open(_ url: URL, scheme: String) async throws -> URL {
         guard let anchor = UIApplication.shared.connectedScenes
@@ -502,22 +513,26 @@ private final class GoogleHealthBrowser: NSObject, ASWebAuthenticationPresentati
             .filter({ $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
             .flatMap(\.windows).first(where: \.isKeyWindow) else { throw GoogleHealthError.invalidCallback }
         self.anchor = anchor
+        let id = UUID()
+        attempt = id
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
                 let web = ASWebAuthenticationSession(url: url, callback: .customScheme(scheme)) { [weak self] url, error in
                     let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
                     Task { @MainActor in
-                        if let url { self?.finish(.success(url)) }
-                        else { self?.finish(.failure(cancelled ? .cancelled : .invalidCallback)) }
+                        if let url { self?.finish(.success(url), id: id) }
+                        else { self?.finish(.failure(cancelled ? .cancelled : .invalidCallback), id: id) }
                     }
                 }
                 web.presentationContextProvider = self
                 session = web
-                if !web.start() { finish(.failure(.invalidCallback)) }
+                if !web.start() { finish(.failure(.invalidCallback), id: id) }
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.cancel() }
+            Task { @MainActor [weak self] in
+                if self?.attempt == id { self?.cancel() }
+            }
         }
     }
 
@@ -526,11 +541,14 @@ private final class GoogleHealthBrowser: NSObject, ASWebAuthenticationPresentati
     }
 
     func cancel() {
+        guard let attempt else { return }
         session?.cancel()
-        finish(.failure(.cancelled))
+        finish(.failure(.cancelled), id: attempt)
     }
 
-    private func finish(_ result: Result<URL, GoogleHealthError>) {
+    private func finish(_ result: Result<URL, GoogleHealthError>, id: UUID) {
+        guard attempt == id else { return }
+        attempt = nil
         let continuation = self.continuation
         self.continuation = nil
         session = nil

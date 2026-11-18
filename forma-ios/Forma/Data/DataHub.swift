@@ -30,6 +30,7 @@ final class DataHub {
     private(set) var profileRevision = 0
     private var storedHours: [Date: HourlyMetrics] = [:]
     private var historyThrough: Date?
+    private var historyGaps: Set<Date> = []
     private var generation = 0
     private var connectionGeneration = 0
     private var inFlight: Task<RefreshResult, Never>?
@@ -41,7 +42,7 @@ final class DataHub {
             if !isUITest { UserDefaults.standard.set(preferredSource.rawValue, forKey: "forma.source") }
             invalidateRefresh()
             showPreferredSource()
-            Task { await refresh() }
+            Task { await syncAndNotify(background: false) }
         }
     }
 
@@ -75,12 +76,14 @@ final class DataHub {
             longDays = SyncStore.normalized(cached.days)
             storedHours = Dictionary((cached.hours ?? []).map { ($0.start, $0) }, uniquingKeysWith: { _, newer in newer })
             historyThrough = cached.historyThrough
+            historyGaps = Set(cached.historyGaps ?? [])
             lastUpdate = cached.updated
             hasLoaded = true
         } else {
             longDays = []
             storedHours = [:]
             historyThrough = nil
+            historyGaps = []
             hasLoaded = false
         }
     }
@@ -97,8 +100,11 @@ final class DataHub {
             accountID = googleService.accountID
             clearGoogleCopy()
             connecting = false
-            if preferredSource != .google { preferredSource = .google }
-            _ = await syncAndNotify(background: false)
+            if preferredSource != .google {
+                preferredSource = .google
+            } else {
+                Task { await syncAndNotify(background: false) }
+            }
         } catch GoogleHealthError.cancelled {
             // Ein geschlossener Anmeldedialog lässt sich erneut öffnen.
         } catch is CancellationError {
@@ -134,6 +140,7 @@ final class DataHub {
         lastBackgroundSync = nil
         lastBackgroundAttempt = nil
         historyThrough = nil
+        historyGaps = []
         storedHours = [:]
         syncNote = nil
         let defaults = UserDefaults.standard
@@ -224,6 +231,7 @@ final class DataHub {
     }
 
     func cachedHours(for date: Date) -> [HourlyMetrics] {
+        guard !isSample else { return [] }
         let day = date.startOfDay
         return storedHours.values.filter { $0.start.startOfDay == day }.sorted { $0.start < $1.start }
     }
@@ -332,8 +340,9 @@ final class DataHub {
 
     private func refresh(background: Bool) async -> RefreshResult {
         if let inFlight {
+            let current = generation
             let result = await inFlight.value
-            if result == .superseded, !Task.isCancelled, self.inFlight == nil {
+            if result == .superseded, current == generation, !Task.isCancelled, self.inFlight == nil {
                 return await refresh(background: background)
             }
             return result
@@ -376,30 +385,47 @@ final class DataHub {
             let end = today.adding(days: 1)
             let recent = today.adding(days: -6)
             let oldest = today.adding(days: -179)
-            if let updated = lastUpdate, updated.startOfDay < recent { historyThrough = nil }
+            if let updated = lastUpdate, updated.startOfDay < recent {
+                historyThrough = nil
+                historyGaps = []
+            }
+            historyGaps = historyGaps.filter { $0 > oldest }
             let summary = try await googleService.load(from: recent, until: end, calendar: calendar, includePulse: true)
             try checkRefresh(generation, today: today, calendar: calendar)
-            let currentHistory = historyThrough ?? (summary.failed.isEmpty ? recent : nil)
+            let currentHistory = historyThrough ?? recent
             let initial = merge(summary, account: account, today: today, from: recent, until: end,
                                 historyThrough: currentHistory, updatesCurrent: true)
             guard initial != .unchanged || summary.failed.isEmpty else { return initial }
 
             // Der Hintergrund holt nach der aktuellen Woche jeweils einen älteren Abschnitt nach.
             // Im Vordergrund kann der erste Import bis zu 180 Tage vervollständigen.
+            var fetchedHistory = false
             while let upper = historyThrough, upper > oldest {
                 let lower = max(oldest, upper.adding(days: -14))
                 let older = try await googleService.load(from: lower, until: upper, calendar: calendar, includePulse: false)
                 try checkRefresh(generation, today: today, calendar: calendar)
+                if older.failed.count == MetricSeries.allCases.count { break }
+                if !older.failed.isEmpty { historyGaps.insert(upper) }
                 let result = merge(older, account: account, today: today, from: lower, until: upper,
-                                   historyThrough: older.failed.isEmpty ? lower : upper, updatesCurrent: false)
-                if background || !older.failed.isEmpty || result == .unchanged { break }
+                                   historyThrough: lower, updatesCurrent: false)
+                fetchedHistory = true
+                if background || result == .unchanged { break }
+            }
+            if !fetchedHistory, let upper = historyGaps.max() {
+                let lower = max(oldest, upper.adding(days: -14))
+                let retry = try await googleService.load(from: lower, until: upper, calendar: calendar, includePulse: false)
+                try checkRefresh(generation, today: today, calendar: calendar)
+                if retry.failed.isEmpty { historyGaps.remove(upper) }
+                _ = merge(retry, account: account, today: today, from: lower, until: upper,
+                          historyThrough: historyThrough, updatesCurrent: false)
             }
             return initial
         } catch is CancellationError {
             return .superseded
         } catch {
             guard generation == self.generation, !Task.isCancelled else { return .superseded }
-            if let problem = error as? GoogleHealthError, problem == .reauthorize || problem == .notLinked {
+            if let problem = error as? GoogleHealthError,
+               problem == .reauthorize || problem == .incompleteConsent || problem == .notLinked {
                 try? googleService.clearCredentials()
                 accountID = nil
                 // Beim nächsten Verbinden wird die Kopie vor dem ersten neuen Import entfernt.
@@ -461,7 +487,7 @@ final class DataHub {
         if hasMeasurement && (updatesCurrent || lastUpdate == nil) { lastUpdate = .now }
         let snapshot = SyncStore.Snapshot(days: days, updated: lastUpdate, source: DataSourceKind.google.rawValue,
                                           accountID: account, hours: Array(storedHours.values),
-                                          historyThrough: historyThrough)
+                                          historyThrough: historyThrough, historyGaps: historyGaps.sorted())
         if !SyncStore.save(snapshot) {
             syncNote = "Die lokale Kopie konnte nicht gespeichert werden. Health versucht es beim nächsten Abruf erneut."
         } else if !failed.isEmpty {

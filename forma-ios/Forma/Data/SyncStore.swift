@@ -14,6 +14,7 @@ enum SyncStore {
         var accountID: String? = nil
         var hours: [HourlyMetrics]? = nil
         var historyThrough: Date? = nil
+        var historyGaps: [Date]? = nil
     }
 
     private static var url: URL? {

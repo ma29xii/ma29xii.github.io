@@ -14,7 +14,7 @@ enum BiologicalSex: String, CaseIterable, Identifiable, Sendable {
 
 /// Angaben zur Person, die das Körperalter braucht.
 struct PersonInfo: Equatable, Sendable {
-    enum Origin: Sendable { case manual, health, assumed, missing }
+    enum Origin: Sendable { case manual, assumed, missing }
     var birthDate: Date?
     var sex: BiologicalSex
     var origin: Origin
@@ -266,16 +266,16 @@ enum BodyAge {
             missing.append("Schlaf – mindestens 7 Nächte")
         }
 
-        // 5. Krafttraining pro Woche (Forma-Trainings und Krafttrainings aus Apple Health).
+        // 5. Krafttraining pro Woche (Forma-Trainings und Krafttrainings aus Google Health).
         let strengthLogHazard = log(0.86) * min(1, strengthPerWeek / 30)
         if !hasStrengthRecord {
-            missing.append("Krafttraining – noch nichts aufgezeichnet (Training in dieser App oder Krafttraining in Apple Health)")
+            missing.append("Krafttraining – noch nichts aufgezeichnet (Training in dieser App oder in Google Health)")
         } else {
             result.append(Factor(
                 id: "strength", title: "Krafttraining", systemImage: "dumbbell",
                 valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
                 value: strengthPerWeek, displayRange: 0...120, referenceRange: 0...0,
-                coverage: "Trainings aus dieser App und Krafttrainings aus Apple Health",
+                coverage: "Trainings aus dieser App und aus Google Health",
                 years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
                 explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Health: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
                 source: "Momma et al., Br J Sports Med 2022"))
@@ -328,7 +328,7 @@ enum BodyAge {
         ("Gurven et al.: Unterschiede der Verdopplungszeit zwischen Bevölkerungen", "https://pmc.ncbi.nlm.nih.gov/articles/PMC6121812/")
     ]
 
-    /// Krafttraining pro Woche: Forma-Trainings plus Krafttrainings aus Apple Health,
+    /// Krafttraining pro Woche: Forma-Trainings plus Krafttrainings aus Google Health,
     /// die sich zeitlich nicht mit einem Forma-Training überschneiden (keine Doppelzählung, Codex R-01-08).
     static func strengthMinutes(days: [DayMetrics], formaSessions: [(start: Date, minutes: Double)], now: Date = .now) -> StrengthMinutes {
         func perWeek(from start: Date, until end: Date) -> (minutes: Double, hasRecord: Bool) {

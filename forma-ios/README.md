@@ -8,41 +8,36 @@ Native iPhone-App für Erholung, Schlaf, Belastung und Krafttraining. SwiftUI, i
 2. Nach dem Lauf unter *Actions → Forma iOS (IPA) → Artifacts* das Artifact **Forma-IPA** herunterladen und entpacken. Darin liegt `Forma.ipa`.
 3. Mit **Sideloadly** auf das iPhone laden. Sideloadly signiert mit deiner Apple-ID neu.
 
-Die IPA ist nicht mit einem Zertifikat signiert. Sie trägt nur eine Ad-hoc-Signatur, damit die HealthKit-Berechtigung in der App steckt und Sideloadly sie übernehmen kann.
+Die IPA ist ad hoc signiert. Sideloadly signiert sie für dein iPhone neu. Bei einer kostenlosen Apple-ID musst du die App in der Regel nach sieben Tagen erneut signieren. [Apple-Mitgliedschaften](https://developer.apple.com/support/compare-memberships/)
 
-**Kostenlose Apple-ID:** Die Signatur läuft nach 7 Tagen ab, dann erneut mit Sideloadly installieren. Die Daten bleiben erhalten. HealthKit soll laut Apples Fähigkeiten-Tabelle auch mit kostenloser Apple-ID für die eigene Nutzung gehen ([Expo, mit Verweis auf Apple](https://expo.dev/blog/apple-developer-program-explained-free-vs-paid)), im Entwicklerforum wird aber auch von Fehlern bei der Bereitstellung berichtet ([Apple Developer Forums](https://developer.apple.com/forums/thread/722522)). Verbindlich ist [Apples Tabelle der unterstützten Fähigkeiten](https://developer.apple.com/help/account/reference/supported-capabilities-ios/). Klappt es nicht, zeigt Forma gekennzeichnete Beispieldaten oder nutzt Fitbit.
+## Google Health einrichten
 
-## Fitbit einrichten (OAuth 2.0 mit PKCE)
+1. **Auf dem iPhone** die Google-Health-App öffnen und mit deinem Google-Konto anmelden. Falls nötig, dein altes Fitbit-Konto auf dieses Google-Konto umziehen. Prüfe in Google Health, ob deine Fitbit-Werte sichtbar sind. [Googles Einrichtungsanleitung](https://developers.google.com/health/setup)
+2. **Am PC** die Google Cloud Console öffnen. Oben ein Projekt namens **Health** erstellen. In **APIs & Dienste → Bibliothek** nach **Google Health API** suchen und sie aktivieren. [Google Cloud Console](https://console.cloud.google.com/)
+3. **Google Auth Platform** öffnen. Beim Einrichten **Health** als App-Namen, deine Support- und Kontaktadresse und **Extern** als Zielgruppe angeben. Unter **Zielgruppe → Testnutzer** dein Google-Konto hinzufügen. [Google-OAuth-Einrichtung](https://developers.google.com/health/setup)
+4. **Datenzugriff → Bereiche hinzufügen oder entfernen** öffnen und die drei Leserechte hinzufügen. [Googles Übersicht der Berechtigungen](https://developers.google.com/health/scopes)
 
-1. Auf <https://dev.fitbit.com/apps/new> mit deinem Fitbit-/Google-Konto anmelden und eine App registrieren:
-   - **OAuth 2.0 Application Type:** `Personal` (für eigene Daten inklusive HRV und Schlaf) oder `Client`
-   - **Redirect URL:** `forma://fitbit`
-   - **Default Access Type:** `Read Only`
-   - Für die übrigen Pflichtfelder (Website, Datenschutz, Nutzungsbedingungen) reicht z. B. `https://ma29xii.github.io`.
-2. Die angezeigte **OAuth 2.0 Client ID** in `forma-ios/Config.xcconfig` bei `FITBIT_CLIENT_ID` eintragen, committen und pushen. Der Workflow baut eine neue IPA.
-3. In Forma: *Profil → Mit Fitbit verbinden*. Die Anmeldung läuft in einem sicheren Browserfenster (ASWebAuthenticationSession). Forma bekommt nur Lesezugriff auf Schlaf, Herzfrequenz/HRV, Aktivität, SpO₂ und Atemfrequenz.
+   - `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`
+   - `https://www.googleapis.com/auth/googlehealth.sleep.readonly`
+   - `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
 
-Ein Client-Secret wird nicht gebraucht, die App nutzt PKCE. Google stellt Fitbit schrittweise auf Google-Konten und die Google Health API um. Ob und wann die Fitbit Web API abgeschaltet wird, kann ich nicht bestätigen.
+5. **Clients → Client erstellen → iOS** wählen. Als Bundle-ID `com.ma29xii.forma` eintragen. Die **Client-ID** und das angezeigte **iOS-URL-Schema** für den nächsten Schritt bereithalten. [Google-Health-Migration](https://developers.google.com/health/migration/data-access) · [Google-Anleitung für das iOS-URL-Schema](https://developers.google.com/identity/sign-in/ios/start-integrating)
+6. **Für die nächste IPA** in `Config.xcconfig` die öffentliche Client-ID bei `GOOGLE_CLIENT_ID` eintragen. Bei `GOOGLE_REDIRECT_SCHEME` den Platzhalter durch das iOS-URL-Schema ersetzen. Lass danach die IPA neu bauen und installiere sie. Die native Anmeldung verwendet PKCE.
+7. **In der App Health** das Profil öffnen und **Google Health verbinden** antippen. Dasselbe Google-Konto wählen und die drei Leserechte erlauben. Danach unter **Today** prüfen, ob der letzte Fitbit-Schlaf auftaucht.
+8. **Für deine Apple Watch** in der Google-Health-App **Verbindungen → Apps und Dienste → Apple Health** öffnen und Leserechte für die gewünschten Werte erlauben. Google nennt für die Google-Health-App bis zu drei Monate Apple-Health-Verlauf. Ob die API jeden dieser Werte mit identifizierbarer Uhr liefert, hängt vom tatsächlichen Import ab. [Google-Hilfe zu Apple Health](https://support.google.com/googlehealth/answer/17037331?hl=de)
+9. **Für die dauerhafte Verbindung** unter **Google Auth Platform → Zielgruppe** den Veröffentlicht-Status prüfen. Im Modus **Testing** kann die Google-Freigabe nach sieben Tagen ablaufen. Im Modus **In Produktion** gelten Googles Anforderungen für die gewählten Berechtigungen. [Google-Dokumentation zu ablaufenden Freigaben](https://developers.google.com/identity/protocols/oauth2#expiration)
 
 ## Synchronisierung im Hintergrund
 
-Forma synchronisiert, ohne dass die App offen sein muss:
-
-1. **Apple-Health-Hintergrundzustellung** (`HKObserverQuery` + `enableBackgroundDelivery`): Schlaf, HRV, Ruhepuls und Trainings sofort, Schritte und Energie höchstens stündlich. Dafür braucht die App das Entitlement `com.apple.developer.healthkit.background-delivery`. Ob eine kostenlose Apple-ID per Sideloadly dieses Entitlement mitsignieren kann, kann ich nicht bestätigen. Falls die Installation daran scheitert, diese zwei Zeilen aus `Forma/Resources/Forma.entitlements` entfernen. Dann bleibt der normale Hintergrundabruf.
-2. **Hintergrundabruf von iOS** (`BGAppRefreshTask`, etwa alle 1–4 Stunden, iOS entscheidet selbst).
-3. **Zwischenspeicher** (`SyncStore`): Die App startet mit dem letzten Stand. Ein leerer Abruf, etwa bei gesperrtem iPhone, überschreibt nie vorhandene Daten, und nachgereichte Werte werden ergänzt.
-
-Bei gesperrtem iPhone gibt Apple Health keine Daten heraus. Forma holt sie beim nächsten Wecken nach. Den Stand siehst du auf „Heute“ („Stand 06:12“) und im Profil (letzter Import, letzter Hintergrundabruf, „Jetzt synchronisieren“).
-
-**Coach im Hintergrund:** Sobald deine Nacht da ist, kommt ein Morgenbericht als Mitteilung. Abends erinnert der Coach 30 Minuten vor der empfohlenen Bettzeit. Beides lässt sich im Profil abschalten und läuft komplett lokal. Der Chat antwortet immer lokal. Mit Claude-Schlüssel und Zustimmung gibt es freie Antworten, mit 30 s Zeitlimit, einer Wiederholung und Rückfall auf die lokale Antwort.
+1. Die App fragt die jüngsten sieben Tage beim Öffnen, im Vordergrund und über iOS-Hintergrundaufgaben ab. iOS bestimmt, wann es Netzwerkzeit im Hintergrund gewährt. Der erste längere Import ergänzt schrittweise bis zu 180 Tage. [Apple zu Hintergrundaufgaben](https://developer.apple.com/documentation/backgroundtasks/bgapprefreshtask)
+2. Der letzte erfolgreiche Stand liegt geschützt auf dem iPhone. Bei Teilfehlern bleiben die betroffenen älteren Messwerte verfügbar. Fehlende Messungen bleiben als Lücken sichtbar.
+3. **Google Health trennen** entfernt die lokale Messwertkopie und die gespeicherte Anmeldung. Wenn der Widerruf bei Google offline nicht ankommt, kannst du den Zugang in der Google-Health-App unter **Apps und Dienste** entfernen. [Google-Hilfe zum Widerruf](https://developers.google.com/health/troubleshooting#revoke-consent-to-an-app)
 
 ## Datenquellen
 
-- **Apple Health:** HRV, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, SpO₂, Trainings (nur lesen)
-- **Fitbit:** Schlaf, HRV (RMSSD), Ruhepuls, Schritte, Aktivitätskalorien, SpO₂, Atemfrequenz
-- **Beispieldaten:** werden ohne Berechtigung oder Daten gezeigt und überall mit „Beispieldaten“ gekennzeichnet
-
-Hat Fitbit für heute noch keinen Schlaf geliefert, zeigt Forma die Werte von gestern gedimmt mit dem Hinweis „Warte auf Fitbit“.
+- **Google Health** liefert echte Messwerte. Fitbit hat Vorrang für Schlaf und nächtliche Vitalwerte. Bei stündlichen Schritten und Tagespuls hat eine eindeutig erkennbare Apple Watch Vorrang. Aktive Energie kommt aus derselben Quelle wie die Schritte der Stunde. Die HRV-Reihe verwendet Fitbit-RMSSD.
+- **Beispieldaten** dienen als gekennzeichnete Vorschau. Du kannst sie im Profil aktivieren.
+- **Dein Krafttraining** aus dieser App zählt weiterhin zur Belastung. Überlappende Einträge werden nur einmal berücksichtigt.
 
 ## Berechnung (lokal, nachvollziehbar)
 
@@ -65,7 +60,7 @@ Wie alt dein Körper nach deinen Messwerten wirkt. Grundlage sind die letzten bi
 
 Umrechnung in Jahre: Das Sterberisiko Erwachsener verdoppelt sich etwa alle 8 Jahre (Gompertz), also Jahre = ln(Risiko) · 8 / ln 2. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 % (eigene Annahme). HRV fließt nicht ein (SDNN bei Apple und RMSSD bei Fitbit sind nicht vergleichbar, und für Uhren-HRV fehlen Studien zur Lebenserwartung).
 
-Grenzen: Die Studien zeigen Zusammenhänge, keine sicheren Ursachen. Die VO₂max der Uhr ist eine Schätzung, und die FRIEND-Werte für die mittleren Altersgruppen habe ich nur aus einer Sekundärquelle (der erste und der letzte Wert stehen im Abstract). Das Körperalter ist zur Orientierung gedacht, nicht als Diagnose. Alter und Geschlecht kommen aus Apple Health oder aus *Profil → Über dich*.
+Grenzen: Die Studien zeigen Zusammenhänge, keine sicheren Ursachen. Die VO₂max der Uhr ist eine Schätzung, und die FRIEND-Werte für die mittleren Altersgruppen habe ich nur aus einer Sekundärquelle (der erste und der letzte Wert stehen im Abstract). Das Körperalter ist zur Orientierung gedacht, nicht als Diagnose. Alter und Geschlecht kommen aus *Profil → Über dich*.
 
 ## Kacheln
 
@@ -77,7 +72,7 @@ Claude baut, Codex prüft als sehr kritischer Senior Designer. Ablauf und Prüfa
 
 ## Coach
 
-Der Tagessatz und die Antworten werden lokal berechnet. Optional lässt sich in *Profil → Coach* ein Anthropic-API-Schlüssel hinterlegen. Er liegt im Schlüsselbund, und freie Fragen gehen dann an Claude. Trainingsänderungen schlägt der Coach nur vor. Übernimmst du einen Vorschlag, gilt er nur für das heutige Training, die gespeicherte Routine bleibt unverändert.
+Der Coach berechnet den Tagessatz lokal. Ein eingerichteter Online-Coach braucht deine Zustimmung. Trainingsänderungen gelten nach deiner Bestätigung für das heutige Training.
 
 ## Gestaltung
 
@@ -88,12 +83,12 @@ Neutrales Schwarz mit einem Lichtschein in der Farbe der Daten, matte Karten mit
 ```
 forma-ios/
 ├─ project.yml            XcodeGen-Projekt (Bundle-ID com.ma29xii.forma)
-├─ Config.xcconfig        Fitbit-Client-ID
+├─ Config.xcconfig        Google-OAuth-Konfiguration
 ├─ reviews/             Codex-Reviews und Antworten
 └─ Forma/
    ├─ App/                Einstieg, App-Zustand, Live-Training-Modell
    ├─ Design/             Designsystem, Komponenten, Ringe, Kacheln
-   ├─ Data/               HealthKit, Fitbit, Berechnung, Körperalter, Beispieldaten, SwiftData-Modelle
+   ├─ Data/               Google Health, Berechnung, Körperalter, Beispieldaten, SwiftData-Modelle
    ├─ Features/           Heute, Training, Gesundheit, Coach, Journal, Profil
    └─ Resources/          Info.plist, Entitlements, Assets
 ```

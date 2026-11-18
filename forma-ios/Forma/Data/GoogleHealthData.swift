@@ -29,8 +29,8 @@ enum GoogleHealthTime {
         }
         guard two(5, in: 1...12), two(8, in: 1...31), two(11, in: 0...23),
               two(14, in: 0...59), two(17, in: 0...59) else { return nil }
-        return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value))
-            ?? (try? Date.ISO8601FormatStyle().parse(value))
+        return (try? Date.ISO8601FormatStyle(timeZoneSeparator: .colon, includingFractionalSeconds: true).parse(value))
+            ?? (try? Date.ISO8601FormatStyle(timeZoneSeparator: .colon).parse(value))
     }
 
     static func day(_ date: Date, calendar: Calendar) -> String {

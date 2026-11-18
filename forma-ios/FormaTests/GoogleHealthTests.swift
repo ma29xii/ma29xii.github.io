@@ -61,6 +61,75 @@ final class GoogleHealthTests: XCTestCase {
         other.origins = [.hrv: [.init(family: .fitbit, device: "Inspire 3")]]
         XCTAssertNil(ScoreEngine.baseline(for: \.hrv, today: day, history: Array(repeating: other, count: 5)))
         XCTAssertNotNil(ScoreEngine.baseline(for: \.hrv, today: day, history: Array(repeating: day, count: 5)))
+        var unknown = day
+        unknown.origins = [.hrv: [.init(family: .fitbit, device: nil)]]
+        XCTAssertNil(ScoreEngine.baseline(for: \.hrv, today: unknown, history: Array(repeating: unknown, count: 5)))
+    }
+
+    func testParsesStringStepsAndIgnoresIPhone() throws {
+        let page = try GoogleHealthPage.decode(Data("""
+        {"dataPoints":[
+          {"dataSource":{"platform":"FITBIT","device":{"displayName":"Charge 6"}},
+           "steps":{"count":"100","interval":{"startTime":"2026-11-18T10:00:00Z","endTime":"2026-11-18T10:01:00Z"}}},
+          {"dataSource":{"platform":"HEALTH_KIT","device":{"manufacturer":"Apple","formFactor":"PHONE"}},
+           "steps":{"count":"950","interval":{"startTime":"2026-11-18T10:00:00Z","endTime":"2026-11-18T10:01:00Z"}}}
+        ]}
+        """.utf8), kind: .steps)
+        let start = try XCTUnwrap(GoogleHealthTime.parse("2026-11-18T00:00:00Z"))
+        let end = start.addingTimeInterval(86_400)
+        let hours = GoogleHealthMerge.hours(steps: page.points, energy: [], from: start, until: end, calendar: utc)
+        let day = GoogleHealthMerge.days(points: [:], from: start, until: end, calendar: utc, activity: hours).first
+        XCTAssertEqual(page.points.count, 1)
+        XCTAssertEqual(day?.steps, 100)
+        XCTAssertEqual(day?.origins?[.steps]?.first?.family, .fitbit)
+    }
+
+    func testBothHoursDuringAutumnTimeChangeRemainSeparate() throws {
+        var berlin = utc
+        berlin.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        let first = try XCTUnwrap(GoogleHealthTime.parse("2026-10-25T02:10:00+02:00"))
+        let second = try XCTUnwrap(GoogleHealthTime.parse("2026-10-25T02:10:00+01:00"))
+        let fitbit = GoogleMetricOrigin(family: .fitbit, device: "Charge 6")
+        let hours = GoogleHealthMerge.hours(steps: [
+            .amount(25, start: first, end: first.addingTimeInterval(60), source: fitbit),
+            .amount(50, start: second, end: second.addingTimeInterval(60), source: fitbit)
+        ], energy: [], from: berlin.startOfDay(for: first), until: second.addingTimeInterval(3600), calendar: berlin)
+        XCTAssertEqual(hours.map(\.steps), [25, 50])
+        XCTAssertEqual(hours.last?.start.timeIntervalSince(hours.first?.start ?? .distantPast), 3600)
+    }
+
+    func testNightVitalsUseDocumentedUnitsAndFitbitOrigin() throws {
+        let oxygen = try GoogleHealthPage.decode(Data("""
+        {"dataPoints":[{"dataSource":{"platform":"FITBIT","device":{"displayName":"Charge 6"}},
+          "dailyOxygenSaturation":{"date":{"year":2026,"month":11,"day":18},"averagePercentage":97.5}}]}
+        """.utf8), kind: .oxygen)
+        let respiration = try GoogleHealthPage.decode(Data("""
+        {"dataPoints":[{"dataSource":{"platform":"FITBIT","device":{"displayName":"Charge 6"}},
+          "dailyRespiratoryRate":{"date":{"year":2026,"month":11,"day":18},"breathsPerMinute":15.2}}]}
+        """.utf8), kind: .respiration)
+        let date = try XCTUnwrap(GoogleHealthTime.parse("2026-11-18T00:00:00Z"))
+        let day = GoogleHealthMerge.days(points: [.oxygen: oxygen.points, .respiration: respiration.points],
+                                         from: date, until: date.addingTimeInterval(86_400), calendar: utc).first
+        XCTAssertEqual(day?.spo2, 97.5)
+        XCTAssertEqual(day?.respiratoryRate, 15.2)
+        XCTAssertEqual(day?.origins?[.spo2]?.first?.family, .fitbit)
+    }
+
+    func testOAuthCallbackChecksSchemeStateAndDuplicateCode() throws {
+        let scheme = "com.googleusercontent.apps.example"
+        let valid = try XCTUnwrap(URL(string: "\(scheme):/oauth2callback?code=fixture&state=expected"))
+        XCTAssertEqual(try GoogleHealthService.authorizationCode(valid, scheme: scheme, state: "expected"), "fixture")
+        XCTAssertThrowsError(try GoogleHealthService.authorizationCode(valid, scheme: scheme, state: "other"))
+        let duplicate = try XCTUnwrap(URL(string: "\(valid.absoluteString)&code=second"))
+        XCTAssertThrowsError(try GoogleHealthService.authorizationCode(duplicate, scheme: scheme, state: "expected"))
+    }
+
+    func testSourceMigrationKeepsOnlyExplicitSampleChoice() {
+        for old in ["health", "fitbit", "automatic", "unknown"] {
+            XCTAssertEqual(DataHub.source(from: old), .google)
+        }
+        XCTAssertEqual(DataHub.source(from: nil), .google)
+        XCTAssertEqual(DataHub.source(from: "sample"), .sample)
     }
 
     func testRefreshPreservesRefreshTokenIfResponseOmitsIt() throws {
