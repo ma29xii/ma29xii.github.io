@@ -32,11 +32,18 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
+    /// Die Tab-Leiste minimiert sich beim Scrollen (iOS 26). Erst ausklappen, dann wechseln.
     private func tab(_ name: String) {
-        for _ in 0..<4 { app.swipeDown() }
-        sleep(1)
-        let b = app.tabBars.buttons[name]
-        if b.waitForExistence(timeout: 3) { b.tap() } else { _ = tapButton(beginningWith: name) }
+        let target = app.tabBars.buttons[name]
+        if !(target.exists && target.isHittable) {
+            let minimized = app.tabBars.buttons.firstMatch
+            if minimized.exists && minimized.isHittable { minimized.tap() } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.955)).tap()
+            }
+            sleep(1)
+        }
+        if target.waitForExistence(timeout: 3) && target.isHittable { target.tap() }
+        else { _ = tapButton(beginningWith: name) }
         sleep(1)
     }
 
