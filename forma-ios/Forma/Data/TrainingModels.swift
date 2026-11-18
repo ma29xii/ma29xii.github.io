@@ -65,6 +65,8 @@ final class WorkoutSession {
     var title: String
     var start: Date
     var end: Date
+    /// Kennung des Entwurfs, aus dem die Einheit gespeichert wurde – verhindert doppeltes Speichern (Codex R-02-05).
+    var draftID: UUID?
     @Relationship(deleteRule: .cascade, inverse: \SetRecord.session) var sets: [SetRecord]
 
     init(title: String, start: Date, end: Date, sets: [SetRecord] = []) {

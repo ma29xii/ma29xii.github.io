@@ -71,7 +71,10 @@ struct RootView: View {
         .task {
             TrainingSeed.seedIfNeeded(context)
             // Training, das iOS im Hintergrund beendet hat, wiederherstellen.
-            if !FormaApp.isUITest, app.liveWorkout == nil, let restored = LiveWorkout.restore() {
+            if !FormaApp.isUITest, app.liveWorkout == nil,
+               let restored = LiveWorkout.restore(alreadySaved: { id in
+                   ((try? context.fetchCount(FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.draftID == id }))) ?? 0) > 0
+               }) {
                 app.liveWorkout = restored
             }
             if !onboarded && !FormaApp.isUITest { showOnboarding = true }

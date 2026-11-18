@@ -428,14 +428,46 @@ final class SyncReliabilityTests: XCTestCase {
         XCTAssertEqual(SyncStore.merge(old: old, new: empty, today: today), .rejectedEmpty)
     }
 
-    func testOlderDaysKeepValuesMissingInNewFetch() {
-        let old = [day(-5, hrv: 50, steps: 8000), day(0, hrv: 55)]
-        let new = [day(-5, steps: 8100), day(0, hrv: 57)]
-        guard case .merged(let merged) = SyncStore.merge(old: old, new: new, today: today, keepDays: 10) else { return XCTFail() }
+    // A-01: Fehlgeschlagene Reihe behält den letzten Stand, erfolgreiche Reihen gelten.
+    func testFailedSeriesKeepsLastValue() {
+        var oldToday = day(0, hrv: 55); oldToday.sleep = SleepNight(start: today, end: today.addingTimeInterval(7 * 3600), segments: [])
+        let old = [day(-5, hrv: 50, steps: 8000), oldToday]
+        let new = [day(-5, steps: 8100), day(0, hrv: 57, steps: 1200)]
+        guard case .merged(let merged) = SyncStore.merge(old: old, new: new, failed: [.hrv, .sleep], today: today, keepDays: 10) else { return XCTFail() }
         let d5 = merged.first { $0.date == today.adding(days: -5) }
-        XCTAssertEqual(d5?.hrv, 50, "alter Wert bleibt")
-        XCTAssertEqual(d5?.steps, 8100, "neuer Wert gewinnt")
-        XCTAssertEqual(merged.last?.hrv, 57, "heute zählt der neue Abruf")
+        XCTAssertEqual(d5?.hrv, 50, "HRV-Abruf fehlgeschlagen: alter Wert bleibt")
+        XCTAssertEqual(d5?.steps, 8100, "Schritte erfolgreich: neuer Wert gilt")
+        XCTAssertNotNil(merged.last?.sleep, "Schlaf-Abruf fehlgeschlagen: Nacht verschwindet nicht")
+        XCTAssertEqual(merged.last?.hrv, 55)
+    }
+
+    // A-02: Erfolgreich gelesen und leer = in Apple Health gelöscht → auch hier weg.
+    func testDeletionInHealthIsHonored() {
+        let old = [day(-5, hrv: 50, steps: 8000), day(0, steps: 900)]
+        let new = [day(-5, steps: 8000), day(0, steps: 1000)]
+        guard case .merged(let merged) = SyncStore.merge(old: old, new: new, failed: [], today: today, keepDays: 10) else { return XCTFail() }
+        XCTAssertNil(merged.first { $0.date == today.adding(days: -5) }?.hrv)
+    }
+
+    func testAllSeriesFailedChangesNothing() {
+        let old = [day(0, hrv: 55)]
+        XCTAssertEqual(SyncStore.merge(old: old, new: [day(0)], failed: Set(MetricSeries.allCases), today: today), .rejectedEmpty)
+    }
+
+    // A-09: Alter Stand nach Mitternacht erscheint nicht als „heute“.
+    func testNormalizedEndsToday() {
+        let yesterdayOnly = [day(-1, hrv: 50)]
+        let n = SyncStore.normalized(yesterdayOnly, today: today, keepDays: 5)
+        XCTAssertEqual(n.count, 5)
+        XCTAssertEqual(n.last?.date, today)
+        XCTAssertNil(n.last?.hrv)
+        XCTAssertEqual(n[3].hrv, 50)
+    }
+
+    func testBedtimeAfterMidnightTargetsThisMorning() {
+        let lateNight = Calendar.forma.date(from: DateComponents(year: 2026, month: 11, day: 19, hour: 0, minute: 30))!
+        let plan = CoachNotifier.bedtimePlan(sleepNeed: 8 * 3600, now: lateNight, wakeMinutes: 7 * 60)
+        XCTAssertEqual(Calendar.forma.component(.day, from: plan!.wake), 19, "Wecker heute früh, nicht morgen")
     }
 
     func testMergeProducesContinuousDays() {
@@ -466,5 +498,69 @@ final class SyncReliabilityTests: XCTestCase {
         XCTAssertEqual(c.minute, 45)
         XCTAssertNil(CoachNotifier.bedtimeDate(sleepNeed: .nan, now: now))
         XCTAssertNil(CoachNotifier.bedtimeDate(sleepNeed: 20 * 3600, now: now))
+    }
+}
+
+
+@MainActor
+final class LiveWorkoutAttackTests: XCTestCase {
+    private func workout() -> LiveWorkout {
+        LiveWorkout(title: "Test", exercises: [
+            LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 90,
+                         sets: [LiveSet(weight: 60, reps: 8, isWarmup: false), LiveSet(weight: 60, reps: 8, isWarmup: false)])
+        ])
+    }
+
+    // A-06: Doppeltipp auf „Satz abschließen“ schließt genau einen Satz.
+    func testDoubleTapCompletesOnce() {
+        defer { LiveWorkout.clearSaved() }
+        let w = workout()
+        let id = w.currentSet!.id
+        XCTAssertTrue(w.completeCurrentSet(id: id))
+        XCTAssertFalse(w.completeCurrentSet(id: id))
+        XCTAssertEqual(w.exercises[0].sets.filter(\.done).count, 1)
+    }
+
+    // A-18: Ohne Eingabe bleibt die Reserve unbekannt.
+    func testReserveDefaultsToUnknown() {
+        defer { LiveWorkout.clearSaved() }
+        let w = workout()
+        w.completeCurrentSet(id: w.currentSet!.id)
+        XCTAssertNil(w.exercises[0].sets[0].rir)
+    }
+
+    // R-02-04: Zeile antippen beendet die Pause nicht.
+    func testSelectKeepsRest() {
+        defer { LiveWorkout.clearSaved() }
+        let w = workout()
+        w.completeCurrentSet(id: w.currentSet!.id)
+        XCTAssertNotNil(w.restEndsAt)
+        w.select(exercise: 0, set: 1)
+        XCTAssertNotNil(w.restEndsAt)
+    }
+
+    // A-19: Leeres Training gilt nicht als fertig; neuer Satz nach dem letzten wird ausgewählt.
+    func testEmptyIsNotDoneAndAddSetSelects() {
+        defer { LiveWorkout.clearSaved() }
+        XCTAssertFalse(LiveWorkout(title: "Leer", exercises: [LiveExercise(name: "X", muscle: "Y", restSeconds: 60, sets: [])]).allDone)
+        let w = LiveWorkout(title: "Eins", exercises: [LiveExercise(name: "X", muscle: "Y", restSeconds: 60, sets: [LiveSet(weight: 10, reps: 5, isWarmup: false)])])
+        w.completeCurrentSet(id: w.currentSet!.id)
+        w.addSet(to: 0)
+        XCTAssertEqual(w.setIndex, 1)
+        XCTAssertFalse(w.currentSet!.done)
+    }
+
+    // A-07: Schon gespeicherter Entwurf wird nicht erneut angeboten.
+    func testAlreadySavedDraftIsNotRestored() {
+        defer { LiveWorkout.clearSaved() }
+        let w = workout()
+        w.persist()
+        XCTAssertNil(LiveWorkout.restore(alreadySaved: { $0 == w.draftID }))
+    }
+
+    // A-17: Teilweise absolvierte Einheit löst keine Steigerung aus.
+    func testIncompleteSessionGivesNoIncrease() {
+        let plan = Progression.plan(targetReps: 8, routineWeight: 60, lastWorkSets: [(70, 8, 3)], plannedSets: 4)
+        XCTAssertFalse(plan.increased)
     }
 }

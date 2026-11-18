@@ -52,6 +52,28 @@ Native iPhone-App (SwiftUI, iOS 26, Swift 6, echtes Liquid Glass, XcodeGen, kein
 - Installation: GitHub → Actions → Forma iOS (IPA) → Artifact **Forma-IPA** → entpacken → Sideloadly.
 - **Auf dem Mac lokal bauen:** `brew install xcodegen && cd forma-ios && xcodegen generate && open Forma.xcodeproj`, dann in Xcode das iPhone wählen und ausführen. Mit Apple-ID signieren, das ersetzt Sideloadly.
 
+## 5b. Stand Codex-Review 02 (Angriffstest) – Übergabe an die Forma-App-Sitzung
+
+Umgesetzt (Commit nach `8f462c8`, noch **nicht** durch die CI bestätigt):
+- R-02-01 / A-01/A-02: Import pro Messreihe (`HealthService.ImportResult`, `SyncStore.merge(failed:)`), Löschungen werden übernommen, fehlgeschlagene Reihen behalten den letzten Stand, Schreibfehler werden angezeigt.
+- R-02-02 / A-03: Cache vom Backup ausgeschlossen, Profil-Knopf „Apple-Health-Kopie in Forma löschen“.
+- R-02-03 / A-04/A-05: Verfügbarkeit braucht Baseline, Schritte zählen nicht für Belastung, Coach (Tagessatz, Antworten, Claude-Kontext) ohne Ersatzwerte, keine Vorschläge im Demo-Modus, Wochenmittel nur aus Tagen mit Messwerten.
+- R-02-04 / A-06: Satzabschluss an Satz-ID gebunden, Zeilentipp beendet keine Pause.
+- R-02-05 / A-07: `WorkoutSession.draftID`, idempotentes Speichern, Wiederherstellung prüft schon gespeicherte Entwürfe.
+- R-02-06: Abrufe warten aufeinander (`refresh()` mit `inFlight`), `RefreshResult`, Coach nur bei frischen Daten, Nachholen nach Entsperren, Beobachter pro Typ mit Fehlerhinweis.
+- R-02-07/08: Mitteilungen ohne Gesundheitswerte (Einstellung `forma.coach.showValues`), Bericht nur mit heutiger Nacht und erst nach Annahme als gesendet, eine Bettzeit-Berechnung (`CoachNotifier.bedtimePlan`), Weckzeit `forma.wakeMinutes`, Zeitzone explizit.
+- R-02-12/13/26 / A-17–A-20, A-33: Steigerung nur als Vorschlag mit „Übernehmen“, Reserve optional, Restore mit Grenzen, leeres Training nicht „fertig“, keine Mitteilungsabfrage beim Trainingsstart.
+- R-02-14: Quellenwechsel löst Abruf aus, überholte Abrufe werden verworfen.
+- R-02-24 / A-09: Cache wird auf heute normalisiert.
+- Profil: „Mitteilungen erlauben“, Weckzeit, „Werte in Mitteilungen zeigen“, letzter Hintergrundversuch, Hinweise zur Hintergrundzustellung.
+- Tests: neue Angriffstests für A-01, A-02, A-06, A-07, A-09, A-17, A-18, A-19.
+
+**Noch offen aus Review 02** (nächste Schritte):
+1. Erst CI-Lauf für diesen Commit prüfen (Build + 60 Unit-Tests). Bei Fehlern zuerst die beheben.
+2. In der Pausenansicht optional „Bei Pausenende benachrichtigen“ anbieten (R-02-26).
+3. R-02-09 Schlafphasen (Tief+REM als gemeinsame Vereinigung, Bedarf der Nacht von gestern), R-02-10/11 Körperalter (Altersbereich 20–79, Krafttraining nur bei Aufzeichnung, Rundung aus ungerundeter Differenz, Skala ±15), R-02-15 Claude-Verlauf (lokale Nachrichten ausschließen, Abbruch bei Widerruf), R-02-17 Dock bei großer Schrift, R-02-20 Diagramm-Lücken, R-02-22 Journal-Texte, R-02-23 CI-Pflichtbilder.
+4. `forma-ios/reviews/review-02-antwort.md` schreiben, dann Codex Runde 03.
+
 ## 6. Offen / bekannte Punkte
 - [x] **CI-Lauf 8** (Commit 370cc2d) komplett grün: IPA und Screenshots. Bei Lauf 7 war der IPA-Job ohne freien Mac-Runner abgebrochen worden. Falls das wieder passiert: in `forma-ios.yml` beim Job `screens` den Eintrag `needs: ipa` setzen (Jobs nacheinander).
 - [ ] **Codex-Review 01** anstoßen (Prompt unten) und die Befunde umsetzen.

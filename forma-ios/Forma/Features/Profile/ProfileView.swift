@@ -1,5 +1,6 @@
 import SwiftUI
 import AuthenticationServices
+import UserNotifications
 
 struct ProfileView: View {
     @Environment(DataHub.self) private var hub
@@ -13,6 +14,10 @@ struct ProfileView: View {
     @AppStorage("forma.claudeConsent") private var claudeConsent = false
     @AppStorage(CoachNotifier.morningKey) private var morningReport = true
     @AppStorage(CoachNotifier.bedtimeKey) private var bedtimeReminder = true
+    @AppStorage(CoachNotifier.detailsKey) private var showValues = false
+    @AppStorage(CoachNotifier.wakeKey) private var wakeMinutes = 6 * 60 + 55
+    @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var confirmDeleteCopy = false
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
 
     var body: some View {
@@ -27,7 +32,11 @@ struct ProfileView: View {
                     LabeledContent("Gerade aktiv", value: hub.activeSource.title)
                     LabeledContent("Letzter erfolgreicher Import", value: hub.lastUpdate.map { Format.shortDate($0) + ", " + Format.clock($0) } ?? "noch keiner")
                     LabeledContent("Letzter Abruf im Hintergrund", value: hub.lastBackgroundSync.map { Format.shortDate($0) + ", " + Format.clock($0) } ?? "noch keiner")
+                    LabeledContent("Letzter Versuch im Hintergrund", value: hub.lastBackgroundAttempt.map { Format.shortDate($0) + ", " + Format.clock($0) } ?? "noch keiner")
                     if let note = hub.syncNote {
+                        Text(note).font(.footnote).foregroundStyle(Theme.warning)
+                    }
+                    if let note = hub.observerNote {
                         Text(note).font(.footnote).foregroundStyle(Theme.warning)
                     }
                     Button {
@@ -113,17 +122,46 @@ struct ProfileView: View {
                 }
 
                 Section {
+                    if notificationStatus != .authorized {
+                        Button {
+                            Task {
+                                _ = await CoachNotifier.requestPermission()
+                                notificationStatus = await CoachNotifier.authorizationStatus()
+                                CoachNotifier.afterSync(hub)
+                            }
+                        } label: {
+                            Label(notificationStatus == .denied ? "Mitteilungen sind in den iOS-Einstellungen aus" : "Mitteilungen erlauben",
+                                  systemImage: "bell.badge")
+                        }
+                        .disabled(notificationStatus == .denied)
+                    }
                     Toggle("Morgenbericht", isOn: $morningReport)
                     Toggle("Erinnerung zur Schlafenszeit", isOn: $bedtimeReminder)
+                    Toggle("Werte in Mitteilungen zeigen", isOn: $showValues)
+                    DatePicker("Weckzeit", selection: Binding(
+                        get: { Calendar.forma.date(bySettingHour: wakeMinutes / 60, minute: wakeMinutes % 60, second: 0, of: .now) ?? .now },
+                        set: { d in
+                            let c = Calendar.forma.dateComponents([.hour, .minute], from: d)
+                            wakeMinutes = (c.hour ?? 6) * 60 + (c.minute ?? 55)
+                        }), displayedComponents: .hourAndMinute)
                 } header: {
                     Text("Coach im Hintergrund")
                 } footer: {
-                    Text("Sobald deine Nacht in Apple Health ist, schickt dir der Coach deinen Tagesbericht – auch wenn Forma geschlossen ist. Abends erinnert er dich 30 Minuten vor der empfohlenen Bettzeit. Alles wird auf dem iPhone berechnet.")
+                    Text("Sobald deine Nacht in Apple Health ist, schickt dir der Coach deinen Tagesbericht – auch wenn Forma geschlossen ist. Abends erinnert er dich 30 Minuten vor der Bettzeit, passend zu deiner Weckzeit. Gesundheitswerte stehen nur in der Mitteilung, wenn du es oben einschaltest – sie kann auf dem Sperrbildschirm erscheinen. iOS bestimmt, wann Forma im Hintergrund geweckt wird.")
                 }
-                .onChange(of: morningReport) { _, on in if on { CoachNotifier.requestPermission() } }
-                .onChange(of: bedtimeReminder) { _, on in
-                    if on { CoachNotifier.requestPermission() }
-                    CoachNotifier.scheduleBedtimeReminder(hub)
+                .task { notificationStatus = await CoachNotifier.authorizationStatus() }
+                .onChange(of: bedtimeReminder) { _, _ in Task { await CoachNotifier.scheduleBedtimeReminder(hub) } }
+                .onChange(of: wakeMinutes) { _, _ in Task { await CoachNotifier.scheduleBedtimeReminder(hub) } }
+
+                Section {
+                    Button("Apple-Health-Kopie in Forma löschen", role: .destructive) { confirmDeleteCopy = true }
+                } footer: {
+                    Text("Forma speichert eine Kopie deiner Werte auf diesem iPhone, damit die App sofort und offline startet. Sie ist von Backups ausgeschlossen. Apple Health selbst bleibt unverändert.")
+                }
+                .confirmationDialog("Lokale Kopie löschen?", isPresented: $confirmDeleteCopy, titleVisibility: .visible) {
+                    Button("Löschen", role: .destructive) { hub.deleteLocalHealthCopy() }
+                } message: {
+                    Text("Beim nächsten Abruf lädt Forma die Werte neu aus Apple Health.")
                 }
 
                 Section("Journal") {

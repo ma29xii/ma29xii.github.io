@@ -77,10 +77,17 @@ struct LiveWorkoutView: View {
             Text(exercise.name).font(.formaTitle).padding(.top, Space.s6)
             Text(exercise.lastTime ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
             if let progression = exercise.progression {
-                Label(progression, systemImage: progression.hasPrefix("+") ? "arrow.up.right" : "equal")
-                    .font(.formaCaptionStrong)
-                    .foregroundStyle(progression.hasPrefix("+") ? Theme.younger : Theme.textSecondary)
-                    .padding(.top, 6)
+                HStack(spacing: Space.s2) {
+                    Label(progression, systemImage: exercise.suggestedWeight != nil ? "arrow.up.right" : "equal")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(exercise.suggestedWeight != nil ? Theme.younger : Theme.textSecondary)
+                    if exercise.suggestedWeight != nil {
+                        // Vorschlag wird erst mit Bestätigung wirksam (Codex R-02-12).
+                        Button("Übernehmen") { withAnimation(.snappy) { workout.applyProgression(exercise: exIndex) } }
+                            .buttonStyle(SmallPillButtonStyle())
+                    }
+                }
+                .padding(.top, 6)
             }
             Plate {
                 HStack {
@@ -118,7 +125,7 @@ struct LiveWorkoutView: View {
                     Text(Format.weight(set.weight, unit: app.weightUnit)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
                         .contentTransition(.numericText(value: set.weight))
                     if let previous = set.previous, !set.done {
-                        Text("vorher \(previous)").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                        Text("vorher \(previous) \(app.weightUnit == .kg ? "kg" : "")").font(.formaMicro).foregroundStyle(Theme.textTertiary)
                             .accessibilityLabel("Letztes Mal \(previous)")
                     }
                 }
@@ -245,7 +252,8 @@ struct LiveWorkoutView: View {
                     }
                     Spacer(minLength: 4)
                     ForEach(0..<5, id: \.self) { i in
-                        Button { workout.currentRIR = i } label: {
+                        // Antippen wählt, nochmal antippen hebt auf (Reserve ist optional, Codex A-18).
+                        Button { workout.currentRIR = workout.currentRIR == i ? nil : i } label: {
                             Text(i == 4 ? "4+" : "\(i)")
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(width: 44, height: 44)
@@ -260,8 +268,11 @@ struct LiveWorkoutView: View {
                 }
             }
             Button(set?.isWarmup == true ? "Aufwärmsatz abschließen" : "Satz \(workout.workSetNumber(exercise: workout.exerciseIndex, set: workout.setIndex)) abschließen") {
-                withAnimation(.snappy) { workout.completeCurrentSet() }
-                completedCount += 1
+                // An die angezeigte Satz-ID gebunden: Doppeltipp schließt nicht zwei Sätze ab (Codex A-06).
+                guard let id = set?.id else { return }
+                var accepted = false
+                withAnimation(.snappy) { accepted = workout.completeCurrentSet(id: id) }
+                if accepted { completedCount += 1 }
             }
             .buttonStyle(PrimaryButtonStyle())
         }
@@ -293,7 +304,7 @@ struct LiveWorkoutView: View {
               library.first(where: { $0.name == name })?.equipment == "Langhantel" else { return nil }
         guard let plates = PlateMath.perSide(total: weight) else { return nil }
         if plates.isEmpty { return "Nur die Stange (20 kg)" }
-        return "Pro Seite: " + plates.map { Format.number($0, decimals: $0.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2) }.joined(separator: " + ")
+        return "Pro Seite: " + plates.map { Format.number($0, decimals: $0.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2) + " kg" }.joined(separator: " + ") + " · 20-kg-Stange"
     }
 
     private func finish() {

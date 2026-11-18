@@ -24,15 +24,46 @@ enum SyncStore {
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
-    static func save(_ snapshot: Snapshot) {
-        guard let url, let data = try? JSONEncoder().encode(snapshot) else { return }
-        // Nach dem ersten Entsperren lesbar: Hintergrund-Abrufe können auch bei gesperrtem Bildschirm schreiben.
-        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    /// Speichert den Stand. Gibt false zurück, wenn das Schreiben scheitert (wird angezeigt, Codex R-02-01).
+    @discardableResult
+    static func save(_ snapshot: Snapshot) -> Bool {
+        guard var url, let data = try? JSONEncoder().encode(snapshot) else { return false }
+        do {
+            // Nach dem ersten Entsperren lesbar: Hintergrund-Abrufe können auch bei gesperrtem Bildschirm schreiben.
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            // Gesundheitskopie nicht in iCloud-/iTunes-Backups (rekonstruierbar aus Apple Health, Codex R-02-02).
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try url.setResourceValues(values)
+            return true
+        } catch {
+            return false
+        }
     }
 
+    /// Löscht die lokale Kopie der Gesundheitsdaten.
     static func clear() {
         guard let url else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Bringt einen gespeicherten Stand auf ein lückenloses Raster, das mit *heute* endet (Codex R-02-24):
+    /// Nach Mitternacht oder Zeitzonenwechsel steht der alte Stand unter seinem echten Datum, heute bleibt leer.
+    static func normalized(_ days: [DayMetrics], today: Date = Date.now.startOfDay, keepDays: Int = 180) -> [DayMetrics] {
+        var byDate: [Date: DayMetrics] = [:]
+        for var d in days {
+            let key = d.date.startOfDay
+            guard key <= today else { continue }   // Tage aus der „Zukunft“ (Uhr verstellt) verwerfen
+            d.date = key
+            byDate[key] = d
+        }
+        var result: [DayMetrics] = []
+        var date = today.adding(days: -(keepDays - 1))
+        while date <= today {
+            result.append(byDate[date] ?? DayMetrics(date: date))
+            date = date.adding(days: 1)
+        }
+        return result
     }
 
     /// Hat ein Tag überhaupt Messwerte?
@@ -43,42 +74,49 @@ enum SyncStore {
 
     enum MergeResult: Equatable {
         case merged([DayMetrics])
-        /// Neuer Abruf ist verdächtig leer, alter Stand hatte Daten: nicht überschreiben.
+        /// Nichts wurde gelesen (alle Reihen fehlgeschlagen) oder ein verdächtig leerer Abruf: nicht überschreiben.
         case rejectedEmpty
     }
 
-    /// Führt einen neuen Abruf mit dem gespeicherten Stand zusammen.
-    /// - Heute und gestern: der neue Abruf gilt (Werte können sich noch ändern).
-    /// - Ältere Tage: fehlt ein Wert im neuen Abruf, bleibt der gespeicherte stehen.
-    static func merge(old: [DayMetrics], new: [DayMetrics], today: Date = Date.now.startOfDay, keepDays: Int = 180) -> MergeResult {
+    /// Führt einen neuen Abruf mit dem gespeicherten Stand zusammen – pro Messreihe (Codex R-02-01):
+    /// - Reihe erfolgreich gelesen → der neue Wert gilt, auch `nil` (in Apple Health gelöscht).
+    /// - Reihe fehlgeschlagen (z. B. iPhone gesperrt) → der gespeicherte Wert bleibt.
+    /// - Alle Reihen fehlgeschlagen, oder alles leer obwohl vorher Daten da waren → nichts überschreiben.
+    static func merge(old: [DayMetrics], new: [DayMetrics], failed: Set<MetricSeries> = [],
+                      today: Date = Date.now.startOfDay, keepDays: Int = 180) -> MergeResult {
+        if failed.count == MetricSeries.allCases.count { return .rejectedEmpty }
         let oldHasData = old.contains(where: hasData)
         let newHasData = new.contains(where: hasData)
-        if oldHasData && !newHasData { return .rejectedEmpty }
+        if oldHasData && !newHasData && failed.isEmpty { return .rejectedEmpty }
 
-        var byDate: [Date: DayMetrics] = [:]
-        for d in old { byDate[d.date] = d }
-        let cutoff = today.adding(days: -1)
-        for n in new {
-            guard let o = byDate[n.date], n.date < cutoff else { byDate[n.date] = n; continue }
-            var m = n
-            m.hrv = n.hrv ?? o.hrv
-            m.restingHR = n.restingHR ?? o.restingHR
-            m.respiratoryRate = n.respiratoryRate ?? o.respiratoryRate
-            m.spo2 = n.spo2 ?? o.spo2
-            m.vo2max = n.vo2max ?? o.vo2max
-            m.steps = n.steps ?? o.steps
-            m.activeEnergy = n.activeEnergy ?? o.activeEnergy
-            m.sleep = n.sleep ?? o.sleep
-            if n.workouts.isEmpty { m.workouts = o.workouts }
-            byDate[n.date] = m
-        }
+        var oldByDate: [Date: DayMetrics] = [:]
+        for d in old { oldByDate[d.date] = d }
+        var newByDate: [Date: DayMetrics] = [:]
+        for d in new { newByDate[d.date] = d }
+
         let first = today.adding(days: -(keepDays - 1))
-        // Lückenlos von first bis heute, damit Indizes und Fenster stimmen.
         var result: [DayMetrics] = []
-        var d = first
-        while d <= today {
-            result.append(byDate[d] ?? DayMetrics(date: d))
-            d = d.adding(days: 1)
+        var date = first
+        while date <= today {
+            let o = oldByDate[date]
+            if var m = newByDate[date] {
+                if let o {
+                    if failed.contains(.hrv) { m.hrv = o.hrv }
+                    if failed.contains(.restingHR) { m.restingHR = o.restingHR }
+                    if failed.contains(.respiratoryRate) { m.respiratoryRate = o.respiratoryRate }
+                    if failed.contains(.spo2) { m.spo2 = o.spo2 }
+                    if failed.contains(.vo2max) { m.vo2max = o.vo2max }
+                    if failed.contains(.steps) { m.steps = o.steps }
+                    if failed.contains(.activeEnergy) { m.activeEnergy = o.activeEnergy }
+                    if failed.contains(.sleep) { m.sleep = o.sleep }
+                    if failed.contains(.workouts) { m.workouts = o.workouts }
+                }
+                result.append(m)
+            } else {
+                // Tag lag nicht im Abruf (älter als das Abruffenster): gespeicherten Stand behalten.
+                result.append(o ?? DayMetrics(date: date))
+            }
+            date = date.adding(days: 1)
         }
         return .merged(result)
     }

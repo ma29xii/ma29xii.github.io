@@ -19,7 +19,7 @@ final class AppState {
         didSet {
             if let liveWorkout {
                 liveWorkout.persist()
-                if oldValue == nil { RestNotifier.requestPermission() }
+                // Keine Mitteilungs-Abfrage beim Start: Sie unterbrach den ersten Satz (Codex R-02-26).
             } else {
                 LiveWorkout.clearSaved()
                 RestNotifier.cancel()
@@ -92,8 +92,9 @@ struct LiveExercise: Identifiable, Equatable, Codable {
     var restSeconds: Int
     var sets: [LiveSet]
     var lastTime: String?
-    /// Vorschlag aus dem letzten Training (progressive Steigerung), nur Hinweis.
+    /// Vorschlag aus dem letzten Training (progressive Steigerung). Wird erst nach „Übernehmen“ wirksam (Codex R-02-12).
     var progression: String? = nil
+    var suggestedWeight: Double? = nil
 }
 
 /// Steigerungsregel: Wurden letztes Mal alle Arbeitssätze mit dem Ziel an Wiederholungen
@@ -102,13 +103,17 @@ struct LiveExercise: Identifiable, Equatable, Codable {
 enum Progression {
     struct Plan: Equatable { var weight: Double; var note: String?; var increased = false }
 
-    static func plan(targetReps: Int, routineWeight: Double, lastWorkSets: [(weight: Double, reps: Int, rir: Int)]) -> Plan {
+    /// - Parameter plannedSets: Wie viele Arbeitssätze die Routine vorsieht. Eine Steigerung gibt es nur,
+    ///   wenn letztes Mal mindestens so viele Sätze am Topgewicht geschafft **und** alle mit Reserve erfasst wurden (Codex A-17/A-18).
+    static func plan(targetReps: Int, routineWeight: Double, lastWorkSets: [(weight: Double, reps: Int, rir: Int)], plannedSets: Int = 0) -> Plan {
         guard let top = lastWorkSets.map({ $0.weight }).max(), top > 0 else { return Plan(weight: routineWeight, note: nil) }
         let atTop = lastWorkSets.filter { $0.weight == top }
         let allReps = atTop.allSatisfy { $0.reps >= targetReps }
         let rirs = atTop.map({ $0.rir }).filter { $0 >= 0 }
+        let allRecorded = rirs.count == atTop.count
+        let complete = atTop.count >= plannedSets
         let meanRIR = rirs.isEmpty ? nil : Double(rirs.reduce(0, +)) / Double(rirs.count)
-        if allReps, let meanRIR, meanRIR >= 2 {
+        if allReps, complete, allRecorded, let meanRIR, meanRIR >= 2 {
             return Plan(weight: top + 2.5, note: "+2,5 kg: Letztes Mal alle \(targetReps) Wdh. mit Reserve geschafft", increased: true)
         }
         if !allReps, let meanRIR, meanRIR < 1 {
@@ -157,14 +162,18 @@ final class LiveWorkout: Identifiable {
     var setIndex = 0
     var restEndsAt: Date?
     var restTotal: Int = 90
-    var currentRIR: Int = 2 { didSet { persist() } }
+    /// Reserve des aktuellen Satzes. Standard: nicht erfasst (Codex R-02-12/A-18).
+    var currentRIR: Int? = nil { didSet { persist() } }
+    /// Feste Kennung des Entwurfs, auch über Neustarts hinweg (Codex R-02-05).
+    let draftID: UUID
     var adjustment: TrainingAdjustment?
 
-    init(title: String, exercises: [LiveExercise], adjustment: TrainingAdjustment? = nil, start: Date = .now) {
+    init(title: String, exercises: [LiveExercise], adjustment: TrainingAdjustment? = nil, start: Date = .now, draftID: UUID = UUID()) {
         self.title = title
         self.exercises = exercises
         self.adjustment = adjustment
         self.start = start
+        self.draftID = draftID
         selectFirstOpen()
     }
 
@@ -178,37 +187,56 @@ final class LiveWorkout: Identifiable {
         var setIndex: Int
         var restEndsAt: Date?
         var restTotal: Int
-        var currentRIR: Int
+        var currentRIR: Int?
         var adjustment: TrainingAdjustment?
+        var draftID: UUID?
+        var version: Int?
     }
 
     private static let storageKey = "forma.liveWorkout"
 
     func persist() {
         let snap = Snapshot(title: title, start: start, exercises: exercises, exerciseIndex: exerciseIndex, setIndex: setIndex,
-                            restEndsAt: restEndsAt, restTotal: restTotal, currentRIR: currentRIR, adjustment: adjustment)
+                            restEndsAt: restEndsAt, restTotal: restTotal, currentRIR: currentRIR, adjustment: adjustment,
+                            draftID: draftID, version: 2)
         if let data = try? JSONEncoder().encode(snap) { UserDefaults.standard.set(data, forKey: Self.storageKey) }
     }
 
     static func clearSaved() { UserDefaults.standard.removeObject(forKey: storageKey) }
 
-    /// Gespeichertes Training der letzten 8 Stunden zurückholen. Kaputte Daten werden verworfen.
-    static func restore(now: Date = .now) -> LiveWorkout? {
+    /// Gespeichertes Training der letzten 8 Stunden zurückholen. Kaputte Daten werden verworfen,
+    /// unplausible Werte normalisiert (Codex A-20). Wurde der Entwurf schon gespeichert, wird er nicht erneut angeboten (A-07).
+    static func restore(now: Date = .now, alreadySaved: (UUID) -> Bool = { _ in false }) -> LiveWorkout? {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data),
-              now.timeIntervalSince(snap.start) < 8 * 3600, snap.start <= now.addingTimeInterval(60),
-              !snap.exercises.isEmpty else {
+              now.timeIntervalSince(snap.start) < 8 * 3600, snap.start <= now.addingTimeInterval(60) else {
             clearSaved()
             return nil
         }
-        let w = LiveWorkout(title: snap.title, exercises: snap.exercises, adjustment: snap.adjustment, start: snap.start)
+        let draftID = snap.draftID ?? UUID()
+        if alreadySaved(draftID) { clearSaved(); return nil }
+        // Grenzen wie bei der Eingabe: höchstens 30 Übungen à 50 Sätze, Gewicht 0–1000, Wdh 1–100.
+        let exercises = snap.exercises.prefix(30).map { ex -> LiveExercise in
+            var ex = ex
+            ex.sets = ex.sets.prefix(50).map { s in
+                var s = s
+                s.weight = s.weight.isFinite ? min(1000, max(0, s.weight)) : 0
+                s.reps = min(100, max(1, s.reps))
+                s.rir = s.rir.map { min(4, max(0, $0)) }
+                return s
+            }
+            ex.restSeconds = min(900, max(15, ex.restSeconds))
+            return ex
+        }.filter { !$0.sets.isEmpty }
+        guard !exercises.isEmpty else { clearSaved(); return nil }
+        let w = LiveWorkout(title: snap.title, exercises: exercises, adjustment: snap.adjustment, start: snap.start, draftID: draftID)
         if w.exercises.indices.contains(snap.exerciseIndex), w.exercises[snap.exerciseIndex].sets.indices.contains(snap.setIndex) {
             w.exerciseIndex = snap.exerciseIndex
             w.setIndex = snap.setIndex
         }
-        w.restTotal = max(1, snap.restTotal)
-        w.restEndsAt = snap.restEndsAt.flatMap { $0 > now ? $0 : nil }
-        w.currentRIR = min(4, max(0, snap.currentRIR))
+        w.restTotal = min(900, max(1, snap.restTotal))
+        w.restEndsAt = snap.restEndsAt.flatMap { $0 > now && $0 < now.addingTimeInterval(900) ? $0 : nil }
+        w.currentRIR = snap.currentRIR.map { min(4, max(0, $0)) }
         return w
     }
 
@@ -219,10 +247,11 @@ final class LiveWorkout: Identifiable {
             let lastSession = history.first { $0.sets.contains { $0.exerciseName == item.exerciseName } }
             let lastWork = (lastSession?.workSets ?? []).filter { $0.exerciseName == item.exerciseName }
                 .map { (weight: $0.weight, reps: $0.reps, rir: $0.rir) }
-            let plan = Progression.plan(targetReps: item.reps, routineWeight: item.weight, lastWorkSets: lastWork)
-            var weight = plan.weight
+            let plan = Progression.plan(targetReps: item.reps, routineWeight: item.weight, lastWorkSets: lastWork, plannedSets: item.sets)
+            // Gewicht vom letzten Mal halten; eine Steigerung ist nur ein Vorschlag (Codex R-02-12).
+            var weight = plan.increased ? plan.weight - 2.5 : plan.weight
             if adjustment == .minusOneSet { setCount = max(1, setCount - 1) }
-            if adjustment == .plusWeight && index == 0 && !plan.increased { weight += 2.5 }
+            if adjustment == .plusWeight && index == 0 { weight += 2.5 }
             let previousSets = (lastSession?.workSets ?? []).filter { $0.exerciseName == item.exerciseName }.sorted { $0.order < $1.order }
             var sets = (0..<setCount).map { i in
                 LiveSet(weight: weight, reps: item.reps, isWarmup: false, plannedWeight: weight,
@@ -238,7 +267,8 @@ final class LiveWorkout: Identifiable {
                 return "Letztes Mal \(work.count) × \(top?.reps ?? 0) · \(Format.number(top?.weight ?? 0, decimals: (top?.weight ?? 0).truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) kg"
             }
             return LiveExercise(name: item.exerciseName, muscle: item.muscle, restSeconds: max(15, item.restSeconds), sets: sets,
-                                lastTime: lastText, progression: plan.note)
+                                lastTime: lastText, progression: plan.note,
+                                suggestedWeight: plan.increased && !(adjustment == .plusWeight && index == 0) ? plan.weight : nil)
         }
         return LiveWorkout(title: routine.name, exercises: exercises, adjustment: adjustment)
     }
@@ -246,7 +276,10 @@ final class LiveWorkout: Identifiable {
     static func empty() -> LiveWorkout { LiveWorkout(title: "Freies Training", exercises: []) }
 
     var isResting: Bool { (restEndsAt ?? .distantPast) > .now }
-    var allDone: Bool { !exercises.isEmpty && exercises.allSatisfy { $0.sets.allSatisfy(\.done) } }
+    /// Fertig nur, wenn es mindestens einen Satz gibt und alle erledigt sind (Codex A-19).
+    var allDone: Bool {
+        exercises.contains { !$0.sets.isEmpty } && exercises.allSatisfy { $0.sets.allSatisfy(\.done) }
+    }
     var currentExercise: LiveExercise? { exercises.indices.contains(exerciseIndex) ? exercises[exerciseIndex] : nil }
     var currentSet: LiveSet? {
         guard let ex = currentExercise, ex.sets.indices.contains(setIndex) else { return nil }
@@ -276,19 +309,40 @@ final class LiveWorkout: Identifiable {
         persist()
     }
 
+    /// Satz auswählen. Eine laufende Pause bleibt bestehen – beenden nur über „Pause beenden“ (Codex R-02-04).
     func select(exercise: Int, set: Int) {
-        guard exercises.indices.contains(exercise), exercises[exercise].sets.indices.contains(set) else { return }
+        guard exercises.indices.contains(exercise), exercises[exercise].sets.indices.contains(set),
+              !exercises[exercise].sets[set].done else { return }
         exerciseIndex = exercise
         setIndex = set
-        restEndsAt = nil
-        RestNotifier.cancel()
         persist()
     }
 
+    /// Vorschlag übernehmen: alle offenen Arbeitssätze der Übung auf das vorgeschlagene Gewicht.
+    func applyProgression(exercise: Int) {
+        guard exercises.indices.contains(exercise), let w = exercises[exercise].suggestedWeight else { return }
+        for i in exercises[exercise].sets.indices where !exercises[exercise].sets[i].done && !exercises[exercise].sets[i].isWarmup {
+            exercises[exercise].sets[i].weight = w
+            exercises[exercise].sets[i].plannedWeight = w
+        }
+        exercises[exercise].suggestedWeight = nil
+        exercises[exercise].progression = "Übernommen: \(Format.number(w, decimals: w.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) kg"
+        persist()
+    }
+
+    /// Schließt genau den Satz mit dieser ID ab – ein zweiter Tipp auf denselben Knopf tut nichts (Codex R-02-04/A-06).
+    @discardableResult
+    func completeCurrentSet(id: UUID) -> Bool {
+        guard let set = currentSet, set.id == id, !set.done else { return false }
+        completeCurrentSet()
+        return true
+    }
+
     func completeCurrentSet() {
-        guard currentSet != nil else { return }
+        guard let current = currentSet, !current.done else { return }
         exercises[exerciseIndex].sets[setIndex].done = true
         exercises[exerciseIndex].sets[setIndex].rir = exercises[exerciseIndex].sets[setIndex].isWarmup ? nil : currentRIR
+        currentRIR = nil
         // Gleiche Werte in den nächsten offenen Satz übernehmen, falls noch Standard
         let done = exercises[exerciseIndex].sets[setIndex]
         if let next = exercises[exerciseIndex].sets.firstIndex(where: { !$0.done }), !done.isWarmup {
@@ -326,9 +380,11 @@ final class LiveWorkout: Identifiable {
 
     func addSet(to exercise: Int) {
         guard exercises.indices.contains(exercise) else { return }
+        guard exercises[exercise].sets.count < 50 else { return }
         let last = exercises[exercise].sets.last
         exercises[exercise].sets.append(LiveSet(weight: last?.weight ?? 20, reps: last?.reps ?? 8, isWarmup: false))
-        if allDone == false && currentSet == nil { selectFirstOpen() }
+        // Ist der ausgewählte Satz schon erledigt, den neuen auswählen (Codex A-19).
+        if currentSet == nil || currentSet?.done == true { selectFirstOpen(keepRest: true) }
         persist()
     }
 
@@ -351,6 +407,11 @@ final class LiveWorkout: Identifiable {
     /// Speichert das Training. Gibt die Sitzung zurück (nil, wenn kein Satz erledigt wurde).
     /// Wirft bei Schreibfehlern und nimmt dann alles zurück, damit kein halbes Training bleibt.
     func save(into context: ModelContext) throws -> WorkoutSession? {
+        // Schon gespeichert (z. B. Neustart zwischen Speichern und Aufräumen)? Dann dieselbe Einheit zurückgeben.
+        let id = draftID
+        if let existing = try? context.fetch(FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.draftID == id })).first {
+            return existing
+        }
         var records: [SetRecord] = []
         var order = 0
         for ex in exercises {
@@ -361,6 +422,7 @@ final class LiveWorkout: Identifiable {
         }
         guard !records.isEmpty else { return nil }
         let session = WorkoutSession(title: title, start: start, end: .now)
+        session.draftID = draftID
         context.insert(session)
         for r in records {
             context.insert(r)

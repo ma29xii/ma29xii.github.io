@@ -220,7 +220,8 @@ struct TodayView: View {
             hrvDelta: hub.today.hrv.flatMap { v in hub.baseline(\.hrv).map { v - $0.mean } },
             rhrDelta: hub.today.restingHR.flatMap { v in hub.baseline(\.restingHR).map { v - $0.mean } },
             plannedRoutine: planned?.name, trainedToday: trainedToday, isSample: hub.isSample,
-            hour: Calendar.forma.component(.hour, from: .now))
+            hour: Calendar.forma.component(.hour, from: .now),
+            recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain)
     }
 
     // MARK: Kacheln
@@ -352,14 +353,18 @@ struct TodayView: View {
     private var weekTile: some View {
         let weekStart = Calendar.forma.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
         let week = sessions.filter { $0.start >= weekStart }
-        let recoveries = (max(0, hub.days.count - 7)..<hub.days.count).map { hub.scores(for: $0).recovery }
+        // Nur Tage mit echter Messgrundlage mitteln (Codex R-02-03).
+        let recoveries = (max(0, hub.days.count - 7)..<hub.days.count).compactMap { i -> Int? in
+            hub.hasRecoveryBasis(at: i) ? hub.scores(for: i).recovery : nil
+        }
         let avg = recoveries.isEmpty ? 0 : recoveries.reduce(0, +) / recoveries.count
         return WidgetCard(title: "Diese Woche", systemImage: "calendar", accessory: "seit Montag") {
             MetricRow(title: "Trainings", subtitle: week.isEmpty ? "noch keins" : week.map(\.title).joined(separator: ", "), value: "\(week.count)")
             RowDivider()
             MetricRow(title: "Trainingsvolumen", value: Format.weight(week.reduce(0) { $0 + $1.volume }, unit: app.weightUnit), unit: app.weightUnit.rawValue)
             RowDivider()
-            MetricRow(title: "Erholung im Mittel", subtitle: "letzte 7 Tage (rollend)", value: "\(avg)", valueColor: Theme.recovery(avg))
+            MetricRow(title: "Erholung im Mittel", subtitle: "\(recoveries.count) von 7 Tagen mit Messwerten",
+                      value: recoveries.isEmpty ? "–" : "\(avg)", valueColor: recoveries.isEmpty ? Theme.textTertiary : Theme.recovery(avg))
         }
     }
 

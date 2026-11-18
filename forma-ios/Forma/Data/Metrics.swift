@@ -41,6 +41,25 @@ struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
     }
 }
 
+/// Einzelne Messreihen eines Imports (für Teil-Erfolge, Codex R-02-01).
+enum MetricSeries: String, CaseIterable, Codable, Sendable {
+    case hrv, restingHR, respiratoryRate, spo2, vo2max, steps, activeEnergy, sleep, workouts
+
+    var title: String {
+        switch self {
+        case .hrv: "HRV"
+        case .restingHR: "Ruhepuls"
+        case .respiratoryRate: "Atemfrequenz"
+        case .spo2: "Sauerstoffsättigung"
+        case .vo2max: "VO₂max"
+        case .steps: "Schritte"
+        case .activeEnergy: "Aktive Energie"
+        case .sleep: "Schlaf"
+        case .workouts: "Trainings"
+        }
+    }
+}
+
 struct SleepNight: Equatable, Sendable, Codable {
     enum Stage: String, Sendable, CaseIterable, Codable {
         case awake, rem, core, deep

@@ -25,7 +25,8 @@ struct CoachView: View {
             rhrDelta: hub.today.restingHR.flatMap { v in hub.baseline(\.restingHR).map { v - $0.mean } },
             plannedRoutine: planned?.name,
             trainedToday: sessions.contains { Calendar.forma.isDateInToday($0.start) },
-            isSample: hub.isSample, hour: Calendar.forma.component(.hour, from: .now))
+            isSample: hub.isSample, hour: Calendar.forma.component(.hour, from: .now),
+            recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain)
     }
 
     private let suggestions = ["Warum ist meine Erholung so?", "Was soll ich heute trainieren?", "Wann soll ich ins Bett?", "Wie viel Belastung ist heute gut?"]
