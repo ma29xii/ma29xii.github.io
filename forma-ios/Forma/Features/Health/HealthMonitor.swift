@@ -1,58 +1,45 @@
 import SwiftUI
 
+/// Vitalwerte des Tages mit Haken, wenn sie im persönlichen Normalbereich liegen.
 struct HealthMonitor: View {
-    @Environment(DataHub.self) private var hub
-    @State private var temperatures: TemperatureReading?
     let snapshot: DashboardDay
 
-    private struct TemperatureReading {
-        let date: Date
-        let value: Double?
-        let baseline: ScoreEngine.Baseline?
-    }
-
-    private var readings: [MonitorReading] {
-        var readings = MonitorReading.all(for: snapshot)
-        if let temperatures, temperatures.date == snapshot.day.date, let value = temperatures.value {
-            readings.append(.init(id: "temperature", title: "Handgelenktemperatur", icon: "thermometer.medium",
-                                  shortTitle: "Temp.", value: value, baseline: temperatures.baseline,
-                                  decimals: 1, unit: "°C"))
-        }
-        return readings
-    }
-
-    private var temperatureDate: Date? {
-        hub.isSample || hub.activeSource == .health ? snapshot.day.date : nil
-    }
+    private var readings: [MonitorReading] { MonitorReading.all(for: snapshot) }
 
     var body: some View {
+        let items = readings
+        let summary = MonitorSummary(readings: items)
         NavigationLink {
-            HealthMonitorDetail(date: snapshot.day.date, readings: readings)
+            HealthMonitorDetail(date: snapshot.day.date, readings: items)
         } label: {
             DashboardCard {
-                VStack(alignment: .leading, spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: Space.s4) {
                     HStack {
                         DashboardHeading(title: "Health Monitor")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.formaCaptionStrong)
-                            .foregroundStyle(Theme.textSecondary)
+                            .foregroundStyle(Theme.textTertiary)
                             .accessibilityHidden(true)
                     }
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: Space.s3) {
-                            ForEach(readings) { reading in
-                                indicator(reading).fixedSize(horizontal: true, vertical: false)
+                        HStack(spacing: 0) {
+                            ForEach(items) { reading in
+                                indicator(reading)
+                                    .fixedSize(horizontal: true, vertical: false)
                                     .frame(maxWidth: .infinity)
                             }
                         }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: Space.s3)], spacing: Space.s3) {
-                            ForEach(readings) { indicator($0) }
+                            ForEach(items) { indicator($0) }
                         }
                     }
-                    Text(summary)
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
+                    Label(summary.text, systemImage: summary.icon)
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(summary.tint)
+                        .padding(.horizontal, Space.s3)
+                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
                 .padding(Space.s4)
                 .contentShape(Rectangle())
@@ -60,44 +47,8 @@ struct HealthMonitor: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Health Monitor")
-        .accessibilityValue(summary)
+        .accessibilityValue(summary.text)
         .accessibilityIdentifier("health.monitor")
-        .task(id: TemperatureRequest(date: temperatureDate, source: hub.activeSource)) {
-            await loadTemperatures()
-        }
-    }
-
-    private struct TemperatureRequest: Equatable {
-        let date: Date?
-        let source: DataSourceKind
-    }
-
-    private func loadTemperatures() async {
-        guard let date = temperatureDate else {
-            temperatures = nil
-            return
-        }
-        temperatures = nil
-        let start = date.adding(days: -30)
-        let values: [Date: Double]
-        if hub.isSample {
-            values = Dictionary(uniqueKeysWithValues: (0...30).map { offset in
-                (date.adding(days: -offset), 35.5 + 0.25 * sin(Double(offset)))
-            })
-        } else {
-            values = await hub.health.wristTemperatures(from: start, until: min(.now, date.adding(days: 1)))
-        }
-        guard !Task.isCancelled else { return }
-        let prior = values.filter { $0.key >= start && $0.key < date }.map(\.value)
-        temperatures = TemperatureReading(date: date, value: values[date],
-                                          baseline: ScoreEngine.baseline(prior, minimumRelativeSpread: 0))
-    }
-
-    private var summary: String {
-        let available = readings.filter { $0.inRange != nil }
-        let inRange = available.filter { $0.inRange == true }.count
-        if !available.isEmpty { return "\(inRange) von \(available.count) im persönlichen Bereich" }
-        return readings.contains { $0.value != nil } ? "Noch kein persönlicher Vergleich" : "Keine Messung"
     }
 
     private func indicator(_ reading: MonitorReading) -> some View {
@@ -105,8 +56,11 @@ struct HealthMonitor: View {
             Image(systemName: reading.icon)
                 .font(.system(.body, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
+                .frame(height: 22)
             Text(reading.shortTitle)
                 .font(.formaMicro)
+                .tracking(Tracking.micro)
+                .textCase(.uppercase)
                 .foregroundStyle(Theme.textSecondary)
             Image(systemName: reading.statusIcon)
                 .font(.formaCaptionStrong)
@@ -116,7 +70,28 @@ struct HealthMonitor: View {
     }
 }
 
-private struct MonitorReading: Identifiable {
+/// Zeile unter den Symbolen, z. B. „4/4 Werte im Normalbereich“.
+struct MonitorSummary {
+    let text: String
+    let icon: String
+    let tint: Color
+
+    init(readings: [MonitorReading]) {
+        let compared = readings.compactMap(\.inRange)
+        let inside = compared.filter { $0 }.count
+        if !compared.isEmpty {
+            text = "\(inside)/\(compared.count) Werte im Normalbereich"
+            icon = inside == compared.count ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+            tint = inside == compared.count ? Theme.younger : Theme.warning
+        } else {
+            text = readings.contains { $0.value != nil } ? "Noch kein Vergleich" : "Keine Messung"
+            icon = "minus.circle"
+            tint = Theme.textSecondary
+        }
+    }
+}
+
+struct MonitorReading: Identifiable {
     let id: String
     let title: String
     let icon: String
@@ -126,12 +101,14 @@ private struct MonitorReading: Identifiable {
     let decimals: Int
     let unit: String
 
+    /// Persönlicher Normalbereich: Mittel ± eine Standardabweichung der 30 Tage davor.
     var range: ClosedRange<Double>? {
         baseline.map { base in
-            let halfWidth = id == "temperature" ? max(base.sd, 0.10) : base.sd
-            return max(0, base.mean - halfWidth)...min(id == MetricKind.spo2.rawValue ? 100 : .infinity, base.mean + halfWidth)
+            let upper = id == MetricKind.spo2.rawValue ? min(100, base.mean + base.sd) : base.mean + base.sd
+            return max(0, base.mean - base.sd)...max(0, upper)
         }
     }
+
     var inRange: Bool? {
         guard let value, let range else { return nil }
         return range.contains(value)
@@ -153,17 +130,11 @@ private struct MonitorReading: Identifiable {
         }
     }
 
-    var status: String {
-        switch inRange {
-        case true?: "Im persönlichen Bereich"
-        case false?: "Außerhalb deines Bereichs"
-        case nil: value == nil ? "Keine Messung" : "Noch kein Vergleich"
-        }
-    }
-
     func formatted(_ value: Double) -> String { Format.number(value, decimals: decimals) }
 
-    var measurement: String { value.map { formatted($0) + " " + unit } ?? "–" }
+    var rangeText: String? {
+        range.map { "\(formatted($0.lowerBound))–\(formatted($0.upperBound))" }
+    }
 
     static func all(for snapshot: DashboardDay) -> [Self] {
         let keys: [(MetricKind, String, String)] = [
@@ -186,24 +157,26 @@ private struct HealthMonitorDetail: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
+        let summary = MonitorSummary(readings: readings)
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s4) {
                 if hub.isSample { SampleDataBadge() }
-                Text(Format.dayTitle(date))
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text(Format.dayTitle(date))
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                    Label(summary.text, systemImage: summary.icon)
+                        .font(.formaRowTitle)
+                        .foregroundStyle(summary.tint)
+                }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s3),
                                           count: typeSize.isAccessibilitySize ? 1 : 2),
                           alignment: .leading, spacing: Space.s3) {
-                    ForEach(readings) { reading in
-                        tile(reading)
-                    }
+                    ForEach(readings) { tile($0) }
                 }
-                Text("Persönlicher Vergleich aus den 30 Tagen davor.")
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
             }
-            .padding(Space.s4)
+            .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
         }
         .dashboardScreen()
         .navigationTitle("Health Monitor")
@@ -213,26 +186,41 @@ private struct HealthMonitorDetail: View {
     private func tile(_ reading: MonitorReading) -> some View {
         DashboardCard {
             VStack(alignment: .leading, spacing: Space.s2) {
-                Image(systemName: reading.icon)
+                Label(reading.title, systemImage: reading.icon)
+                    .font(.formaMicro)
+                    .tracking(Tracking.micro)
+                    .textCase(.uppercase)
                     .foregroundStyle(Theme.textSecondary)
-                    .accessibilityHidden(true)
-                Text(reading.title)
-                    .font(.formaCaptionStrong)
-                Text(reading.measurement)
-                    .font(.formaBigNumber)
-                    .minimumScaleFactor(0.65)
-                Label(reading.status, systemImage: reading.statusIcon)
-                    .foregroundStyle(reading.tint)
-                    .font(.formaCaptionStrong)
-                if let range = reading.range {
-                    Text("\(reading.formatted(range.lowerBound))–\(reading.formatted(range.upperBound)) \(reading.unit)")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(reading.value.map { reading.formatted($0) } ?? "–")
+                        .font(.formaBigNumber)
+                        .minimumScaleFactor(0.7)
+                    if reading.value != nil {
+                        Text(reading.unit)
+                            .font(.formaCaption)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
                 }
+                Spacer(minLength: 0)
+                Label(reading.rangeText ?? (reading.value == nil ? "Keine Messung" : "Noch kein Vergleich"),
+                      systemImage: reading.statusIcon)
+                    .font(.formaCaptionStrong)
+                    .monospacedDigit()
+                    .foregroundStyle(reading.tint)
             }
             .padding(Space.s3)
-            .frame(maxWidth: .infinity, minHeight: 155, alignment: .topLeading)
-            .accessibilityElement(children: .combine)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(reading.title)
+            .accessibilityValue(accessibilityValue(reading))
         }
+    }
+
+    private func accessibilityValue(_ reading: MonitorReading) -> String {
+        guard let value = reading.value else { return "Keine Messung" }
+        let measured = "\(reading.formatted(value)) \(reading.unit)"
+        guard let inRange = reading.inRange, let range = reading.rangeText else { return measured + ", noch kein Vergleich" }
+        return measured + (inRange ? ", im Normalbereich " : ", außerhalb des Normalbereichs ") + range
     }
 }

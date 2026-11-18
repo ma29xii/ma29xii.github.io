@@ -2,13 +2,18 @@ import SwiftUI
 import SwiftData
 import Charts
 
+private func formaSessions(_ sessions: [WorkoutSession]) -> [HealthAgeTrend.Session] {
+    sessions.map { (start: $0.start, minutes: $0.duration / 60) }
+}
+
 @MainActor
 func bodyAgeOutcome(hub: DataHub, sessions: [WorkoutSession]) -> BodyAge.Outcome {
-    let now = Date.now
-    let days = hub.longDays
-    let forma = sessions.map { (start: $0.start, minutes: $0.duration / 60) }
-    let strength = BodyAge.strengthMinutes(days: days, formaSessions: forma, now: now)
-    return BodyAge.evaluate(days: days, person: hub.person, strength: strength, now: now)
+    HealthAgeTrend.outcome(days: hub.longDays, person: hub.person, sessions: formaSessions(sessions), now: .now)
+}
+
+@MainActor
+func bodyAgeTrend(hub: DataHub, sessions: [WorkoutSession]) -> [BodyAge.Estimate] {
+    HealthAgeTrend.points(days: hub.longDays, person: hub.person, sessions: formaSessions(sessions))
 }
 
 enum BodyAgeText {
@@ -36,140 +41,106 @@ enum BodyAgeText {
     }
 }
 
+// MARK: - Kopf
+
+/// Hauptsache des Health-Tabs: Kugel, Zahl, „x Jahre jünger“, Datenlage.
 struct HealthAgeHero: View {
     let outcome: BodyAge.Outcome
 
+    private var result: BodyAge.Result? {
+        if case .ready(let result) = outcome { return result }
+        return nil
+    }
+
     var body: some View {
-        DashboardCard {
-            VStack(spacing: Space.s3) {
-                if case .ready(let result) = outcome {
-                    portrait(result)
-                    Text("Datenlage \(result.confidence.title.lowercased()) · Modellschätzung")
-                        .font(.formaCaption)
+        VStack(spacing: Space.s3) {
+            ZStack {
+                AgeOrb(mood: OrbMood(difference: result?.difference))
+                VStack(spacing: 2) {
+                    Text(number)
+                        .font(.formaHero)
+                        .foregroundStyle(Theme.textPrimary)
+                        .formaNumberTransition(result?.bodyAge ?? 0)
+                    Text("Health Age")
+                        .font(.formaMicro)
+                        .tracking(Tracking.label)
+                        .textCase(.uppercase)
                         .foregroundStyle(Theme.textSecondary)
-                } else {
-                    orb(value: "–", tint: Theme.textSecondary)
-                    Text(status).font(.formaBody).foregroundStyle(Theme.textSecondary)
                 }
-                RowDivider(inset: 0)
-                HStack {
-                    Text("Datengrundlage").font(.formaCaptionStrong)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.formaCaptionStrong).accessibilityHidden(true)
-                }
-                .foregroundStyle(Theme.textSecondary)
-                .frame(minHeight: 44)
             }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding([.top, .horizontal], Space.s4)
-            .contentShape(Rectangle())
-        }
-        .accessibilityElement(children: .combine)
-    }
+            .frame(width: 252, height: 252)
+            .padding(.top, Space.s2)
 
-    private func portrait(_ result: BodyAge.Result) -> some View {
-        let tint = BodyAgeText.color(result.difference)
-        return VStack(spacing: Space.s2) {
-            orb(value: BodyAgeText.years(result.bodyAge, confidence: result.confidence), tint: tint)
-            Text(BodyAgeText.difference(result))
-                .font(.formaRowTitle)
-                .foregroundStyle(tint)
-        }
-    }
-
-    private func orb(value: String, tint: Color) -> some View {
-        ZStack {
-            AgeOrb(tint: tint).accessibilityHidden(true)
-            VStack(spacing: Space.s1) {
-                Text(value)
-                    .font(.formaHero)
-                    .monospacedDigit()
-                    .accessibilityLabel(value == "–" ? "Keine Schätzung" : value + " Jahre")
-                DashboardHeading(title: "Health Age")
+            Text(headline)
+                .font(.formaHeadline)
+                .foregroundStyle(result.map { BodyAgeText.color($0.difference) } ?? Theme.textSecondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 4) {
+                Text(caption)
+                Image(systemName: "chevron.right").imageScale(.small)
             }
+            .font(.formaCaption)
+            .foregroundStyle(Theme.textSecondary)
+            .frame(minHeight: 28)
         }
-        .frame(width: 208, height: 208)
-        .padding(.vertical, Space.s2)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Health Age")
+        .accessibilityValue(result == nil ? headline : "\(number) Jahre, \(headline), \(caption)")
+        .accessibilityHint("Öffnet die Datengrundlage")
     }
 
-    private var status: String {
+    private var number: String {
+        result.map { BodyAgeText.years($0.bodyAge, confidence: $0.confidence) } ?? "–"
+    }
+
+    private var headline: String {
         switch outcome {
-        case .ready: "Modellschätzung"
+        case .ready(let result): BodyAgeText.difference(result)
         case .needsProfile: "Geburtsjahr fehlt"
-        case .needsData(let have, let need): "\(have) von \(need) Tagen mit Daten"
+        case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Daten nötig"
         case .insufficient(let reason): reason
         }
     }
-}
 
-private struct AgeOrb: View {
-    let tint: Color
-
-    var body: some View {
-        let outline = OrbOutline()
-        ZStack {
-            RadialGradient(colors: [tint.opacity(0.20), .clear], center: .center, startRadius: 36, endRadius: 120)
-                .scaleEffect(1.25)
-            outline
-                .fill(RadialGradient(colors: [Color(hex: 0x0C0D0E), Color(hex: 0x0C0D0E), tint.opacity(0.45)],
-                                     center: .center, startRadius: 15, endRadius: 124))
-                .shadow(color: tint.opacity(0.24), radius: 22)
-            outline
-                .stroke(LinearGradient(colors: [tint.opacity(0.8), tint.opacity(0.1), tint.opacity(0.6)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.3)
-        }
+    private var caption: String {
+        result.map { "Datenlage \($0.confidence.title.lowercased())" } ?? "Datengrundlage"
     }
 }
 
-private struct OrbOutline: Shape {
-    func path(in rect: CGRect) -> Path {
-        func p(_ x: Double, _ y: Double) -> CGPoint {
-            CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
-        }
-        var path = Path()
-        path.move(to: p(0.52, 0.04))
-        path.addCurve(to: p(0.95, 0.53), control1: p(0.80, 0.01), control2: p(0.98, 0.27))
-        path.addCurve(to: p(0.46, 0.96), control1: p(0.92, 0.80), control2: p(0.71, 0.99))
-        path.addCurve(to: p(0.05, 0.47), control1: p(0.22, 0.95), control2: p(0.01, 0.72))
-        path.addCurve(to: p(0.52, 0.04), control1: p(0.10, 0.22), control2: p(0.28, 0.07))
-        path.closeSubpath()
-        return path
-    }
-
-}
+// MARK: - Abschnitte unter der Kugel
 
 struct HealthAgeSections: View {
     let outcome: BodyAge.Outcome
+    let trend: [BodyAge.Estimate]
+
+    private var result: BodyAge.Result? {
+        if case .ready(let result) = outcome { return result }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s5) {
-            if case .ready(let result) = outcome {
-                AgingPaceCard(pace: result.pace)
+            AgingPaceCard(pace: result?.pace)
+            if let result, !result.factors.isEmpty {
                 VStack(alignment: .leading, spacing: Space.s2) {
-                    DashboardHeading(title: "Beiträge zum Health Age")
+                    DashboardHeading(title: "Beiträge")
                     DashboardCard {
                         ForEach(result.factors) { factor in
                             if factor.id != result.factors.first?.id { RowDivider() }
-                            AgeFactorRow(factor: factor)
+                            NavigationLink {
+                                AgeFactorDetail(factor: factor)
+                            } label: {
+                                AgeFactorRow(factor: factor)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("health.age.factor." + factor.id)
                         }
                     }
                 }
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    DashboardHeading(title: "Health Age Trend")
-                        .accessibilityIdentifier("health.age.trend.title")
-                    DashboardCard {
-                        if let previous = result.previous, let recent = result.recent {
-                            AgeWindowChart(estimates: [previous, recent])
-                        } else {
-                            DashboardEmpty(title: "Noch nicht genug Verlauf")
-                        }
-                    }
-                }
-                .accessibilityIdentifier("health.age.trend")
-            } else {
-                AgingPaceCard(pace: nil)
             }
+            HealthAgeTrendCard(points: trend)
         }
     }
 }
@@ -183,19 +154,23 @@ private struct AgingPaceCard: View {
                 .accessibilityIdentifier("health.age.pace.title")
             DashboardCard {
                 if let pace {
+                    let band = AgingPace.band(pace)
                     VStack(alignment: .leading, spacing: Space.s3) {
-                        Text(Format.number(pace, decimals: 1) + "×")
-                            .font(.formaWidgetNumber)
-                            .accessibilityLabel(Format.number(pace, decimals: 1) + "-faches Alterungstempo")
-                        paceScale(pace)
-                        Text("1,0× entspricht dem Kalenderalter. Vergleich aus zwei 30-Tage-Fenstern.")
-                            .font(.formaCaption)
-                            .foregroundStyle(Theme.textSecondary)
-                        if !(-1...3).contains(pace) {
-                            Text("Der Wert liegt außerhalb der Skala.").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(AgingPace.text(pace))
+                                .font(.formaWidgetNumber)
+                                .formaNumberTransition(pace)
+                            Spacer()
+                            Text(band.title)
+                                .font(.formaCaptionStrong)
+                                .foregroundStyle(band.color)
                         }
+                        AgingPaceScale(pace: pace, tint: band.color)
                     }
                     .padding(Space.s4)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Alterungstempo")
+                    .accessibilityValue("\(AgingPace.text(pace)), \(band.title)")
                 } else {
                     DashboardEmpty(title: "Noch nicht genug Verlauf")
                 }
@@ -203,30 +178,38 @@ private struct AgingPaceCard: View {
         }
         .accessibilityIdentifier("health.age.pace")
     }
+}
 
-    private func paceScale(_ pace: Double) -> some View {
+/// Feine Striche von −1,0× bis 3,0×; zwischen 1,0× und dem Wert leuchten die Striche.
+private struct AgingPaceScale: View {
+    let pace: Double
+    let tint: Color
+    private let ticks = 40
+
+    var body: some View {
         VStack(spacing: Space.s2) {
-            HStack {
-                Text("Langsam")
-                Spacer()
-                Text("Schnell")
-            }
             GeometryReader { geometry in
-                let span = geometry.size.width - 8
-                let fraction = (min(3, max(-1, pace)) + 1) / 4
-                ZStack(alignment: .leading) {
-                    ForEach(0...40, id: \.self) { tick in
-                        Capsule().fill(tick.isMultiple(of: 10) ? Theme.textTertiary : Theme.hairline)
-                            .frame(width: 1, height: tick.isMultiple(of: 10) ? 20 : 12)
-                            .offset(x: 4 + span * Double(tick) / 40)
+                let width = geometry.size.width
+                let marker = width * CGFloat(AgingPace.fraction(pace))
+                let clock = width * CGFloat(AgingPace.fraction(1))
+                let lit = min(marker, clock)...max(marker, clock)
+                ZStack {
+                    ForEach(0...ticks, id: \.self) { tick in
+                        let x = width * CGFloat(tick) / CGFloat(ticks)
+                        let major = tick.isMultiple(of: 10)
+                        Capsule()
+                            .fill(lit.contains(x) ? tint : (major ? Theme.textTertiary : Theme.textQuaternary))
+                            .frame(width: 1.5, height: major ? 22 : 14)
+                            .position(x: min(max(x, 1), width - 1), y: 18)
                     }
-                    Capsule().fill(Theme.textPrimary)
-                        .frame(width: 4, height: 27)
-                        .offset(x: 2 + span * fraction)
+                    Capsule()
+                        .fill(Theme.textPrimary)
+                        .frame(width: 4, height: 34)
+                        .shadow(color: tint.opacity(0.9), radius: 6)
+                        .position(x: min(max(marker, 2), width - 2), y: 18)
                 }
-                .frame(maxHeight: .infinity)
             }
-            .frame(height: 29)
+            .frame(height: 36)
             HStack {
                 Text("−1,0×")
                 Spacer()
@@ -235,6 +218,11 @@ private struct AgingPaceCard: View {
                 Text("3,0×")
             }
             .monospacedDigit()
+            HStack {
+                Label("Langsam", systemImage: "tortoise")
+                Spacer()
+                Label("Schnell", systemImage: "hare")
+            }
         }
         .font(.formaCaption)
         .foregroundStyle(Theme.textSecondary)
@@ -242,125 +230,302 @@ private struct AgingPaceCard: View {
     }
 }
 
+// MARK: - Faktoren
+
+private func factorYears(_ factor: BodyAge.Factor) -> Double {
+    factor.years * BodyAge.overlapDamping
+}
+
 private struct AgeFactorRow: View {
     let factor: BodyAge.Factor
 
     var body: some View {
-        let years = factor.years * BodyAge.overlapDamping
+        let years = factorYears(factor)
         let tint = BodyAgeText.color(years)
-        let domain = min(factor.value, factor.displayRange.lowerBound)...max(factor.value, factor.displayRange.upperBound)
-        return VStack(alignment: .leading, spacing: Space.s2) {
+        VStack(alignment: .leading, spacing: Space.s2) {
             HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                Label(factor.title, systemImage: factor.systemImage)
-                    .font(.formaCaptionStrong)
-                    .textCase(.uppercase)
-                    .layoutPriority(1)
-                Spacer(minLength: Space.s1)
+                Text(factor.title)
+                    .formaLabelStyle()
+                Spacer(minLength: Space.s2)
                 Text(BodyAgeText.signedYears(years))
                     .font(.formaValue)
                     .foregroundStyle(tint)
-                    .multilineTextAlignment(.trailing)
+                Image(systemName: "chevron.right")
+                    .font(.formaMicro)
+                    .foregroundStyle(Theme.textTertiary)
             }
-            Text(factor.valueText).font(.formaBody)
-            GeometryReader { geometry in
-                RangeBar(low: factor.referenceRange.lowerBound, high: factor.referenceRange.upperBound,
-                         value: factor.value, minimum: domain.lowerBound, maximum: domain.upperBound,
-                         dotColor: tint, width: geometry.size.width)
-            }
-            .frame(height: 10)
-            .accessibilityHidden(true)
-            Text(factor.referenceText)
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textSecondary)
+            FactorRangeBar(factor: factor, tint: tint)
         }
+        .padding(Space.s4)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(factor.title)
+        .accessibilityValue("\(factor.valueText), \(BodyAgeText.signedYears(years))")
+    }
+}
+
+/// Bereichsbalken: Vergleich als helles Band oder Strich, Wert als Marker mit Zahl,
+/// die Strecke dazwischen in Grün (jünger) oder Orange (älter).
+struct FactorRangeBar: View {
+    let factor: BodyAge.Factor
+    let tint: Color
+
+    var body: some View {
+        let domain = FactorScale.domain(value: factor.value, display: factor.displayRange)
+        let gap = FactorScale.gap(value: factor.value, reference: factor.referenceRange, in: domain)
+        VStack(spacing: 4) {
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let valueX = width * CGFloat(FactorScale.fraction(factor.value, in: domain))
+                let low = width * CGFloat(FactorScale.fraction(factor.referenceRange.lowerBound, in: domain))
+                let high = width * CGFloat(FactorScale.fraction(factor.referenceRange.upperBound, in: domain))
+                ZStack {
+                    Capsule()
+                        .fill(Theme.track)
+                        .frame(width: width, height: 4)
+                        .position(x: width / 2, y: 28)
+                    if high - low > 2 {
+                        Capsule()
+                            .fill(Color.white.opacity(0.22))
+                            .frame(width: high - low, height: 4)
+                            .position(x: (low + high) / 2, y: 28)
+                    } else {
+                        Capsule()
+                            .fill(Theme.textTertiary)
+                            .frame(width: 2, height: 12)
+                            .position(x: min(max(low, 1), width - 1), y: 28)
+                    }
+                    if let gap {
+                        let from = width * CGFloat(gap.lowerBound)
+                        let to = width * CGFloat(gap.upperBound)
+                        Capsule()
+                            .fill(tint)
+                            .frame(width: max(4, to - from), height: 4)
+                            .position(x: (from + to) / 2, y: 28)
+                    }
+                    Image(systemName: "arrowtriangle.down.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Theme.textPrimary)
+                        .position(x: min(max(valueX, 4), width - 4), y: 19)
+                    Text(FactorScale.compact(factor.value, id: factor.id))
+                        .font(.formaMicro)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textPrimary)
+                        .fixedSize()
+                        .position(x: min(max(valueX, 34), max(34, width - 34)), y: 6)
+                }
+            }
+            .frame(height: 32)
+            HStack {
+                Text(FactorScale.end(domain.lowerBound, id: factor.id))
+                Spacer()
+                Text(FactorScale.end(domain.upperBound, id: factor.id))
+            }
+            .font(.formaMicro)
+            .monospacedDigit()
+            .foregroundStyle(Theme.textTertiary)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct AgeFactorDetail: View {
+    let factor: BodyAge.Factor
+    @Environment(DataHub.self) private var hub
+
+    var body: some View {
+        let years = factorYears(factor)
+        let tint = BodyAgeText.color(years)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.s4) {
+                if hub.isSample { SampleDataBadge() }
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text(BodyAgeText.signedYears(years))
+                        .font(.formaDisplay)
+                        .foregroundStyle(tint)
+                    Text(factor.valueText)
+                        .font(.formaBody)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                DashboardCard {
+                    FactorRangeBar(factor: factor, tint: tint).padding(Space.s4)
+                }
+                DashboardCard {
+                    row("Vergleich", factor.referenceText)
+                    RowDivider()
+                    row("Datengrundlage", factor.coverage)
+                }
+            }
+            .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
+        }
+        .dashboardScreen()
+        .navigationTitle(factor.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func row(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            Text(value).font(.formaBody).foregroundStyle(Theme.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Space.s4)
         .accessibilityElement(children: .combine)
     }
 }
 
-private struct AgeWindowChart: View {
-    let estimates: [BodyAge.Estimate]
+// MARK: - Trend
 
-    private var scale: ClosedRange<Double> {
-        let values = estimates.flatMap { [$0.age, $0.bodyAge] }
-        return ((values.min() ?? 0) - 0.6)...((values.max() ?? 1) + 0.6)
-    }
+/// Health Age gegen echtes Alter, eine Schätzung pro Woche.
+private struct HealthAgeTrendCard: View {
+    let points: [BodyAge.Estimate]
+    @State private var selection: Date?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            DashboardHeading(title: "Health Age Trend")
+                .accessibilityIdentifier("health.age.trend.title")
+            DashboardCard {
+                if points.count >= 2 {
+                    chart
+                } else {
+                    DashboardEmpty(title: "Noch nicht genug Verlauf")
+                }
+            }
+        }
+        .accessibilityIdentifier("health.age.trend")
+    }
+
+    private var selected: BodyAge.Estimate? {
+        guard let selection else { return points.last }
+        return points.min { abs($0.date.timeIntervalSince(selection)) < abs($1.date.timeIntervalSince(selection)) }
+    }
+
+    private var chart: some View {
+        let last = points[points.count - 1]
+        let tint = BodyAgeText.color(last.bodyAge - last.age)
+        let values = points.flatMap { [$0.age, $0.bodyAge] }
+        let scale = ((values.min() ?? 0) - 0.8)...((values.max() ?? 1) + 0.8)
+        return VStack(alignment: .leading, spacing: Space.s3) {
+            if let shown = selected {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                    Text(Format.number(shown.bodyAge, decimals: 1))
+                        .font(.formaNumber)
+                        .foregroundStyle(tint)
+                        .formaNumberTransition(shown.bodyAge)
+                    Text("Health Age")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Text(Format.shortDate(shown.date))
+                        .font(.formaCaption)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
             Chart {
-                ForEach(estimates) { period in
-                    LineMark(x: .value("Fenstermitte", period.date), y: .value("Jahre", period.bodyAge),
-                             series: .value("Reihe", "Health Age"))
-                        .foregroundStyle(Theme.younger)
-                    PointMark(x: .value("Fenstermitte", period.date), y: .value("Jahre", period.bodyAge))
-                        .foregroundStyle(Theme.younger)
-                        .symbolSize(45)
-                    LineMark(x: .value("Fenstermitte", period.date), y: .value("Jahre", period.age),
-                             series: .value("Reihe", "Kalenderalter"))
+                ForEach(points) { p in
+                    AreaMark(x: .value("Datum", p.date),
+                             yStart: .value("Alter", p.age),
+                             yEnd: .value("Health Age", p.bodyAge))
+                        .foregroundStyle(tint.opacity(0.14))
+                        .interpolationMethod(.monotone)
+                    LineMark(x: .value("Datum", p.date), y: .value("Jahre", p.age),
+                             series: .value("Reihe", "Alter"))
                         .foregroundStyle(Theme.textTertiary)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
+                    LineMark(x: .value("Datum", p.date), y: .value("Jahre", p.bodyAge),
+                             series: .value("Reihe", "Health Age"))
+                        .foregroundStyle(tint)
+                        .interpolationMethod(.monotone)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                }
+                if let shown = selected {
+                    PointMark(x: .value("Datum", shown.date), y: .value("Jahre", shown.bodyAge))
+                        .foregroundStyle(tint)
+                        .symbolSize(60)
+                }
+                if selection != nil, let shown = selected {
+                    RuleMark(x: .value("Auswahl", shown.date))
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 }
             }
             .chartYScale(domain: scale)
+            .chartXSelection(value: $selection)
             .chartXAxis {
-                AxisMarks(preset: .aligned, values: estimates.map(\.date)) { _ in
-                    AxisValueLabel(format: .dateTime.day().month(.abbreviated)).foregroundStyle(Theme.textSecondary)
+                AxisMarks(preset: .aligned, values: .automatic(desiredCount: 4)) { _ in
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
                     AxisGridLine().foregroundStyle(Theme.hairline)
                     AxisValueLabel().foregroundStyle(Theme.textSecondary)
                 }
             }
-            .frame(height: 150)
-            .accessibilityLabel("Health Age und Kalenderalter an den Mitten der zwei Zeitfenster")
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.s3) {
-                    legend("Health Age", icon: "circle.fill", color: Theme.younger)
-                    legend("Kalenderalter", icon: "line.diagonal", color: Theme.textTertiary)
-                }
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    legend("Health Age", icon: "circle.fill", color: Theme.younger)
-                    legend("Kalenderalter", icon: "line.diagonal", color: Theme.textTertiary)
-                }
+            .frame(height: 168)
+            .sensoryFeedback(.selection, trigger: selected?.date)
+            .accessibilityLabel("Health Age Trend, \(points.count) Wochen")
+            .accessibilityValue("zuletzt \(Format.number(last.bodyAge, decimals: 1)) Jahre bei echtem Alter \(Format.number(last.age, decimals: 1))")
+            HStack(spacing: Space.s4) {
+                legend("Health Age", color: tint, dashed: false)
+                legend("Echtes Alter", color: Theme.textTertiary, dashed: true)
             }
+            .accessibilityHidden(true)
         }
         .padding(Space.s4)
     }
 
-    private func legend(_ title: String, icon: String, color: Color) -> some View {
-        Label {
-            Text(title).foregroundStyle(Theme.textSecondary)
-        } icon: {
-            Image(systemName: icon).foregroundStyle(color)
+    private func legend(_ title: String, color: Color, dashed: Bool) -> some View {
+        HStack(spacing: 6) {
+            Capsule()
+                .stroke(color, style: StrokeStyle(lineWidth: 2, dash: dashed ? [3, 3] : []))
+                .frame(width: 16, height: 2)
+            Text(title)
         }
         .font(.formaCaption)
-        .fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(Theme.textSecondary)
     }
 }
 
+// MARK: - Datengrundlage und Quellen
+
 struct BodyAgeDetailView: View {
     @Environment(AppState.self) private var app
+    @Environment(DataHub.self) private var hub
     let outcome: BodyAge.Outcome
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s4) {
+                if hub.isSample { SampleDataBadge() }
                 switch outcome {
                 case .ready(let result):
                     DashboardCard {
-                        MetricRow(title: "Datenabdeckung", value: "\(result.daysWithData) von \(result.windowDays) Tagen")
+                        MetricRow(title: "Health Age", value: BodyAgeText.years(result.bodyAge, confidence: result.confidence))
+                        RowDivider()
+                        MetricRow(title: "Echtes Alter", value: Format.number(result.age, decimals: 1))
+                        RowDivider()
+                        MetricRow(title: "Tage mit Daten", value: "\(result.daysWithData) von \(result.windowDays)")
                         RowDivider()
                         MetricRow(title: "Datenlage", value: result.confidence.title)
                     }
-                    Text("Health Age und Alterungstempo sind Modellschätzungen. Für die Methode gibt es keine klinische Validierung.")
-                        .font(.formaBody).foregroundStyle(Theme.textSecondary)
                     if !result.missing.isEmpty {
-                        DashboardHeading(title: "Fehlende Daten")
-                        ForEach(result.missing, id: \.self) { item in
-                            Text(item).font(.formaBody).foregroundStyle(Theme.textSecondary)
+                        DashboardHeading(title: "Fehlt noch")
+                            .padding(.top, Space.s2)
+                        DashboardCard {
+                            ForEach(Array(result.missing.enumerated()), id: \.offset) { index, item in
+                                if index > 0 { RowDivider() }
+                                Text(item)
+                                    .font(.formaBody)
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(Space.s4)
+                            }
                         }
                     }
                 case .needsProfile:
@@ -369,23 +534,54 @@ struct BodyAgeDetailView: View {
                         .buttonStyle(.glass)
                         .frame(minHeight: 44)
                 case .needsData(let have, let need):
-                    Text("\(have) von \(need) Tagen mit Daten").font(.formaBody)
+                    DashboardCard {
+                        MetricRow(title: "Tage mit Daten", value: "\(have) von \(need)")
+                    }
                 case .insufficient(let reason):
                     Text(reason).font(.formaBody)
                 }
-                DashboardHeading(title: "Quellen")
-                ForEach(Array(BodyAge.sources.enumerated()), id: \.offset) { _, source in
-                    if let url = URL(string: source.url) {
-                        Link(source.title, destination: url)
-                            .font(.formaBody)
-                            .frame(minHeight: 44, alignment: .leading)
-                    }
-                }
+                Text("Schätzung, keine Diagnose.")
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textTertiary)
             }
-            .padding(Space.s4)
+            .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
         }
         .dashboardScreen()
         .navigationTitle("Datengrundlage")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct HealthSourcesView: View {
+    var body: some View {
+        ScrollView {
+            DashboardCard {
+                ForEach(Array(BodyAge.sources.enumerated()), id: \.offset) { index, source in
+                    if let url = URL(string: source.url) {
+                        if index > 0 { RowDivider() }
+                        Link(destination: url) {
+                            HStack(spacing: Space.s3) {
+                                Text(source.title)
+                                    .font(.formaBody)
+                                    .foregroundStyle(Theme.textPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.formaCaptionStrong)
+                                    .foregroundStyle(Theme.textTertiary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(Space.s4)
+                            .frame(minHeight: 44)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
+        }
+        .dashboardScreen()
+        .navigationTitle("Quellen")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

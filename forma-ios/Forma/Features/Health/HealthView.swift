@@ -21,20 +21,20 @@ enum HealthTile: String, TileKind {
     }
 }
 
+/// Health: oben Health Age, darunter Tempo, Beiträge, Trend, Health Monitor und Biomarker.
 struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
 
     var body: some View {
         let age = bodyAgeOutcome(hub: hub, sessions: sessions)
-        let latest = hub.days
+        let trend = bodyAgeTrend(hub: hub, sessions: sessions)
         let today = Date.now.startOfDay
-        let day = latest.last.flatMap { $0.date == today ? $0 : nil } ?? DayMetrics(date: today)
-        let snapshot = DashboardDay(day: day,
-                                    history: hub.dashboardHistory(recent: latest))
+        let day = hub.days.last.flatMap { $0.date == today ? $0 : nil } ?? DayMetrics(date: today)
+        let snapshot = DashboardDay(day: day, history: hub.dashboardHistory(recent: hub.days))
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: Space.s5) {
                     if hub.isSample {
                         SampleDataBadge()
                     } else if let status = hub.todayDataNotice {
@@ -48,15 +48,27 @@ struct HealthView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("health.age")
 
-                    HealthAgeSections(outcome: age)
-                        .padding(.top, Space.s3)
+                    HealthAgeSections(outcome: age, trend: trend)
                     HealthMonitor(snapshot: snapshot)
-                        .padding(.top, Space.s3)
-                    DashboardHeading(title: "Biomarker")
-                        .padding(.top, Space.s3)
-                    InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
-                        AnyView(tile(kind))
+
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        DashboardHeading(title: "Biomarker")
+                        InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
+                            AnyView(tile(kind))
+                        }
                     }
+
+                    NavigationLink {
+                        HealthSourcesView()
+                    } label: {
+                        Text("Quellen")
+                            .font(.formaCaption)
+                            .underline()
+                            .foregroundStyle(Theme.textTertiary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("health.sources")
                 }
                 .padding(.horizontal, Space.page)
                 .padding(.vertical, Space.s4)
@@ -83,6 +95,7 @@ struct HealthView: View {
     }
 }
 
+/// Diagramm eines Biomarkers über 7, 30 oder 90 Tage mit persönlichem Normalband.
 struct MetricDetailView: View {
     @Environment(DataHub.self) private var hub
     let kind: MetricKind
@@ -94,6 +107,14 @@ struct MetricDetailView: View {
     private var domain: ClosedRange<Date> {
         let end = Date.now.startOfDay
         return end.adding(days: -(range - 1))...end
+    }
+
+    private var axisStride: Int {
+        switch range {
+        case 7: 2
+        case 30: 7
+        default: 30
+        }
     }
 
     private struct SegmentPoint { let date: Date; let value: Double; let segment: Int }
@@ -109,52 +130,55 @@ struct MetricDetailView: View {
         return result
     }
 
-    /// Nur eine Messung am *gewählten Tag* – in Lücken keine weiter entfernte Messung (Codex R-02-20/A-28).
+    /// Nur eine Messung am gewählten Tag – in Lücken keine weiter entfernte Messung.
     private func selectedPoint(_ points: [(Date, Double)]) -> (Date, Double)? {
         guard let selection else { return nil }
         return points.first { Calendar.forma.isDate($0.0, inSameDayAs: selection) }
     }
 
     var body: some View {
-        let points = hub.days.filter { domain.contains($0.date) }.compactMap { day in
-            kind.value(day).map { (day.date, $0) }
-        }
+        let all = hub.longDays.compactMap { day in kind.value(day).map { (day.date, $0) } }
+        let points = all.filter { domain.contains($0.0) }
         let values = points.map(\.1)
         let base = ScoreEngine.baseline(hub.history.compactMap { kind.value($0) })
+        let status = BiomarkerStatus.evaluate(latest: all.last.map { (date: $0.0, value: $0.1) }, baseline: base)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
                     if hub.isSample { SampleDataBadge().padding(.bottom, Space.s2) }
-                    Text(points.last.map { kind.measurement($0.1) } ?? "–")
-                        .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                        .monospacedDigit()
-                    Text(points.last.map { "Stand \(Format.shortDate($0.0))" } ?? "Keine Messung")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
+                    Text(all.last.map { kind.measurement($0.1) } ?? "–")
+                        .font(.formaDisplay)
+                    HStack(spacing: 6) {
+                        Text(status.title).foregroundStyle(status.color(for: kind))
+                        // Bei älteren Werten steht das Datum schon im Zustandswort.
+                        if status == .normal || status == .higher || status == .lower, let last = all.last {
+                            Text("· \(Format.shortDate(last.0))").foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+                    .font(.formaCaptionStrong)
                 }
                 .padding(.top, Space.s4)
 
                 Picker("Zeitraum", selection: $range) {
                     Text("7 Tage").tag(7)
-                    Text("14 Tage").tag(14)
                     Text("30 Tage").tag(30)
+                    Text("90 Tage").tag(90)
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, Space.s5)
                 .onChange(of: range) { _, _ in selection = nil }
 
-                Plate {
+                DashboardCard {
                     VStack(alignment: .leading, spacing: Space.s2) {
-                        // Ausgewählter Tag oder Hinweis zum Abfahren mit dem Finger.
                         Group {
                             if let sel = selectedPoint(points) {
-                                Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.formatted(sel.1))\(kind == .sleepDuration ? "" : " " + kind.unit)")
+                                Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.measurement(sel.1))")
                                     .foregroundStyle(Theme.textPrimary)
                             } else if let selection {
                                 Text("\(selection.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): keine Messung")
                                     .foregroundStyle(Theme.textSecondary)
                             } else if !points.isEmpty {
-                                Text("\(points.count) Messungen")
+                                Text("\(points.count) von \(range) Tagen gemessen")
                                     .foregroundStyle(Theme.textSecondary)
                             }
                         }
@@ -167,52 +191,7 @@ struct MetricDetailView: View {
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, minHeight: 160, alignment: .center)
                         } else {
-                            Chart {
-                                if let b = base {
-                                    RectangleMark(xStart: .value("Start", domain.lowerBound), xEnd: .value("Ende", domain.upperBound),
-                                                  yStart: .value("unten", b.mean - b.sd), yEnd: .value("oben", b.mean + b.sd))
-                                        .foregroundStyle(Color.white.opacity(0.06))
-                                }
-                                // Linear verbinden und bei Lücken unterbrechen: keine erfundenen Zwischenwerte (Codex R-01-31).
-                                ForEach(segmented(points), id: \.date) { p in
-                                    LineMark(x: .value("Tag", p.date), y: .value(kind.title, p.value), series: .value("Abschnitt", p.segment))
-                                        .interpolationMethod(.linear)
-                                        .foregroundStyle(Theme.textPrimary)
-                                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                    PointMark(x: .value("Tag", p.date), y: .value(kind.title, p.value))
-                                        .symbolSize(14)
-                                        .foregroundStyle(Theme.textPrimary)
-                                }
-                                if let sel = selectedPoint(points) {
-                                    RuleMark(x: .value("Auswahl", sel.0))
-                                        .foregroundStyle(Theme.textTertiary)
-                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                                    PointMark(x: .value("Tag", sel.0), y: .value(kind.title, sel.1))
-                                        .symbolSize(70)
-                                        .foregroundStyle(Theme.textPrimary)
-                                }
-                            }
-                            .chartXScale(domain: domain)
-                            .chartYScale(domain: .automatic(includesZero: false))
-                            .chartXSelection(value: $selection)
-                            .chartXAxis {
-                                // .aligned hält die Randbeschriftungen im Diagramm (keine abgeschnittenen Daten).
-                                AxisMarks(preset: .aligned, values: .stride(by: .day, count: range > 14 ? 7 : 2)) { _ in
-                                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
-                                        .foregroundStyle(Theme.textSecondary)
-                                }
-                            }
-                            .chartYAxis {
-                                AxisMarks(position: .trailing) { _ in
-                                    AxisGridLine().foregroundStyle(Theme.hairline)
-                                    AxisValueLabel().foregroundStyle(Theme.textSecondary)
-                                }
-                            }
-                            .chartPlotStyle { $0.padding(.trailing, 6) }
-                            .frame(height: 220)
-                            .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0)
-                            .accessibilityLabel("\(kind.title), \(points.count) Messungen in \(range) Tagen")
-                            .accessibilityValue(points.last.map { "zuletzt \(kind.formatted($0.1)) \(kind.unit)" } ?? "keine Messung")
+                            chart(points: points, base: base)
                         }
                     }
                     .padding(Space.s4)
@@ -220,15 +199,21 @@ struct MetricDetailView: View {
                 .padding(.top, Space.s4)
                 .animation(reduceMotion ? nil : .smooth, value: range)
 
-                FormaSection(title: "Zusammenfassung") {
-                    Plate {
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    DashboardHeading(title: "Zusammenfassung")
+                    DashboardCard {
                         MetricRow(title: "Mittel", value: values.isEmpty ? "–" : kind.formatted(values.reduce(0, +) / Double(values.count)), unit: kind == .sleepDuration ? nil : kind.unit)
                         RowDivider()
                         MetricRow(title: "Niedrigster Wert", value: values.min().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
                         RowDivider()
                         MetricRow(title: "Höchster Wert", value: values.max().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
+                        if let base {
+                            RowDivider()
+                            MetricRow(title: "Normalbereich", value: "\(kind.formatted(max(0, base.mean - base.sd)))–\(kind.formatted(base.mean + base.sd))", unit: kind == .sleepDuration ? nil : kind.unit)
+                        }
                     }
                 }
+                .padding(.top, Space.s5)
                 Color.clear.frame(height: Space.s7)
             }
             .padding(.horizontal, Space.page)
@@ -236,5 +221,54 @@ struct MetricDetailView: View {
         .dashboardScreen()
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func chart(points: [(Date, Double)], base: ScoreEngine.Baseline?) -> some View {
+        Chart {
+            if let b = base {
+                RectangleMark(xStart: .value("Start", domain.lowerBound), xEnd: .value("Ende", domain.upperBound),
+                              yStart: .value("unten", max(0, b.mean - b.sd)), yEnd: .value("oben", b.mean + b.sd))
+                    .foregroundStyle(Theme.younger.opacity(0.08))
+            }
+            // Linear verbinden und bei Lücken unterbrechen: keine erfundenen Zwischenwerte.
+            ForEach(segmented(points), id: \.date) { p in
+                LineMark(x: .value("Tag", p.date), y: .value(kind.title, p.value), series: .value("Abschnitt", p.segment))
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                PointMark(x: .value("Tag", p.date), y: .value(kind.title, p.value))
+                    .symbolSize(range == 90 ? 6 : 14)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            if let sel = selectedPoint(points) {
+                RuleMark(x: .value("Auswahl", sel.0))
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                PointMark(x: .value("Tag", sel.0), y: .value(kind.title, sel.1))
+                    .symbolSize(70)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+        }
+        .chartXScale(domain: domain)
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartXSelection(value: $selection)
+        .chartXAxis {
+            // .aligned hält die Randbeschriftungen im Diagramm.
+            AxisMarks(preset: .aligned, values: .stride(by: .day, count: axisStride)) { _ in
+                AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine().foregroundStyle(Theme.hairline)
+                AxisValueLabel().foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .chartPlotStyle { $0.padding(.trailing, 6) }
+        .frame(height: 220)
+        .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0)
+        .accessibilityLabel("\(kind.title), \(points.count) Messungen in \(range) Tagen")
+        .accessibilityValue(points.last.map { "zuletzt \(kind.measurement($0.1))" } ?? "keine Messung")
     }
 }
