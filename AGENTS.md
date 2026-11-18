@@ -18,11 +18,12 @@ Warum Codex nicht selbst Swift ändert: Zwei Agenten auf denselben Dateien erzeu
 - Branch: `claude/awesome-hypatia-tnhuis` (nur dort arbeiten, keine PR ohne Auftrag)
 - App: `forma-ios/` – SwiftUI, iOS 26, Swift 6, Liquid Glass, XcodeGen, keine Fremd-Frameworks
 - CI: `.github/workflows/forma-ios.yml` baut bei jedem Push eine unsignierte **Forma.ipa** (Artifact „Forma-IPA“) und fährt einen UI-Rundgang im Simulator. Die Screenshots landen per CI-Commit in `docs/forma-screens/` (Dateiname = Bildschirm).
+- Runde 01: Codex-Review 01 und Prüfer-Review 01b umgesetzt (`d411500`), Antwort in `forma-ios/reviews/review-01-antwort.md`. Unit-Tests (`FormaTests`) laufen in der CI verpflichtend.
+- Fitbit Web API ist seit 2.11.2026 abgeschaltet → in der App als „wird umgestellt“ gekennzeichnet. Nächster großer Schritt: Google-Health-Importer (braucht Maxis Google-Cloud-Projekt).
 - Fertig: Heute (3 Ringe fest oben, darunter verschiebbare Kacheln), Training im Hevy-Stil (SwiftData, Live-Training, Pausentimer, 1RM), Gesundheit (Trends, **Körperalter**), Coach (lokal + optional Claude-API), Journal, Profil, Apple Health, Fitbit (PKCE).
 - Neu in Iteration 6: neutrales Schwarz statt Blaugrau, Lichtschein in Datenfarbe, Glas-Chips, Kachel-Karten, **Kacheln auf Heute, Training und Gesundheit verschiebbar** (lange drücken und ziehen, Kontextmenü, „… anpassen“-Liste), Körperalter mit offengelegter Methode und Quellen (`forma-ios/Forma/Data/BodyAge.swift`).
 - Offen / bekannt:
-  - Fitbit lädt pro Tag 6 Anfragen; das Limit liegt bei etwa 150 Anfragen pro Stunde. Ein Zwischenspeicher mildert das, besser wären die Zeitraum-Endpunkte der Fitbit-API. Codex: bitte prüfen und konkret vorschlagen.
-  - Fitbit-Client-ID muss Maxi in `forma-ios/Config.xcconfig` eintragen.
+  - Fitbit: alte API abgeschaltet, Google Health API noch nicht angebunden.
   - HealthKit mit kostenloser Apple-ID per Sideloadly: nicht bestätigt.
   - Noch kein Test auf echtem Gerät.
 
@@ -70,6 +71,23 @@ Was gut ist und nicht angefasst werden darf.
 ```
 
 Schweregrade: **P0** kaputt/irreführend · **P1** deutlich sichtbarer Designfehler · **P2** Feinschliff · **P3** Geschmack/Idee.
+
+## Runde 02 – Design-Nachprüfung und Angriffstest (für Codex)
+
+Zuerst `forma-ios/reviews/review-01-antwort.md` lesen und jeden Punkt nachprüfen. Nichts glauben, alles im Code und auf den neuen Screenshots kontrollieren.
+
+Danach **wie ein Angreifer** vorgehen. Ziel: Forma zum Absturz bringen, falsche Zahlen erzeugen, Daten verlieren oder Daten nach außen geben. Für jeden Fund einen konkreten Testfall (Eingabe → erwartetes Verhalten) angeben, möglichst als XCTest-Vorschlag für `forma-ios/FormaTests/`.
+
+Angriffsflächen:
+1. **Eingaben aus dem Netz:** Fitbit-/Google-Antworten (kaputtes JSON, riesige Werte, negative Dauern, falsche Zeitzonen, Sommerzeitwechsel), Anthropic-Antworten (leer, Fehlercodes, sehr lang), Header (`Retry-After`).
+2. **Apple-Health-Daten:** NaN/∞, Überlappungen, Nickerchen, mehrere Quellen, Daten aus der Zukunft, 0 Tage, 1 Tag, 10 Jahre.
+3. **Lokaler Speicher:** manipulierte UserDefaults (`forma.tiles.*`, `forma.liveWorkout`, `forma.birthYear`, `forma.lastRings`), kaputte SwiftData-Zustände, App-Abbruch mitten im Speichern.
+4. **Bedienung:** Doppeltippen, sehr schnelles Tippen, Training ohne Sätze, 1000 Sätze, Gewicht 0 / 1000, Einheitenwechsel mitten im Training, Rotation/Hintergrund/Sperrbildschirm während der Pause.
+5. **Datenschutz:** Gelangt irgendein Gesundheitswert ohne Zustimmung nach außen? Liegen Schlüssel/Token außerhalb des Schlüsselbunds? Logs?
+6. **OAuth/PKCE:** `state`-Prüfung, Wiederverwendung von Codes, URL-Schema `forma://` von außen aufrufbar?
+7. **Berechnungen:** Grenzwerte in `ScoreEngine`, `BodyAge`, `Progression`, `PlateMath` (Off-by-one, Rundung, Division durch 0).
+
+Ergebnis nach `forma-ios/reviews/review-02.md`, Befunde `R-02-xx`, Schweregrade wie oben, plus Abschnitt „Angriffstest“ mit Tabelle *Angriff · Ergebnis laut Code · Risiko · Testfall*. Nur diese Datei committen.
 
 ## Regeln für alle Agenten
 
