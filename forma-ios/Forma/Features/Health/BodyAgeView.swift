@@ -269,7 +269,7 @@ struct BodyAgeDetailView: View {
             VStack(alignment: .leading, spacing: Space.s3) {
                 Text("**Deine Messwerte:** Für jeden Faktor nehme ich deinen Durchschnitt der letzten bis zu 180 Tage (VO₂max: letzte 90 Tage).")
                 Text("**Vergleich in Studien:** Wie stark ein Unterschied mit dem Sterberisiko zusammenhängt, stammt aus großen Meta-Analysen. Das sind Gruppenbefunde, keine Aussagen über dich.")
-                Text("**So entsteht die Zahl:** Das Risiko rechne ich mit der Faustregel „Verdopplung etwa alle 8 Jahre“ (Gompertz) in Jahre um. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 %, höchstens ±15 Jahre. Vergleichswerte, 70 % und Grenzen sind Annahmen von Forma. Die Zeilen oben zeigen die Beiträge bereits mit 70 %, sie ergeben zusammen den Abstand zu deinem Alter.")
+                Text("**So entsteht die Zahl:** Das Risiko rechne ich mit der Faustregel „Verdopplung etwa alle 8 Jahre“ (Gompertz) in Jahre um. Weil die Faktoren zusammenhängen, zählt die Summe nur zu 70 %, höchstens ±15 Jahre. Vergleichswerte, 70 % und Grenzen sind Annahmen von Health. Die Zeilen oben zeigen die Beiträge bereits mit 70 %, sie ergeben zusammen den Abstand zu deinem Alter.")
                 Text("HRV fließt nicht ein: Apple misst SDNN, Fitbit RMSSD, und das Modell ist dafür nicht geprüft.")
                 Text("Eine Schätzung zur Orientierung und Motivation, keine Diagnose.")
             }

@@ -198,7 +198,7 @@ struct TodayView: View {
 
     private func missingText(_ a: DataHub.Availability) -> String {
         switch (a.recovery, a.sleep) {
-        case (false, false): "Für heute fehlen Schlaf und Herzwerte. Trag deine Uhr in der Nacht, dann rechnet Forma morgen früh."
+        case (false, false): "Für heute fehlen Schlaf und Herzwerte. Trag deine Uhr in der Nacht, dann rechnet Health morgen früh."
         case (false, true): "Für die Erholung fehlen heute HRV und Ruhepuls."
         default: "Für heute ist noch keine Nacht gespeichert."
         }

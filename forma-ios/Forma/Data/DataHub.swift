@@ -158,7 +158,7 @@ final class DataHub {
                 await self?.scheduleRefresh(background: true)
             }
             if !failed.isEmpty {
-                self.observerNote = "Hintergrundzustellung nicht verfügbar für: \(failed.joined(separator: ", ")). Forma aktualisiert diese Werte beim Öffnen und über den regelmäßigen Hintergrundabruf."
+                self.observerNote = "Hintergrundzustellung nicht verfügbar für: \(failed.joined(separator: ", ")). Health aktualisiert diese Werte beim Öffnen und über den regelmäßigen Hintergrundabruf."
             } else {
                 self.observerNote = nil
             }
@@ -325,7 +325,7 @@ final class DataHub {
             // Bei gesperrtem iPhone gibt Apple Health nichts heraus. Dann nichts überschreiben (später erneut).
             guard UIApplication.shared.isProtectedDataAvailable else {
                 waitingForUnlock = true
-                syncNote = "iPhone gesperrt – Forma holt die Daten nach dem Entsperren."
+                syncNote = "iPhone gesperrt – Health holt die Daten nach dem Entsperren."
                 return .locked
             }
             waitingForUnlock = false
@@ -348,7 +348,7 @@ final class DataHub {
                 let hasData = merged.suffix(30).contains(where: SyncStore.hasData)
                 guard hasData else {
                     // Keine stillen Beispieldaten, wenn Apple Health freigegeben ist (Codex R-01-03).
-                    lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Forma, ob alles freigegeben ist."
+                    lastError = "In Apple Health wurden für die letzten 30 Tage keine Schlaf-, Herz- oder Schrittdaten gefunden. Prüfe in der Health-App unter Profilbild → Apps → Health, ob alles freigegeben ist."
                     return .unchanged
                 }
                 lastUpdate = .now
@@ -357,7 +357,7 @@ final class DataHub {
                 if !imported.failed.isEmpty {
                     syncNote = "Teilweise aktualisiert. Nicht lesbar: \(imported.failed.map(\.title).sorted().joined(separator: ", ")) – dort gilt der letzte Stand."
                 } else {
-                    syncNote = saved ? nil : "Die lokale Kopie konnte nicht gespeichert werden. Beim nächsten Start lädt Forma neu aus Apple Health."
+                    syncNote = saved ? nil : "Die lokale Kopie konnte nicht gespeichert werden. Beim nächsten Start lädt Health neu aus Apple Health."
                 }
                 return imported.failed.isEmpty ? .updated : .partial(imported.failed)
             }

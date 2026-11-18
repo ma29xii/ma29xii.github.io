@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>de</string>
 	<key>CFBundleDisplayName</key>
-	<string>Forma</string>
+	<string>Health</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -48,9 +48,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Forma liest Herzfrequenzvariabilität, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, Sauerstoffsättigung und Trainings aus Apple Health, um deine Erholung, deinen Schlaf und deine Belastung zu berechnen. Die Daten bleiben auf deinem iPhone.</string>
+	<string>Health liest Herzfrequenzvariabilität, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, Sauerstoffsättigung und Trainings aus Apple Health, um deine Erholung, deinen Schlaf und deine Belastung zu berechnen. Die Daten bleiben auf deinem iPhone.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Forma schreibt keine Daten in Apple Health. Diese Angabe ist nur aus technischen Gründen nötig.</string>
+	<string>Health schreibt keine Daten in Apple Health. Diese Angabe ist nur aus technischen Gründen nötig.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -68,7 +68,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Über dich")
                 } footer: {
-                    Text("Für das Körperalter. Ohne Angabe nutzt Forma die Werte aus Apple Health. Bleibt alles auf dem iPhone.")
+                    Text("Für das Körperalter. Ohne Angabe nutzt Health die Werte aus Apple Health. Bleibt alles auf dem iPhone.")
                 }
                 .onChange(of: birthYear) { _, _ in hub.profileChanged() }
                 .onChange(of: sexRaw) { _, _ in hub.profileChanged() }
@@ -93,7 +93,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Fitbit")
                 } footer: {
-                    Text("Google hat die alte Fitbit-Schnittstelle am 2. November 2026 abgeschaltet. Forma wird auf die neue Google Health API umgestellt; bis dahin nutze Apple Health.")
+                    Text("Google hat die alte Fitbit-Schnittstelle am 2. November 2026 abgeschaltet. Health wird auf die neue Google Health API umgestellt; bis dahin nutze Apple Health.")
                 }
 
                 Section("Einheiten") {
@@ -118,7 +118,7 @@ struct ProfileView: View {
                 } header: {
                     Text("Coach")
                 } footer: {
-                    Text("Ohne Schlüssel rechnet der Coach komplett auf dem iPhone. Mit Schlüssel fragt Forma vor dem ersten Senden, ob deine Frage, der Chat und eine Zusammenfassung deiner Tageswerte an Anthropic gehen dürfen.")
+                    Text("Ohne Schlüssel rechnet der Coach komplett auf dem iPhone. Mit Schlüssel fragt Health vor dem ersten Senden, ob deine Frage, der Chat und eine Zusammenfassung deiner Tageswerte an Anthropic gehen dürfen.")
                 }
 
                 Section {
@@ -147,21 +147,21 @@ struct ProfileView: View {
                 } header: {
                     Text("Coach im Hintergrund")
                 } footer: {
-                    Text("Sobald deine Nacht in Apple Health ist, schickt dir der Coach deinen Tagesbericht – auch wenn Forma geschlossen ist. Abends erinnert er dich 30 Minuten vor der Bettzeit, passend zu deiner Weckzeit. Gesundheitswerte stehen nur in der Mitteilung, wenn du es oben einschaltest – sie kann auf dem Sperrbildschirm erscheinen. iOS bestimmt, wann Forma im Hintergrund geweckt wird.")
+                    Text("Sobald deine Nacht in Apple Health ist, schickt dir der Coach deinen Tagesbericht – auch wenn Health geschlossen ist. Abends erinnert er dich 30 Minuten vor der Bettzeit, passend zu deiner Weckzeit. Gesundheitswerte stehen nur in der Mitteilung, wenn du es oben einschaltest – sie kann auf dem Sperrbildschirm erscheinen. iOS bestimmt, wann Health im Hintergrund geweckt wird.")
                 }
                 .task { notificationStatus = await CoachNotifier.authorizationStatus() }
                 .onChange(of: bedtimeReminder) { _, _ in Task { await CoachNotifier.scheduleBedtimeReminder(hub) } }
                 .onChange(of: wakeMinutes) { _, _ in Task { await CoachNotifier.scheduleBedtimeReminder(hub) } }
 
                 Section {
-                    Button("Apple-Health-Kopie in Forma löschen", role: .destructive) { confirmDeleteCopy = true }
+                    Button("Lokale Kopie der Apple-Health-Daten löschen", role: .destructive) { confirmDeleteCopy = true }
                 } footer: {
-                    Text("Forma speichert eine Kopie deiner Werte auf diesem iPhone, damit die App sofort und offline startet. Sie ist von Backups ausgeschlossen. Apple Health selbst bleibt unverändert.")
+                    Text("Health speichert eine Kopie deiner Werte auf diesem iPhone, damit die App sofort und offline startet. Sie ist von Backups ausgeschlossen. Apple Health selbst bleibt unverändert.")
                 }
                 .confirmationDialog("Lokale Kopie löschen?", isPresented: $confirmDeleteCopy, titleVisibility: .visible) {
                     Button("Löschen", role: .destructive) { hub.deleteLocalHealthCopy() }
                 } message: {
-                    Text("Beim nächsten Abruf lädt Forma die Werte neu aus Apple Health.")
+                    Text("Beim nächsten Abruf lädt Health die Werte neu aus Apple Health.")
                 }
 
                 Section("Journal") {
@@ -171,7 +171,7 @@ struct ProfileView: View {
                 Section {
                     LabeledContent("Version", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0")
                 } footer: {
-                    Text("Forma ersetzt keine ärztliche Beratung. Alle Werte bleiben auf diesem iPhone, außer du schaltest den Claude-Coach ein.")
+                    Text("Health ersetzt keine ärztliche Beratung. Alle Werte bleiben auf diesem iPhone, außer du schaltest den Claude-Coach ein.")
                 }
             }
             .scrollContentBackground(.hidden)

@@ -65,7 +65,7 @@ enum CoachNotifier {
             content.body = CoachEngine.dailyLine(context)
         } else {
             content.title = "Dein Tagesbericht ist bereit"
-            content.body = "Deine Nacht ist da. Öffne Forma für Erholung, Schlaf und deinen Plan für heute."
+            content.body = "Deine Nacht ist da. Öffne Health für Erholung, Schlaf und deinen Plan für heute."
         }
         let id = "forma.morning." + FitbitService.dayString(now)
         do {

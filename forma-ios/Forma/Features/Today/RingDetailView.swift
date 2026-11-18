@@ -141,7 +141,7 @@ private struct RecoveryDetail: View {
                     }
                     .buttonStyle(.plain)
                     if showMethod {
-                        Text("Startwert 58. Dazu kommt deine HRV gegenüber dem Mittel der letzten 30 Tage (stärkster Faktor), abzüglich eines erhöhten Ruhepulses und einer erhöhten Atemfrequenz, plus der Schlafwert der letzten Nacht. Ergebnis auf 1 bis 99 begrenzt. Für einen Normalwert braucht Forma mindestens 4 Tage.")
+                        Text("Startwert 58. Dazu kommt deine HRV gegenüber dem Mittel der letzten 30 Tage (stärkster Faktor), abzüglich eines erhöhten Ruhepulses und einer erhöhten Atemfrequenz, plus der Schlafwert der letzten Nacht. Ergebnis auf 1 bis 99 begrenzt. Für einen Normalwert braucht Health mindestens 4 Tage.")
                             .font(.formaBody)
                             .foregroundStyle(Theme.textSecondary)
                             .padding([.horizontal, .bottom], Space.s4)

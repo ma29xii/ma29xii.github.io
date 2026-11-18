@@ -173,7 +173,7 @@ enum BodyAge {
                 referenceText: "Median deiner Alters- und Geschlechtsgruppe (US-Laufbandtests): \(Format.number(reference, decimals: 1))",
                 coverage: "\(vo2Values.count) Messung\(vo2Values.count == 1 ? "" : "en")" + (vo2Days.last.map { ", zuletzt am \(Format.shortDate($0.date))" } ?? ""),
                 years: years,
-                explanation: "In Studien war je 1 MET (3,5 ml/kg/min) mehr Fitness mit etwa 13 % geringerem Sterberisiko verbunden. Annahmen von Forma: lineare Umrechnung zwischen den Altersgruppen, Begrenzung auf ±6 Jahre. Die VO₂max der Uhr ist eine Schätzung und liegt oft anders als ein Labortest.",
+                explanation: "In Studien war je 1 MET (3,5 ml/kg/min) mehr Fitness mit etwa 13 % geringerem Sterberisiko verbunden. Annahmen von Health: lineare Umrechnung zwischen den Altersgruppen, Begrenzung auf ±6 Jahre. Die VO₂max der Uhr ist eine Schätzung und liegt oft anders als ein Labortest.",
                 source: "Kodama et al., JAMA 2009 · Referenz: FRIEND-Register (Kaminsky et al., 2015)"))
         } else if !vo2Values.isEmpty && !(20...79).contains(age) {
             missing.append("VO₂max-Vergleich – die Referenzwerte gibt es nur für 20 bis 79 Jahre")
@@ -189,10 +189,10 @@ enum BodyAge {
             let years = clamp(yearsPerLogHazard * log(1.09) * (rhr - 65) / 10, 4)
             result.append(Factor(
                 id: "rhr", title: "Ruhepuls", systemImage: "heart",
-                valueText: "\(Format.number(rhr)) bpm im Mittel", referenceText: "Vergleichswert: 65 bpm (Annahme von Forma)",
+                valueText: "\(Format.number(rhr)) bpm im Mittel", referenceText: "Vergleichswert: 65 bpm (Annahme von Health)",
                 coverage: "\(rhrValues.count) von \(days.count) Tagen",
                 years: years,
-                explanation: "In großen Studien war je 10 Schläge pro Minute mehr Ruhepuls mit etwa 9 % höherem Sterberisiko verbunden. Annahmen von Forma: 65 bpm als Vergleichswert und ein linearer Verlauf, begrenzt auf ±4 Jahre.",
+                explanation: "In großen Studien war je 10 Schläge pro Minute mehr Ruhepuls mit etwa 9 % höherem Sterberisiko verbunden. Annahmen von Health: 65 bpm als Vergleichswert und ein linearer Verlauf, begrenzt auf ±4 Jahre.",
                 source: "Zhang et al., CMAJ 2016 · Referenz 65 bpm ist eine Annahme für Erwachsene"))
         } else {
             missing.append("Ruhepuls – mindestens 7 Tage")
@@ -204,10 +204,10 @@ enum BodyAge {
             let years = clamp(yearsPerLogHazard * (stepsLogHazard(steps) - stepsLogHazard(7000)), 4)
             result.append(Factor(
                 id: "steps", title: "Schritte", systemImage: "figure.walk",
-                valueText: "\(Format.number(steps)) pro Tag", referenceText: "Vergleichswert: 7.000 pro Tag (Annahme von Forma)",
+                valueText: "\(Format.number(steps)) pro Tag", referenceText: "Vergleichswert: 7.000 pro Tag (Annahme von Health)",
                 coverage: "\(stepValues.count) von \(days.count) Tagen",
                 years: years,
-                explanation: "In Studien ging mehr Gehen mit geringerem Risiko einher, mit abflachendem Nutzen: unter 60 Jahren bei etwa 8.000 bis 10.000 Schritten. Annahmen von Forma: gemittelte Kurve über alle Altersgruppen, Tage unter 500 Schritten gelten als „Uhr nicht getragen“, Begrenzung auf ±4 Jahre.",
+                explanation: "In Studien ging mehr Gehen mit geringerem Risiko einher, mit abflachendem Nutzen: unter 60 Jahren bei etwa 8.000 bis 10.000 Schritten. Annahmen von Health: gemittelte Kurve über alle Altersgruppen, Tage unter 500 Schritten gelten als „Uhr nicht getragen“, Begrenzung auf ±4 Jahre.",
                 source: "Paluch et al., Lancet Public Health 2022 · Referenz 7.000 ist eine Annahme"))
         } else {
             missing.append("Schritte – mindestens 7 Tage")
@@ -222,10 +222,10 @@ enum BodyAge {
             else { logHazard = 0 }
             result.append(Factor(
                 id: "sleep", title: "Schlafdauer", systemImage: "moon",
-                valueText: "\(Format.duration(hours * 3600)) im Mittel", referenceText: "Vergleichsbereich: 7–8 h (Annahme von Forma)",
+                valueText: "\(Format.duration(hours * 3600)) im Mittel", referenceText: "Vergleichsbereich: 7–8 h (Annahme von Health)",
                 coverage: "\(sleepHours.count) von \(days.count) Nächten",
                 years: clamp(yearsPerLogHazard * logHazard, 4),
-                explanation: "In Studien war kurzer Schlaf mit etwa 12 % und sehr langer Schlaf mit etwa 30 % höherem Risiko verbunden. Beim langen Schlaf kann eine Erkrankung die Ursache sein, nicht der Schlaf selbst. Annahme von Forma: gleitender Übergang zwischen 6 und 7 h bzw. 8 und 9 h.",
+                explanation: "In Studien war kurzer Schlaf mit etwa 12 % und sehr langer Schlaf mit etwa 30 % höherem Risiko verbunden. Beim langen Schlaf kann eine Erkrankung die Ursache sein, nicht der Schlaf selbst. Annahme von Health: gleitender Übergang zwischen 6 und 7 h bzw. 8 und 9 h.",
                 source: "Cappuccio et al., Sleep 2010"))
         } else {
             missing.append("Schlaf – mindestens 7 Nächte")
@@ -234,14 +234,14 @@ enum BodyAge {
         // 5. Krafttraining pro Woche (Forma-Trainings und Krafttrainings aus Apple Health).
         let strengthLogHazard = log(0.86) * min(1, strengthPerWeek / 30)
         if !hasStrengthRecord {
-            missing.append("Krafttraining – noch nichts aufgezeichnet (Forma-Training oder Krafttraining in Apple Health)")
+            missing.append("Krafttraining – noch nichts aufgezeichnet (Training in dieser App oder Krafttraining in Apple Health)")
         } else {
         result.append(Factor(
             id: "strength", title: "Krafttraining", systemImage: "dumbbell",
             valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
-            coverage: "Forma-Trainings und Krafttrainings aus Apple Health",
+            coverage: "Trainings aus dieser App und Krafttrainings aus Apple Health",
             years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
-            explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Forma: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
+            explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Health: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
             source: "Momma et al., Br J Sports Med 2022"))
         }
 

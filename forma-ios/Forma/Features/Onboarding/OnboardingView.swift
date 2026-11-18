@@ -16,7 +16,7 @@ struct OnboardingView: View {
                 RingView(value: 88, color: Theme.sleep, size: 64, lineWidth: 4, showsNumber: false)
             }
             .accessibilityHidden(true)
-            Text("Willkommen bei Forma").font(.formaLargeTitle).padding(.top, Space.s6)
+            Text("Willkommen bei Health").font(.formaLargeTitle).padding(.top, Space.s6)
             Text("Drei Werte für jeden Morgen: wie erholt du bist, wie gut du geschlafen hast und wie viel Belastung heute passt. Dazu dein Krafttraining.")
                 .font(.formaBodyLarge).foregroundStyle(Theme.textSecondary).padding(.top, Space.s3)
             Spacer()
@@ -36,7 +36,7 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minHeight: 44)
             }
-            Text("Forma rechnet auf deinem iPhone. Nur wenn du später den Claude-Coach einschaltest, gehen ausgewählte Werte an Anthropic – das fragt dich Forma vorher.")
+            Text("Health rechnet auf deinem iPhone. Nur wenn du später den Claude-Coach einschaltest, gehen ausgewählte Werte an Anthropic – das fragt dich Health vorher.")
                 .font(.formaCaption).foregroundStyle(Theme.textTertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.top, Space.s2)
