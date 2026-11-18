@@ -9,6 +9,8 @@ struct ProfileView: View {
     @State private var apiKey = Keychain.get("anthropic.key") ?? ""
     @State private var fitbitBusy = false
     @State private var message: String?
+    @AppStorage("forma.birthYear") private var birthYear = 0
+    @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
 
     var body: some View {
         @Bindable var hub = hub
@@ -28,6 +30,24 @@ struct ProfileView: View {
                 } footer: {
                     Text("Automatisch: Fitbit, wenn verbunden, sonst Apple Health. Ohne Berechtigung oder Daten zeigt Forma gekennzeichnete Beispieldaten.")
                 }
+
+                Section {
+                    Picker("Geburtsjahr", selection: $birthYear) {
+                        Text(hub.person.origin == .health ? "Aus Apple Health" : "Nicht angegeben").tag(0)
+                        ForEach(Array((1930...Calendar.forma.component(.year, from: .now) - 14).reversed()), id: \.self) { year in
+                            Text(String(year)).tag(year)
+                        }
+                    }
+                    Picker("Geschlecht", selection: $sexRaw) {
+                        ForEach(BiologicalSex.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                } header: {
+                    Text("Über dich")
+                } footer: {
+                    Text("Für das Körperalter. Ohne Angabe nutzt Forma die Werte aus Apple Health. Bleibt alles auf dem iPhone.")
+                }
+                .onChange(of: birthYear) { _, _ in hub.profileChanged() }
+                .onChange(of: sexRaw) { _, _ in hub.profileChanged() }
 
                 Section("Apple Health") {
                     Button {

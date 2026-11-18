@@ -4,6 +4,14 @@ struct RingDetailView: View {
     @Environment(DataHub.self) private var hub
     let kind: RingKind
 
+    private var tint: Color {
+        switch kind {
+        case .recovery: Theme.recovery(hub.ringScores.recovery)
+        case .sleep: Theme.sleep
+        case .strain: Theme.strain
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -16,7 +24,7 @@ struct RingDetailView: View {
             }
             .padding(.horizontal, Space.page)
         }
-        .formaScreen()
+        .formaScreen(tint: tint)
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
     }

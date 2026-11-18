@@ -33,6 +33,7 @@ struct RingView: View {
                 .trim(from: 0, to: CGFloat(min(100, max(0, value)) / 100))
                 .stroke(color.opacity(dimmed ? 0.4 : 1), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .shadow(color: color.opacity(dimmed || size < 40 ? 0 : 0.45), radius: lineWidth * 1.6)
             if let target {
                 Circle()
                     .trim(from: CGFloat(target.lowerBound / 100), to: CGFloat(target.upperBound / 100))
@@ -42,7 +43,7 @@ struct RingView: View {
             }
             if showsNumber {
                 Text("\(Int(value.rounded()))")
-                    .font(.system(size: numberSize ?? size * 0.3, weight: .semibold))
+                    .font(.system(size: numberSize ?? size * 0.3, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .kerning(-0.5)
                     .contentTransition(.numericText(value: value))
@@ -102,7 +103,7 @@ struct RingTrio: View {
                         )
                         if compact {
                             Text("\(current(kind))")
-                                .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                                .font(.system(size: 13, weight: .semibold, design: .rounded)).monospacedDigit()
                                 .foregroundStyle(dim ? Theme.textTertiary : Theme.textPrimary)
                         } else {
                             Text(kind.title)

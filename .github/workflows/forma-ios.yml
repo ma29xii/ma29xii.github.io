@@ -3,7 +3,7 @@ name: Forma iOS (IPA)
 on:
   push:
     branches: ['claude/awesome-hypatia-tnhuis']
-    paths: ['forma-ios/**', '.github/workflows/forma-ios.yml']
+    paths: ['forma-ios/**', '!forma-ios/reviews/**', '!forma-ios/**/*.md', '.github/workflows/forma-ios.yml']
   workflow_dispatch:
 
 permissions:

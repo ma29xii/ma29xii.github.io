@@ -1,6 +1,38 @@
 import SwiftUI
 import SwiftData
 
+enum TrainingTile: String, TileKind {
+    case next, weeklySets, routines, history, library
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .next: "Als Nächstes"
+        case .weeklySets: "Harte Sätze diese Woche"
+        case .routines: "Routinen"
+        case .history: "Verlauf"
+        case .library: "Bibliothek"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .next: "play.circle"
+        case .weeklySets: "chart.bar"
+        case .routines: "list.bullet.rectangle"
+        case .history: "clock.arrow.circlepath"
+        case .library: "books.vertical"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .next: "Nächste Routine mit Start-Knopf"
+        case .weeklySets: "Sätze pro Muskelgruppe"
+        case .routines: "Deine Pläne"
+        case .history: "Letzte Trainings"
+        case .library: "Übungen und freies Training"
+        }
+    }
+}
+
 enum TrainingRoute: Hashable {
     case routine(PersistentIdentifier)
     case library
@@ -20,55 +52,10 @@ struct TrainingView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let next { nextCard(next) } else { emptyCard }
-
-                    FormaSection(title: "Routinen", actionTitle: "Neu", action: addRoutine) {
-                        Plate {
-                            if routines.isEmpty { MetricRow(title: "Noch keine Routine") }
-                            ForEach(Array(routines.enumerated()), id: \.element.id) { index, routine in
-                                if index > 0 { RowDivider() }
-                                HStack(spacing: 0) {
-                                    Button { path.append(.routine(routine.persistentModelID)) } label: {
-                                        MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)", showsChevron: true)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                .contextMenu {
-                                    Button("Starten", systemImage: "play") { start(routine) }
-                                    Button("Löschen", systemImage: "trash", role: .destructive) { context.delete(routine); try? context.save() }
-                                }
-                            }
-                        }
+                    TileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training", screenTitle: "Training") { tile in
+                        AnyView(view(for: tile))
                     }
-
-                    FormaSection(title: "Verlauf", actionTitle: sessions.count > 5 ? "Alle" : nil, action: { path.append(.history) }) {
-                        Plate {
-                            if sessions.isEmpty { MetricRow(title: "Noch kein Training", subtitle: "Deine Trainings erscheinen hier") }
-                            ForEach(Array(sessions.prefix(5).enumerated()), id: \.element.id) { index, session in
-                                if index > 0 { RowDivider() }
-                                Button { app.finishedSession = session } label: { SessionRow(session: session) }
-                                    .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    FormaSection(title: "Harte Sätze diese Woche") {
-                        Plate { weeklySets }
-                    }
-
-                    FormaSection(title: "Bibliothek") {
-                        Plate {
-                            Button { path.append(.library) } label: {
-                                MetricRow(title: "Übungsbibliothek", subtitle: "Übungen ansehen und eigene anlegen", showsChevron: true)
-                            }
-                            .buttonStyle(.plain)
-                            RowDivider()
-                            Button { app.liveWorkout = LiveWorkout.empty() } label: {
-                                MetricRow(title: "Freies Training", subtitle: "Ohne Routine starten, Übungen unterwegs hinzufügen", showsChevron: true)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    .padding(.top, Space.s3)
                     Color.clear.frame(height: Space.s7)
                 }
                 .padding(.horizontal, Space.page)
@@ -88,6 +75,58 @@ struct TrainingView: View {
                 case .library: ExerciseLibraryView()
                 case .history: HistoryView()
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private func view(for tile: TrainingTile) -> some View {
+        switch tile {
+        case .next:
+            if let next { nextCard(next) } else { emptyCard }
+        case .routines:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage) {
+                if routines.isEmpty { MetricRow(title: "Noch keine Routine") }
+                ForEach(Array(routines.enumerated()), id: \.element.id) { index, routine in
+                    if index > 0 { RowDivider() }
+                    Button { path.append(.routine(routine.persistentModelID)) } label: {
+                        MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)", showsChevron: true)
+                    }
+                    .buttonStyle(.plain)
+                }
+                RowDivider()
+                Button(action: addRoutine) {
+                    Label("Neue Routine", systemImage: "plus").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+            }
+        case .history:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: sessions.isEmpty ? nil : "\(sessions.count) gesamt") {
+                if sessions.isEmpty { MetricRow(title: "Noch kein Training", subtitle: "Deine Trainings erscheinen hier") }
+                ForEach(Array(sessions.prefix(5).enumerated()), id: \.element.id) { index, session in
+                    if index > 0 { RowDivider() }
+                    Button { app.finishedSession = session } label: { SessionRow(session: session) }
+                        .buttonStyle(.plain)
+                }
+                if sessions.count > 5 {
+                    RowDivider()
+                    Button { path.append(.history) } label: { MetricRow(title: "Alle Trainings", showsChevron: true) }
+                        .buttonStyle(.plain)
+                }
+            }
+        case .weeklySets:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage, accessory: "ab RIR 3") { weeklySets }
+        case .library:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage) {
+                Button { path.append(.library) } label: {
+                    MetricRow(title: "Übungsbibliothek", subtitle: "Übungen ansehen und eigene anlegen", showsChevron: true)
+                }
+                .buttonStyle(.plain)
+                RowDivider()
+                Button { app.liveWorkout = LiveWorkout.empty() } label: {
+                    MetricRow(title: "Freies Training", subtitle: "Ohne Routine starten, Übungen unterwegs hinzufügen", showsChevron: true)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -112,7 +151,6 @@ struct TrainingView: View {
             .padding(.top, 20)
             .padding(.bottom, Space.s4)
         }
-        .padding(.top, Space.s3)
     }
 
     private var emptyCard: some View {
@@ -123,7 +161,6 @@ struct TrainingView: View {
             }
             .padding(Space.s4)
         }
-        .padding(.top, Space.s3)
     }
 
     private var weeklySets: some View {

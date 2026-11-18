@@ -55,7 +55,13 @@ final class ScreenTour: XCTestCase {
         app.swipeUp()
         app.swipeUp()
         shot("03 Heute unten")
-        app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown()
+        app.swipeUp()
+        if tapButton(beginningWith: "Heute anpassen") {
+            sleep(1)
+            shot("03b Heute anpassen")
+            _ = tapButton(beginningWith: "Fertig")
+        }
+        app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown(); app.swipeDown()
         sleep(1)
 
         if tapButton(beginningWith: "Erholung") { shot("04 Erholung"); app.swipeUp(); shot("05 Erholung unten"); back() }
@@ -64,6 +70,9 @@ final class ScreenTour: XCTestCase {
 
         tab("Training")
         shot("09 Training")
+        app.swipeUp()
+        shot("09b Training unten")
+        app.swipeDown(); app.swipeDown()
         if tapButton(beginningWith: "Training starten") {
             sleep(1)
             shot("10 Live-Training")
@@ -88,6 +97,17 @@ final class ScreenTour: XCTestCase {
 
         tab("Gesundheit")
         shot("14 Gesundheit")
+        if tapButton(beginningWith: "Körperalter") {
+            shot("14b Körperalter")
+            app.swipeUp()
+            shot("14c Körperalter Faktoren")
+            app.swipeUp(); app.swipeUp()
+            shot("14d Körperalter Methode")
+            back()
+        }
+        app.swipeUp()
+        shot("14e Gesundheit unten")
+        app.swipeDown(); app.swipeDown()
         if tapButton(beginningWith: "HRV") { shot("15 HRV"); back() }
 
         tab("Coach")

@@ -18,12 +18,27 @@ actor HealthService {
             HKQuantityType(.oxygenSaturation),
             HKQuantityType(.heartRate),
             HKCategoryType(.sleepAnalysis),
-            HKObjectType.workoutType()
+            HKObjectType.workoutType(),
+            HKCharacteristicType(.dateOfBirth),
+            HKCharacteristicType(.biologicalSex)
         ]
     }
 
     func requestAuthorization() async throws {
         try await store.requestAuthorization(toShare: [], read: readTypes)
+    }
+
+    /// Geburtsdatum und Geschlecht aus Apple Health (falls freigegeben und eingetragen).
+    func person() -> (birthDate: Date?, sex: BiologicalSex) {
+        let components = try? store.dateOfBirthComponents()
+        let birthDate = components.flatMap { Calendar(identifier: .gregorian).date(from: $0) }
+        let sex: BiologicalSex
+        switch (try? store.biologicalSex())?.biologicalSex {
+        case .male?: sex = .male
+        case .female?: sex = .female
+        default: sex = .unknown
+        }
+        return (birthDate, sex)
     }
 
     /// Lädt die letzten `count` Tage (inklusive heute).
@@ -128,7 +143,8 @@ actor HealthService {
         var result: [Date: [WorkoutSummary]] = [:]
         for w in workouts {
             let kcal = w.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie())
-            let summary = WorkoutSummary(name: Self.name(for: w.workoutActivityType), start: w.startDate, duration: w.duration, energy: kcal)
+            let strength = [.traditionalStrengthTraining, .functionalStrengthTraining].contains(w.workoutActivityType)
+            let summary = WorkoutSummary(name: Self.name(for: w.workoutActivityType), start: w.startDate, duration: w.duration, energy: kcal, isStrength: strength)
             result[w.startDate.startOfDay, default: []].append(summary)
         }
         return result

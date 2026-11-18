@@ -4,6 +4,48 @@ import SwiftData
 enum TodayRoute: Hashable {
     case ring(RingKind)
     case metric(MetricKind)
+    case bodyAge
+}
+
+enum TodayTile: String, TileKind {
+    case coach, next, energy, body, day, week, bodyAge, insight
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .coach: "Coach"
+        case .next: "Als Nächstes"
+        case .energy: "Energie und Stress"
+        case .body: "Körper"
+        case .day: "Tag"
+        case .week: "Diese Woche"
+        case .bodyAge: "Körperalter"
+        case .insight: "Einblick"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .coach: "sparkles"
+        case .next: "arrow.forward.circle"
+        case .energy: "bolt"
+        case .body: "waveform.path.ecg"
+        case .day: "figure.walk"
+        case .week: "calendar"
+        case .bodyAge: "hourglass"
+        case .insight: "lightbulb"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .coach: "Dein Satz für heute"
+        case .next: "Training, Schlafenszeit, Journal"
+        case .energy: "Energie 0–100, Stress 0–3"
+        case .body: "HRV, Ruhepuls, Atmung, SpO₂"
+        case .day: "Schritte, Kalorien, Aktivitäten"
+        case .week: "Trainings, Volumen, Erholung"
+        case .bodyAge: "Wie alt dein Körper wirkt"
+        case .insight: "Zusammenhänge aus deinen Daten"
+        }
+    }
 }
 
 struct TodayView: View {
@@ -25,13 +67,10 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     rings
-                    coachLine
-                    nextSection
-                    energySection
-                    bodySection
-                    daySection
-                    weekSection
-                    insightSection
+                    TileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today", screenTitle: "Heute") { tile in
+                        AnyView(view(for: tile))
+                    }
+                    .padding(.top, Space.s5)
                     Color.clear.frame(height: Space.s7)
                 }
                 .padding(.horizontal, Space.page)
@@ -42,7 +81,7 @@ struct TodayView: View {
                 withAnimation(.snappy(duration: 0.25)) { showCompactRings = isPast }
             }
             .refreshable { await hub.refresh() }
-            .formaScreen()
+            .formaScreen(tint: hub.waitingForFitbit ? nil : Theme.recovery(hub.ringScores.recovery))
             .navigationTitle("Heute")
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -63,8 +102,22 @@ struct TodayView: View {
                 switch route {
                 case .ring(let kind): RingDetailView(kind: kind)
                 case .metric(let kind): MetricDetailView(kind: kind)
+                case .bodyAge: BodyAgeDetailView()
                 }
             }
+        }
+    }
+
+    @ViewBuilder private func view(for tile: TodayTile) -> some View {
+        switch tile {
+        case .coach: coachTile
+        case .next: nextTile
+        case .energy: energyTile
+        case .body: bodyTile
+        case .day: dayTile
+        case .week: weekTile
+        case .bodyAge: BodyAgeTile { path.append(.bodyAge) }
+        case .insight: insightTile
         }
     }
 
@@ -87,7 +140,7 @@ struct TodayView: View {
 
     private var rings: some View {
         let s = hub.ringScores
-        return VStack(spacing: Space.s3) {
+        return VStack(spacing: Space.s4) {
             RingTrio(strain: s.strain, recovery: s.recovery, sleep: s.sleep, target: s.target,
                      dimmedRecoverySleep: hub.waitingForFitbit) { kind in path.append(.ring(kind)) }
                 .padding(.top, Space.s5)
@@ -96,9 +149,11 @@ struct TodayView: View {
                     .font(.formaCaption)
                     .foregroundStyle(Theme.textSecondary)
             }
-            HStack(spacing: 6) {
-                InfoChip(text: "Ziel \(s.target.lowerBound)–\(s.target.upperBound)")
-                if s.sleepDebt >= 10 * 60 { InfoChip(text: "Schlafschuld \(Format.duration(s.sleepDebt))") }
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    InfoChip(text: "Ziel \(s.target.lowerBound)–\(s.target.upperBound)", systemImage: "scope")
+                    if s.sleepDebt >= 10 * 60 { InfoChip(text: "Schlafschuld \(Format.duration(s.sleepDebt))", systemImage: "moon.zzz") }
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -122,162 +177,146 @@ struct TodayView: View {
             hour: Calendar.forma.component(.hour, from: .now))
     }
 
-    private var coachLine: some View {
+    // MARK: Kacheln
+
+    private var coachTile: some View {
         let line = CoachEngine.dailyLine(coachContext)
-        return Button {
-            app.openCoach(with: line)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+        return Button { app.openCoach(with: line) } label: {
+            WidgetCard(title: "Coach", systemImage: "sparkles", accessory: "Antippen zum Fragen") {
                 Text(line)
                     .font(.formaBodyLarge)
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(Theme.textPrimary)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.textQuaternary)
+                    .padding(.horizontal, Space.s4)
+                    .padding(.top, 6)
+                    .padding(.bottom, Space.s4)
             }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.top, Space.s5)
         .accessibilityHint("Öffnet den Coach mit diesem Thema")
     }
 
-    // MARK: Abschnitte
-
-    private var nextSection: some View {
+    private var nextTile: some View {
         let s = hub.scores
-        return FormaSection(title: "Als Nächstes") {
-            Plate {
-                if let routine = planned, !trainedToday {
-                    MetricRow(title: "\(routine.name) · \(routine.items.count) Übungen",
-                              subtitle: "\(routine.totalSets) Sätze · etwa \(routine.totalSets * 2 + 5) min") {
-                        Button("Start") { start(routine) }
-                            .buttonStyle(SmallPillButtonStyle())
-                    }
-                    RowDivider()
-                } else if trainedToday, let last = sessions.first {
-                    Button { app.finishedSession = last } label: {
-                        MetricRow(title: "\(last.title) erledigt", subtitle: "\(Format.duration(last.duration)) · \(Format.number(last.volume)) kg Volumen", showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                    RowDivider()
+        return WidgetCard(title: "Als Nächstes", systemImage: "arrow.forward.circle") {
+            if let routine = planned, !trainedToday {
+                MetricRow(title: "\(routine.name) · \(routine.items.count) Übungen",
+                          subtitle: "\(routine.totalSets) Sätze · etwa \(routine.totalSets * 2 + 5) min") {
+                    Button("Start") { start(routine) }
+                        .buttonStyle(SmallPillButtonStyle())
                 }
-                Button { path.append(.ring(.sleep)) } label: {
-                    MetricRow(title: "Ins Bett um \(CoachEngine.bedtime(s))", subtitle: "für \(Format.duration(s.sleepNeed)) Schlaf", showsChevron: true)
+                RowDivider()
+            } else if trainedToday, let last = sessions.first {
+                Button { app.finishedSession = last } label: {
+                    MetricRow(title: "\(last.title) erledigt", subtitle: "\(Format.duration(last.duration)) · \(Format.number(last.volume)) kg Volumen", showsChevron: true)
                 }
                 .buttonStyle(.plain)
                 RowDivider()
-                Button { app.showJournal = true } label: {
-                    MetricRow(title: "Journal", subtitle: "Ein paar Ja/Nein-Fragen zu gestern", showsChevron: true)
-                }
-                .buttonStyle(.plain)
             }
+            Button { path.append(.ring(.sleep)) } label: {
+                MetricRow(title: "Ins Bett um \(CoachEngine.bedtime(s))", subtitle: "für \(Format.duration(s.sleepNeed)) Schlaf", showsChevron: true)
+            }
+            .buttonStyle(.plain)
+            RowDivider()
+            Button { app.showJournal = true } label: {
+                MetricRow(title: "Journal", subtitle: "Ein paar Ja/Nein-Fragen zu gestern", showsChevron: true)
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    private var energySection: some View {
+    private var energyTile: some View {
         let s = hub.scores
-        return FormaSection(title: "Energie und Stress") {
-            Plate {
-                HStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Energie").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                        Text("\(s.energy)").font(.formaBigNumber)
-                        HStack(spacing: 3) {
-                            ForEach(0..<10, id: \.self) { i in
-                                RoundedRectangle(cornerRadius: 1.5)
-                                    .fill(i < s.energy / 10 ? Theme.textPrimary : Color.white.opacity(0.08))
-                                    .frame(height: 6)
-                            }
+        return WidgetCard(title: "Energie und Stress", systemImage: "bolt") {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Energie").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    Text("\(s.energy)").font(.formaWidgetNumber).contentTransition(.numericText())
+                    HStack(spacing: 3) {
+                        ForEach(0..<10, id: \.self) { i in
+                            Capsule()
+                                .fill(i < s.energy / 10 ? Theme.textPrimary : Color.white.opacity(0.08))
+                                .frame(height: 6)
                         }
-                        .padding(.top, 6)
                     }
-                    .padding(Space.s4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Rectangle().fill(Theme.hairline).frame(width: 0.5)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Stress").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                        HStack(alignment: .firstTextBaseline, spacing: 3) {
-                            Text(Format.number(s.stress, decimals: 1)).font(.formaBigNumber)
-                            Text("von 3").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                        }
-                        Text("geschätzt").font(.formaMicro).foregroundStyle(Theme.textTertiary).padding(.top, 6)
-                    }
-                    .padding(Space.s4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
                 }
+                .padding(Space.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Rectangle().fill(Theme.hairline).frame(width: 0.5).padding(.vertical, Space.s4)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Stress").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(Format.number(s.stress, decimals: 1)).font(.formaWidgetNumber)
+                        Text("von 3").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    }
+                    Text("geschätzt").font(.formaMicro).foregroundStyle(Theme.textTertiary).padding(.top, 6)
+                }
+                .padding(Space.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    private var bodySection: some View {
-        FormaSection(title: "Körper") {
-            Plate {
-                let kinds: [MetricKind] = [.hrv, .restingHR, .respiratoryRate, .spo2]
-                ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
-                    if index > 0 { RowDivider() }
-                    Button { path.append(.metric(kind)) } label: { MetricSummaryRow(kind: kind) }
-                        .buttonStyle(.plain)
-                }
+    private var bodyTile: some View {
+        WidgetCard(title: "Körper", systemImage: "waveform.path.ecg", accessory: "gegen deinen Normalwert") {
+            let kinds: [MetricKind] = [.hrv, .restingHR, .respiratoryRate, .spo2]
+            ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
+                if index > 0 { RowDivider() }
+                Button { path.append(.metric(kind)) } label: { MetricSummaryRow(kind: kind) }
+                    .buttonStyle(.plain)
             }
         }
     }
 
-    private var daySection: some View {
+    private var dayTile: some View {
         let t = hub.today
-        return FormaSection(title: "Tag") {
-            Plate {
-                HStack(spacing: 0) {
-                    miniStat("Schritte", value: Format.number(t.steps ?? 0), fraction: (t.steps ?? 0) / 10000)
-                    Rectangle().fill(Theme.hairline).frame(width: 0.5)
-                    miniStat("Aktive Energie", value: "\(Format.number(t.activeEnergy ?? 0)) kcal", fraction: (t.activeEnergy ?? 0) / 600)
-                }
-                ForEach(t.workouts) { w in
-                    RowDivider()
-                    MetricRow(title: w.name, subtitle: "\(Format.clock(w.start)) · \(Format.duration(w.duration))",
-                              value: w.energy.map { "\(Format.number($0)) kcal" })
-                }
+        return WidgetCard(title: "Tag", systemImage: "figure.walk") {
+            HStack(spacing: 0) {
+                miniStat("Schritte", value: Format.number(t.steps ?? 0), fraction: (t.steps ?? 0) / 10000)
+                Rectangle().fill(Theme.hairline).frame(width: 0.5).padding(.vertical, Space.s4)
+                miniStat("Aktive Energie", value: "\(Format.number(t.activeEnergy ?? 0)) kcal", fraction: (t.activeEnergy ?? 0) / 600)
+            }
+            ForEach(t.workouts) { w in
+                RowDivider()
+                MetricRow(title: w.name, subtitle: "\(Format.clock(w.start)) · \(Format.duration(w.duration))",
+                          value: w.energy.map { "\(Format.number($0)) kcal" })
             }
         }
     }
 
     private func miniStat(_ title: String, value: String, fraction: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-            Text(value).font(.system(size: 17, weight: .semibold)).monospacedDigit()
-            ProgressLine(fraction: fraction).padding(.top, 6)
+            Text(title).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            Text(value).font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+            ProgressLine(fraction: fraction, height: 4).padding(.top, 6)
         }
         .padding(Space.s4)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var weekSection: some View {
+    private var weekTile: some View {
         let weekStart = Calendar.forma.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
         let week = sessions.filter { $0.start >= weekStart }
         let recoveries = (max(0, hub.days.count - 7)..<hub.days.count).map { hub.scores(for: $0).recovery }
         let avg = recoveries.isEmpty ? 0 : recoveries.reduce(0, +) / recoveries.count
-        return FormaSection(title: "Diese Woche") {
-            Plate {
-                MetricRow(title: "Trainings", subtitle: week.isEmpty ? "noch keins" : week.map(\.title).joined(separator: ", "), value: "\(week.count)")
-                RowDivider()
-                MetricRow(title: "Volumen", value: Format.number(week.reduce(0) { $0 + $1.volume }), unit: "kg")
-                RowDivider()
-                MetricRow(title: "Erholung im Mittel", subtitle: "letzte 7 Tage", value: "\(avg)")
-            }
+        return WidgetCard(title: "Diese Woche", systemImage: "calendar") {
+            MetricRow(title: "Trainings", subtitle: week.isEmpty ? "noch keins" : week.map(\.title).joined(separator: ", "), value: "\(week.count)")
+            RowDivider()
+            MetricRow(title: "Volumen", value: Format.number(week.reduce(0) { $0 + $1.volume }), unit: "kg")
+            RowDivider()
+            MetricRow(title: "Erholung im Mittel", subtitle: "letzte 7 Tage", value: "\(avg)", valueColor: Theme.recovery(avg))
         }
     }
 
-    private var insightSection: some View {
-        FormaSection(title: "Einblick") {
-            Plate {
-                Button { app.openCoach(with: Insights.text(hub.days)) } label: {
-                    MetricRow(title: Insights.title(hub.days), subtitle: Insights.text(hub.days), showsChevron: true)
-                }
-                .buttonStyle(.plain)
+    private var insightTile: some View {
+        Button { app.openCoach(with: Insights.text(hub.days)) } label: {
+            WidgetCard(title: "Einblick", systemImage: "lightbulb") {
+                MetricRow(title: Insights.title(hub.days), subtitle: Insights.text(hub.days), showsChevron: true)
             }
         }
+        .buttonStyle(.plain)
     }
 
     private func start(_ routine: Routine) {

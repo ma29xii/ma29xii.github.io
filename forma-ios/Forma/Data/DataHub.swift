@@ -8,12 +8,41 @@ final class DataHub {
     let health = HealthService()
     let fitbit = FitbitService()
 
-    private(set) var days: [DayMetrics] = SampleData.days()
+    /// Bis zu 180 Tage für das Körperalter.
+    private(set) var longDays: [DayMetrics] = SampleData.days()
+    /// Die letzten 30 Tage für Ringe und Trends.
+    var days: [DayMetrics] { Array(longDays.suffix(30)) }
+    private(set) var healthPerson: (birthDate: Date?, sex: BiologicalSex) = (nil, .unknown)
+    /// Fitbit erlaubt etwa 150 Anfragen pro Stunde: ältere Tage nur einmal laden.
+    private var fitbitCache: [Date: DayMetrics] = [:]
     private(set) var activeSource: DataSourceKind = .sample
     private(set) var isLoading = false
     private(set) var lastUpdate: Date?
     private(set) var healthAuthorized = UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
     var lastError: String?
+
+    /// Manuelle Angaben aus dem Profil haben Vorrang, dann Apple Health, bei Beispieldaten eine Annahme.
+    var person: PersonInfo {
+        _ = profileRevision
+        let defaults = UserDefaults.standard
+        let year = defaults.integer(forKey: "forma.birthYear")
+        let manualSex = BiologicalSex(rawValue: defaults.string(forKey: "forma.sex") ?? "") ?? .unknown
+        let sex = manualSex != .unknown ? manualSex : healthPerson.sex
+        if year > 1900 {
+            let birth = Calendar.forma.date(from: DateComponents(year: year, month: 7, day: 1))
+            return PersonInfo(birthDate: birth, sex: sex, origin: .manual)
+        }
+        if let birth = healthPerson.birthDate { return PersonInfo(birthDate: birth, sex: sex, origin: .health) }
+        if isSample {
+            return PersonInfo(birthDate: Date.now.addingTimeInterval(-30 * 365.2425 * 86_400),
+                              sex: sex == .unknown ? .male : sex, origin: .assumed)
+        }
+        return PersonInfo(birthDate: nil, sex: sex, origin: .missing)
+    }
+
+    /// Wird von der Profilseite gesetzt, damit abhängige Ansichten neu rechnen.
+    private(set) var profileRevision = 0
+    func profileChanged() { profileRevision += 1 }
 
     var preferredSource: DataSourceKind {
         didSet { UserDefaults.standard.set(preferredSource.rawValue, forKey: "forma.source") }
@@ -83,28 +112,37 @@ final class DataHub {
         case .fitbit:
             var loaded: [DayMetrics] = []
             for offset in stride(from: 13, through: 0, by: -1) {
-                loaded.append(await fitbit.loadDay(Date.now.startOfDay.adding(days: -offset)))
+                let date = Date.now.startOfDay.adding(days: -offset)
+                // Heute und gestern immer frisch, ältere Tage aus dem Zwischenspeicher.
+                if offset > 1, let cached = fitbitCache[date] {
+                    loaded.append(cached)
+                } else {
+                    let day = await fitbit.loadDay(date)
+                    fitbitCache[date] = day
+                    loaded.append(day)
+                }
             }
             if loaded.contains(where: { $0.hrv != nil || $0.sleep != nil }) {
-                days = loaded
+                longDays = loaded
                 activeSource = .fitbit
             } else {
-                days = SampleData.days()
+                longDays = SampleData.days()
                 activeSource = .sample
                 lastError = "Von Fitbit kamen noch keine Daten. Es werden Beispieldaten gezeigt."
             }
         case .health:
-            let loaded = await health.loadDays(count: 30)
-            let hasData = loaded.contains { $0.hrv != nil || $0.sleep != nil || ($0.steps ?? 0) > 0 }
+            let loaded = await health.loadDays(count: 180)
+            healthPerson = await health.person()
+            let hasData = loaded.suffix(30).contains { $0.hrv != nil || $0.sleep != nil || ($0.steps ?? 0) > 0 }
             if hasData {
-                days = loaded
+                longDays = loaded
                 activeSource = .health
             } else {
-                days = SampleData.days()
+                longDays = SampleData.days()
                 activeSource = .sample
             }
         case .sample, .automatic:
-            days = SampleData.days()
+            longDays = SampleData.days()
             activeSource = .sample
         }
     }

@@ -5,8 +5,10 @@ struct RoutineEditorView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @Environment(\.dismiss) private var dismiss
     @Bindable var routine: Routine
     @State private var showPicker = false
+    @State private var confirmDelete = false
 
     var body: some View {
         List {
@@ -43,6 +45,23 @@ struct RoutineEditorView: View {
                 }
                 .disabled(routine.items.isEmpty)
             }
+            Section {
+                Button("Routine löschen", role: .destructive) { confirmDelete = true }
+            }
+        }
+        .confirmationDialog("„\(routine.name)“ löschen?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Löschen", role: .destructive) {
+                // Erst zurück, dann löschen: sonst greift die Ansicht noch auf die gelöschte Routine zu.
+                let target = routine
+                dismiss()
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    context.delete(target)
+                    try? context.save()
+                }
+            }
+        } message: {
+            Text("Bisherige Trainings bleiben im Verlauf.")
         }
         .scrollContentBackground(.hidden)
         .background(ScreenBackground())

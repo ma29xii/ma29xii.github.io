@@ -1,12 +1,44 @@
 import SwiftUI
+import SwiftData
 import Charts
+
+enum HealthTile: String, TileKind {
+    case bodyAge, heart, fitness, sleepActivity
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .bodyAge: "Körperalter"
+        case .heart: "Herz und Atmung"
+        case .fitness: "Fitness"
+        case .sleepActivity: "Schlaf und Aktivität"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .bodyAge: "hourglass"
+        case .heart: "heart"
+        case .fitness: "lungs"
+        case .sleepActivity: "bed.double"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .bodyAge: "Wie alt dein Körper nach deinen Daten wirkt"
+        case .heart: "HRV, Ruhepuls, Atemfrequenz, SpO₂"
+        case .fitness: "VO₂max im Verlauf"
+        case .sleepActivity: "Schlafdauer, Schritte, aktive Energie"
+        }
+    }
+}
 
 struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Environment(AppState.self) private var app
+    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: Space.s2) {
@@ -16,27 +48,11 @@ struct HealthView: View {
                     }
                     .padding(.top, Space.s1)
 
-                    FormaSection(title: "Herz und Atmung") {
-                        Plate {
-                            ForEach(Array([MetricKind.hrv, .restingHR, .respiratoryRate, .spo2].enumerated()), id: \.element) { i, kind in
-                                if i > 0 { RowDivider() }
-                                NavigationLink(value: kind) { MetricSummaryRow(kind: kind) }.buttonStyle(.plain)
-                            }
-                        }
+                    TileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health", screenTitle: "Gesundheit") { tile in
+                        AnyView(view(for: tile))
                     }
-                    FormaSection(title: "Fitness") {
-                        Plate {
-                            NavigationLink(value: MetricKind.vo2max) { TrendRow(kind: .vo2max) }.buttonStyle(.plain)
-                        }
-                    }
-                    FormaSection(title: "Schlaf und Aktivität") {
-                        Plate {
-                            ForEach(Array([MetricKind.sleepDuration, .steps, .activeEnergy].enumerated()), id: \.element) { i, kind in
-                                if i > 0 { RowDivider() }
-                                NavigationLink(value: kind) { MetricSummaryRow(kind: kind) }.buttonStyle(.plain)
-                            }
-                        }
-                    }
+                    .padding(.top, Space.s4)
+
                     Text("Quelle: \(hub.activeSource.title). Normalbereich = dein Mittel ± eine Standardabweichung der letzten 30 Tage.")
                         .font(.formaCaption)
                         .foregroundStyle(Theme.textTertiary)
@@ -55,6 +71,34 @@ struct HealthView: View {
                 }
             }
             .navigationDestination(for: MetricKind.self) { MetricDetailView(kind: $0) }
+            .navigationDestination(for: BodyAgeRoute.self) { _ in BodyAgeDetailView() }
+        }
+    }
+
+    @ViewBuilder private func view(for tile: HealthTile) -> some View {
+        switch tile {
+        case .bodyAge:
+            BodyAgeSummaryCard(outcome: bodyAgeOutcome(hub: hub, sessions: sessions),
+                               open: { path.append(BodyAgeRoute()) },
+                               openProfile: { app.showProfile = true })
+        case .heart:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage) {
+                ForEach(Array([MetricKind.hrv, .restingHR, .respiratoryRate, .spo2].enumerated()), id: \.element) { i, kind in
+                    if i > 0 { RowDivider() }
+                    NavigationLink(value: kind) { MetricSummaryRow(kind: kind) }.buttonStyle(.plain)
+                }
+            }
+        case .fitness:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage) {
+                NavigationLink(value: MetricKind.vo2max) { TrendRow(kind: .vo2max) }.buttonStyle(.plain)
+            }
+        case .sleepActivity:
+            WidgetCard(title: tile.title, systemImage: tile.systemImage) {
+                ForEach(Array([MetricKind.sleepDuration, .steps, .activeEnergy].enumerated()), id: \.element) { i, kind in
+                    if i > 0 { RowDivider() }
+                    NavigationLink(value: kind) { MetricSummaryRow(kind: kind) }.buttonStyle(.plain)
+                }
+            }
         }
     }
 }

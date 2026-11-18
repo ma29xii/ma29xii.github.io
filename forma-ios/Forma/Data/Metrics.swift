@@ -62,6 +62,7 @@ struct WorkoutSummary: Equatable, Sendable, Identifiable {
     var start: Date
     var duration: TimeInterval
     var energy: Double?   // kcal
+    var isStrength: Bool = false
 }
 
 enum DataSourceKind: String, Sendable, CaseIterable, Identifiable {

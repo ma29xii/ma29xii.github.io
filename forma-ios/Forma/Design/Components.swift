@@ -2,22 +2,53 @@ import SwiftUI
 
 // MARK: - Flächen und Zeilen
 
-/// Ruhige Inhaltsfläche (kein Glas): 4,5 % Weiß, feine Lichtkante.
+/// Matte Inhaltskarte mit Lichtkante oben (kein echtes Glas: Inhalte bleiben ruhig und lesbar).
 struct Plate<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Radius.plate, style: .continuous)
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: Radius.plate, style: .continuous)
-                    .fill(Theme.plate)
+                shape.fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.035)],
+                                          startPoint: .top, endPoint: .bottom))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.plate, style: .continuous)
-                    .strokeBorder(Theme.plateEdge, lineWidth: 0.5)
+                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.16), Color.white.opacity(0.04)],
+                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
             )
-            .clipShape(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous))
+            .clipShape(shape)
+    }
+}
+
+/// Widget auf „Heute“: Karte mit kleiner Kopfzeile (Symbol, Titel, optional rechts ein Hinweis).
+struct WidgetCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    var accessory: String? = nil
+    var accent: Color = Theme.textSecondary
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Plate {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accent)
+                Text(title)
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+                if let accessory {
+                    Text(accessory).font(.formaCaption).foregroundStyle(Theme.textTertiary)
+                }
+            }
+            .padding(.horizontal, Space.s4)
+            .padding(.top, 14)
+            .padding(.bottom, 2)
+            content
+        }
     }
 }
 
@@ -115,16 +146,19 @@ struct Glyph: View {
     }
 }
 
-/// Kurzer Hinweis-Chip (Inhalt, kein Glas).
+/// Kurzer Hinweis-Chip aus Glas.
 struct InfoChip: View {
     let text: String
+    var systemImage: String? = nil
     var body: some View {
-        Text(text)
-            .font(.system(size: 12.5, weight: .semibold))
-            .padding(.horizontal, 11)
-            .frame(height: 28)
-            .background(Capsule().fill(Color.white.opacity(0.06)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        HStack(spacing: 5) {
+            if let systemImage { Image(systemName: systemImage).font(.system(size: 11, weight: .semibold)) }
+            Text(text)
+        }
+        .font(.system(size: 12.5, weight: .semibold))
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
@@ -136,8 +170,30 @@ struct SampleDataBadge: View {
             .font(.formaMicro)
             .foregroundStyle(Theme.warning)
             .padding(.horizontal, 10)
-            .frame(height: 24)
-            .background(Capsule().fill(Theme.warning.opacity(0.12)))
+            .frame(height: 26)
+            .glassEffect(.regular.tint(Theme.warning.opacity(0.18)), in: .capsule)
+    }
+}
+
+/// Balken um eine Mittellinie: links = jünger (mint), rechts = älter (warm).
+struct DivergingBar: View {
+    let value: Double      // Jahre, negativ = jünger
+    var limit: Double = 6
+    var width: CGFloat = 96
+
+    var body: some View {
+        let half = width / 2
+        let fraction = CGFloat(Swift.min(1, abs(value) / limit))
+        ZStack {
+            Capsule().fill(Color.white.opacity(0.07)).frame(height: 6)
+            Rectangle().fill(Color.white.opacity(0.35)).frame(width: 1, height: 12)
+            Capsule()
+                .fill(value < 0 ? Theme.younger : Theme.older)
+                .frame(width: Swift.max(3, half * fraction), height: 6)
+                .offset(x: value < 0 ? -half * fraction / 2 : half * fraction / 2)
+        }
+        .frame(width: width, height: 12)
+        .accessibilityHidden(true)
     }
 }
 

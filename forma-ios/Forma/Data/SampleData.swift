@@ -1,8 +1,8 @@
 import Foundation
 
-/// Realistische Beispieldaten für 30 Tage. Werden in der App immer als „Beispieldaten“ gekennzeichnet.
+/// Realistische Beispieldaten (Standard: 180 Tage, für Körperalter). Werden in der App immer als „Beispieldaten“ gekennzeichnet.
 enum SampleData {
-    static func days(count: Int = 30, endingAt end: Date = .now) -> [DayMetrics] {
+    static func days(count: Int = 180, endingAt end: Date = .now) -> [DayMetrics] {
         let today = end.startOfDay
         return (0..<count).map { offset in
             let index = count - 1 - offset
@@ -14,14 +14,15 @@ enum SampleData {
             day.restingHR = (53 - wave * 2 - (index == 0 ? 1 : 0)).rounded()
             day.respiratoryRate = ((14.3 + sin(t * 0.5) * 0.3) * 10).rounded() / 10
             day.spo2 = (96.5 + sin(t * 0.7) * 0.8).rounded()
-            day.vo2max = ((44.8 + t * 0.075) * 10).rounded() / 10
+            day.vo2max = ((44.0 + t / Double(max(1, count - 1)) * 3.0) * 10).rounded() / 10
             day.steps = index == 0 ? 6240 : (8200 + wave * 2600).rounded()
             day.activeEnergy = index == 0 ? 410 : (520 + wave * 160).rounded()
             day.sleep = night(for: date, variation: wave, isToday: index == 0)
             if offset % 2 == 0 && index != 0 {
                 let names = ["Push", "Pull", "Beine", "Lauf"]
-                day.workouts = [WorkoutSummary(name: names[offset % 4], start: date.adding(minutes: 18 * 60),
-                                               duration: (52 + wave * 8) * 60, energy: 380)]
+                day.workouts = [WorkoutSummary(name: names[(offset / 2) % 4], start: date.adding(minutes: 18 * 60),
+                                               duration: (52 + wave * 8) * 60, energy: 380,
+                                               isStrength: names[(offset / 2) % 4] != "Lauf")]
             }
             if index == 0 {
                 day.workouts = [WorkoutSummary(name: "Spaziergang", start: date.adding(minutes: 12 * 60 + 10), duration: 34 * 60, energy: 110)]

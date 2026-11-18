@@ -1,36 +1,37 @@
 import SwiftUI
 
-/// Forma-Designsystem.
-/// Prinzipien (siehe README): Glas nur für Bedienelemente, Inhalte auf ruhigen Flächen,
-/// Farbe nur mit Bedeutung, 4-pt-Raster mit zwei linken Kanten (16 und 32).
+/// Forma-Designsystem (Iteration 6, siehe DESIGN.md).
+/// Neutrales Schwarz statt Blaugrau, Licht nur aus den Daten (Erholungsfarbe als Schein oben),
+/// Glas für Bedienelemente und Chips, Inhalte auf matten Karten mit Lichtkante.
 enum Theme {
-    // Grund
-    static let background = Color(hex: 0x080C0F)
-    static let backgroundTop = Color(hex: 0x16212A)
-    static let backgroundMid = Color(hex: 0x0D1418)
+    // Grund: neutrales Schwarz, kein Farbstich
+    static let background = Color(hex: 0x030303)
 
     // Text
-    static let textPrimary = Color(hex: 0xF2F5F7)
-    static let textSecondary = Color(hex: 0x8B949C)
+    static let textPrimary = Color(hex: 0xF5F5F7)
+    static let textSecondary = Color(hex: 0x9A9AA0)
     static let textTertiary = Color.white.opacity(0.40)
     static let textQuaternary = Color.white.opacity(0.22)
 
     // Flächen und Linien
-    static let plate = Color.white.opacity(0.045)
-    static let plateEdge = Color.white.opacity(0.07)
-    static let hairline = Color.white.opacity(0.075)
-    static let barGray = Color(hex: 0x2A3036)
-    static let track = Color.white.opacity(0.075)
+    static let plate = Color.white.opacity(0.05)
+    static let plateEdge = Color.white.opacity(0.08)
+    static let hairline = Color.white.opacity(0.08)
+    static let barGray = Color(hex: 0x2C2C2E)
+    static let track = Color.white.opacity(0.08)
 
     // Bedeutung
     static let recoveryHigh = Color(hex: 0x16EC06)
     static let recoveryMid = Color(hex: 0xFFDE00)
     static let recoveryLow = Color(hex: 0xFF0026)
     static let strain = Color(hex: 0x0093E7)
-    static let sleep = Color(hex: 0x67AEE6)
+    static let sleep = Color(hex: 0x8E8CFF)
     static let warning = Color(hex: 0xFFB547)
-    static let selection = Color(hex: 0xEEF2F5)
-    static let onSelection = Color(hex: 0x0B0F12)
+    static let selection = Color(hex: 0xF5F5F7)
+    static let onSelection = Color(hex: 0x0A0A0A)
+    /// Körperalter: jünger = mint, älter = warm.
+    static let younger = Color(hex: 0x3DDC97)
+    static let older = Color(hex: 0xFF8A5B)
 
     static func recovery(_ value: Int) -> Color {
         if value >= 67 { return recoveryHigh }
@@ -59,7 +60,7 @@ enum Space {
 }
 
 enum Radius {
-    static let plate: CGFloat = 20
+    static let plate: CGFloat = 24
     static let small: CGFloat = 12
     static let dock: CGFloat = 30
 }
@@ -83,7 +84,7 @@ extension Locale {
 /// Typografie: Systemschrift (SF Pro) mit tabellarischen Ziffern für alle Werte.
 extension Font {
     static let formaLargeTitle = Font.system(size: 34, weight: .bold)
-    static let formaHero = Font.system(size: 64, weight: .semibold).monospacedDigit()
+    static let formaHero = Font.system(size: 64, weight: .semibold, design: .rounded).monospacedDigit()
     static let formaTitle = Font.system(size: 28, weight: .bold)
     static let formaHeadline = Font.system(size: 22, weight: .semibold)
     static let formaSection = Font.system(size: 20, weight: .semibold)
@@ -94,31 +95,41 @@ extension Font {
     static let formaCaption = Font.system(size: 13, weight: .regular)
     static let formaCaptionStrong = Font.system(size: 13, weight: .semibold)
     static let formaMicro = Font.system(size: 11, weight: .semibold)
-    static let formaBigNumber = Font.system(size: 28, weight: .semibold).monospacedDigit()
+    static let formaBigNumber = Font.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit()
+    static let formaWidgetNumber = Font.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit()
 }
 
-/// Ruhiger, dunkler Grund mit leichtem Blaugrau oben.
+/// Neutrales Schwarz mit weichem Lichtschein oben.
+/// Auf „Heute“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
 struct ScreenBackground: View {
+    var tint: Color? = nil
+
     var body: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Theme.backgroundTop, location: 0),
-                .init(color: Theme.backgroundMid, location: 0.34),
-                .init(color: Theme.background, location: 0.72)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack(alignment: .top) {
+            Theme.background
+            RadialGradient(
+                colors: [(tint ?? .white).opacity(tint == nil ? 0.07 : 0.20), .clear],
+                center: .top, startRadius: 0, endRadius: 380
+            )
+            .scaleEffect(x: 1.7, y: 1, anchor: .top)
+            .frame(height: 520)
+            RadialGradient(
+                colors: [(tint ?? .white).opacity(tint == nil ? 0.03 : 0.08), .clear],
+                center: .topTrailing, startRadius: 0, endRadius: 300
+            )
+            .frame(height: 420)
+        }
         .ignoresSafeArea()
+        .animation(.smooth(duration: 0.8), value: tint)
     }
 }
 
 extension View {
     /// Standard-Hintergrund für Seiten.
-    func formaScreen() -> some View {
+    func formaScreen(tint: Color? = nil) -> some View {
         self
             .scrollContentBackground(.hidden)
-            .background(ScreenBackground())
+            .background(ScreenBackground(tint: tint))
             .foregroundStyle(Theme.textPrimary)
     }
 }
