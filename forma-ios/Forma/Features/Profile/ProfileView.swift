@@ -78,9 +78,15 @@ struct ProfileView: View {
                 } header: {
                     Text("Fitbit")
                 } footer: {
-                    Text(hub.fitbit.isConfigured
-                         ? "Liest Schlaf, HRV, Ruhepuls, Aktivität, SpO₂ und Atemfrequenz über die Fitbit Web API."
-                         : "Noch nicht eingerichtet: Die Fitbit-Client-ID fehlt in Config.xcconfig (Anleitung im README).")
+                    if hub.fitbit.needsReconnect {
+                        Text("Die Fitbit-Anmeldung ist abgelaufen. Bitte neu verbinden.").foregroundStyle(Theme.warning)
+                    } else if let until = hub.fitbit.rateLimitedUntil, until > .now {
+                        Text("Fitbit-Limit erreicht (etwa 150 Abrufe pro Stunde). Neue Daten ab \(Format.clock(until)).").foregroundStyle(Theme.warning)
+                    } else {
+                        Text(hub.fitbit.isConfigured
+                             ? "Liest Schlaf, HRV, Ruhepuls, Aktivität, SpO₂ und Atemfrequenz über die Fitbit Web API."
+                             : "Noch nicht eingerichtet: Die Fitbit-Client-ID fehlt in Config.xcconfig (Anleitung im README).")
+                    }
                 }
 
                 Section("Einheiten") {

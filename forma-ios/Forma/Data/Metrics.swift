@@ -14,6 +14,31 @@ struct DayMetrics: Equatable, Sendable, Identifiable {
     var workouts: [WorkoutSummary] = []
 
     var id: Date { date }
+
+    /// Verwirft unplausible Messwerte (NaN, negativ, physiologisch unmöglich), damit
+    /// keine Berechnung abstürzt oder Unsinn zeigt.
+    func sanitized() -> DayMetrics {
+        func keep(_ v: Double?, _ range: ClosedRange<Double>) -> Double? {
+            guard let v, v.isFinite, range.contains(v) else { return nil }
+            return v
+        }
+        var d = self
+        d.hrv = keep(hrv, 1...400)
+        d.restingHR = keep(restingHR, 25...150)
+        d.respiratoryRate = keep(respiratoryRate, 4...40)
+        d.spo2 = keep(spo2, 50...100)
+        d.vo2max = keep(vo2max, 10...95)
+        d.steps = keep(steps, 0...150_000)
+        d.activeEnergy = keep(activeEnergy, 0...12_000)
+        if let night = sleep {
+            let segments = night.segments.filter { $0.end > $0.start && $0.duration <= 12 * 3600 }
+            d.sleep = (night.end > night.start && night.inBed <= 24 * 3600 && !segments.isEmpty)
+                ? SleepNight(start: night.start, end: night.end, segments: segments) : nil
+        }
+        d.workouts = workouts.filter { $0.duration.isFinite && $0.duration > 0 && $0.duration <= 24 * 3600 }
+            .map { w in var w = w; if let e = w.energy, !e.isFinite || e < 0 || e > 10_000 { w.energy = nil }; return w }
+        return d
+    }
 }
 
 struct SleepNight: Equatable, Sendable {

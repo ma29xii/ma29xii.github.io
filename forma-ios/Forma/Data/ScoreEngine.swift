@@ -9,7 +9,8 @@ enum ScoreEngine {
         func z(_ value: Double) -> Double { sd > 0.0001 ? (value - mean) / sd : 0 }
     }
 
-    static func baseline(_ values: [Double]) -> Baseline? {
+    static func baseline(_ raw: [Double]) -> Baseline? {
+        let values = raw.filter(\.isFinite)
         guard values.count >= 4 else { return nil }
         let mean = values.reduce(0, +) / Double(values.count)
         let variance = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count)

@@ -75,10 +75,9 @@ jobs:
           retention-days: 30
 
   screens:
-    # Screenshots für die Design-Prüfung. Darf scheitern, ohne den IPA-Build rot zu machen.
+    # Unit-Tests (müssen grün sein) und Screenshots für die Design-Prüfung (dürfen scheitern).
     runs-on: macos-26
-    timeout-minutes: 40
-    continue-on-error: true
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: forma-ios
@@ -102,10 +101,27 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl ui "$UDID" appearance dark || true
 
-      - name: UI-Rundgang
+      - name: Unit-Tests
         run: |
           set +e
-          xcodebuild test -project Forma.xcodeproj -scheme Forma \
+          xcodebuild test -project Forma.xcodeproj -scheme Forma -only-testing:FormaTests \
+            -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$RUNNER_TEMP/unit.xcresult" > "$RUNNER_TEMP/unit.log" 2>&1
+          status=$?
+          grep -E "error:|failed|XCTAssert|Executed|TEST (SUCCEEDED|FAILED)|Test Case .* (passed|failed)" "$RUNNER_TEMP/unit.log" \
+            | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -120
+          {
+            echo "### Unit-Tests"
+            grep -E "Executed [0-9]+ test" "$RUNNER_TEMP/unit.log" | tail -1
+            grep -E "Test Case .* failed|error:" "$RUNNER_TEMP/unit.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | head -40
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: UI-Rundgang
+        if: always()
+        run: |
+          set +e
+          xcodebuild test -project Forma.xcodeproj -scheme Forma -only-testing:FormaUITests \
             -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" \
             -resultBundlePath "$RUNNER_TEMP/ui.xcresult" > "$RUNNER_TEMP/ui.log" 2>&1
           status=$?
@@ -116,6 +132,8 @@ jobs:
           exit 0
 
       - name: Screenshots in den Branch legen
+        if: always()
+        continue-on-error: true
         run: |
           cd "$RUNNER_TEMP/shots" || exit 0
           [ -f manifest.json ] || exit 0

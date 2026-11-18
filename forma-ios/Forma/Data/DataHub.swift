@@ -117,9 +117,10 @@ final class DataHub {
                 if offset > 1, let cached = fitbitCache[date] {
                     loaded.append(cached)
                 } else {
-                    let day = await fitbit.loadDay(date)
-                    fitbitCache[date] = day
-                    loaded.append(day)
+                    let day = await fitbit.loadDay(date).sanitized()
+                    // Bei erreichtem Limit nichts zwischenspeichern, sonst bleiben leere Tage hängen.
+                    if !fitbit.isRateLimited { fitbitCache[date] = day }
+                    loaded.append(fitbitCache[date] ?? day)
                 }
             }
             if loaded.contains(where: { $0.hrv != nil || $0.sleep != nil }) {
@@ -131,7 +132,7 @@ final class DataHub {
                 lastError = "Von Fitbit kamen noch keine Daten. Es werden Beispieldaten gezeigt."
             }
         case .health:
-            let loaded = await health.loadDays(count: 180)
+            let loaded = await health.loadDays(count: 180).map { $0.sanitized() }
             healthPerson = await health.person()
             let hasData = loaded.suffix(30).contains { $0.hrv != nil || $0.sleep != nil || ($0.steps ?? 0) > 0 }
             if hasData {

@@ -4,6 +4,7 @@ import SwiftData
 struct LiveWorkoutView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
+    @Query private var library: [Exercise]
     @Bindable var workout: LiveWorkout
     @State private var showPicker = false
     @State private var confirmEnd = false
@@ -68,6 +69,12 @@ struct LiveWorkoutView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(exercise.name).font(.formaTitle).padding(.top, Space.s6)
             Text(exercise.lastTime ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
+            if let progression = exercise.progression {
+                Label(progression, systemImage: progression.hasPrefix("+") ? "arrow.up.right" : "equal")
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(progression.hasPrefix("+") ? Theme.younger : Theme.textSecondary)
+                    .padding(.top, 6)
+            }
             Plate {
                 HStack {
                     Text("Satz").frame(width: 40, alignment: .leading)
@@ -182,6 +189,14 @@ struct LiveWorkoutView: View {
                 stepper(value: "\(set?.reps ?? 0)", unit: "Wdh",
                         minus: { workout.changeReps(by: -1) }, plus: { workout.changeReps(by: 1) })
             }
+            if let plates = plateText(for: set?.weight ?? 0) {
+                Text(plates)
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentTransition(.opacity)
+                    .accessibilityLabel("Scheiben pro Seite: \(plates)")
+            }
             if set?.isWarmup == false {
                 HStack(spacing: 6) {
                     Text("Reserve").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
@@ -226,6 +241,15 @@ struct LiveWorkoutView: View {
         .frame(height: 56)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.06)))
         .buttonRepeatBehavior(.enabled)
+    }
+
+    /// Scheibenrechner für Langhantel-Übungen (Stange 20 kg, Scheiben 25 bis 1,25 kg).
+    private func plateText(for weight: Double) -> String? {
+        guard app.weightUnit == .kg, let name = workout.currentExercise?.name,
+              library.first(where: { $0.name == name })?.equipment == "Langhantel" else { return nil }
+        guard let plates = PlateMath.perSide(total: weight) else { return nil }
+        if plates.isEmpty { return "Nur die Stange (20 kg)" }
+        return "Pro Seite: " + plates.map { Format.number($0, decimals: $0.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2) }.joined(separator: " + ")
     }
 
     private func finish() {

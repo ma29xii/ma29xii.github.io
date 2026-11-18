@@ -14,9 +14,10 @@ final class FitbitService {
     }
 
     enum FitbitError: LocalizedError {
-        case notConfigured, invalidCallback, http(Int), noTokens
+        case notConfigured, invalidCallback, http(Int), noTokens, rateLimited(Date)
         var errorDescription: String? {
             switch self {
+            case .rateLimited(let until): "Fitbit-Limit erreicht. Neuer Versuch ab \(Format.clock(until))."
             case .notConfigured: "Fitbit ist noch nicht eingerichtet: Client-ID fehlt (siehe README)."
             case .invalidCallback: "Die Anmeldung bei Fitbit wurde abgebrochen."
             case .http(let code): "Fitbit antwortet mit Fehler \(code)."
@@ -28,6 +29,10 @@ final class FitbitService {
     private(set) var tokens: Tokens?
     private var pendingVerifier: String?
     private var pendingState: String?
+    /// Nach Fehler 429 keine weiteren Anfragen bis zu diesem Zeitpunkt.
+    private(set) var rateLimitedUntil: Date?
+    /// Anmeldung abgelaufen (Refresh-Token ungültig): Nutzer muss neu verbinden.
+    private(set) var needsReconnect = false
 
     var isConnected: Bool { tokens != nil }
 
@@ -100,11 +105,20 @@ final class FitbitService {
         request.httpBody = form.map { "\($0.key)=\(Self.formEncode($0.value))" }.joined(separator: "&").data(using: .utf8)
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else { throw FitbitError.http(status) }
+        guard status == 200 else {
+            // 400/401 beim Erneuern: Refresh-Token verbraucht oder widerrufen → nicht endlos wiederholen.
+            if form["grant_type"] == "refresh_token" && (status == 400 || status == 401) {
+                needsReconnect = true
+                tokens = nil
+                Keychain.set(nil, for: "fitbit.tokens")
+            }
+            throw FitbitError.http(status)
+        }
         let r = try JSONDecoder().decode(TokenResponse.self, from: data)
         let t = Tokens(accessToken: r.access_token, refreshToken: r.refresh_token,
                        expiresAt: .now.addingTimeInterval(r.expires_in - 60), userID: r.user_id)
         tokens = t
+        needsReconnect = false
         if let data = try? JSONEncoder().encode(t) { Keychain.set(String(data: data, encoding: .utf8), for: "fitbit.tokens") }
     }
 
@@ -117,15 +131,32 @@ final class FitbitService {
     }
 
     private func get(_ path: String) async throws -> Data {
+        if let until = rateLimitedUntil, until > .now { throw FitbitError.rateLimited(until) }
         let token = try await validAccessToken()
         var request = URLRequest(url: URL(string: "https://api.fitbit.com" + path)!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("de_DE", forHTTPHeaderField: "Accept-Language")
         let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        if status == 429 {
+            let wait = Self.retryAfter(http?.value(forHTTPHeaderField: "Retry-After"))
+                ?? Self.retryAfter(http?.value(forHTTPHeaderField: "fitbit-rate-limit-reset"))
+                ?? 3600
+            let until = Date.now.addingTimeInterval(wait)
+            rateLimitedUntil = until
+            throw FitbitError.rateLimited(until)
+        }
         guard status == 200 else { throw FitbitError.http(status) }
         return data
     }
+
+    nonisolated static func retryAfter(_ header: String?) -> TimeInterval? {
+        guard let header, let seconds = Double(header.trimmingCharacters(in: .whitespaces)), seconds.isFinite, seconds > 0 else { return nil }
+        return min(seconds, 3 * 3600)
+    }
+
+    var isRateLimited: Bool { (rateLimitedUntil ?? .distantPast) > .now }
 
     // MARK: Daten
 
@@ -205,8 +236,10 @@ private struct SleepResponse: Decodable {
 
         func night() -> SleepNight? {
             guard let start = Self.parse(startTime), let end = Self.parse(endTime) else { return nil }
+            guard end > start, end.timeIntervalSince(start) < 24 * 3600 else { return nil }
             let segments: [SleepNight.Segment] = (levels?.data ?? []).compactMap { item in
-                guard let s = Self.parse(item.dateTime) else { return nil }
+                // Unplausible Werte verwerfen (negativ, länger als 12 h, keine Zahl).
+                guard let s = Self.parse(item.dateTime), item.seconds.isFinite, item.seconds > 0, item.seconds <= 12 * 3600 else { return nil }
                 let stage: SleepNight.Stage
                 switch item.level {
                 case "deep": stage = .deep
@@ -220,19 +253,26 @@ private struct SleepResponse: Decodable {
             return SleepNight(start: start, end: end, segments: segments)
         }
 
-        static func parse(_ s: String) -> Date? {
-            // Fitbit liefert lokale Zeit ohne Zeitzone, z. B. 2026-11-17T23:10:30.000
+        static func parse(_ s: String) -> Date? { FitbitTime.parse(s) }
+    }
+    let sleep: [Entry]
+}
+
+/// Zeitangaben von Fitbit: lokale Zeit ohne Zeitzone, z. B. 2026-11-17T23:10:30.000.
+/// Robust gegen kaputte Eingaben (kein Absturz, sondern nil).
+enum FitbitTime {
+    static func parse(_ s: String) -> Date? {
             let parts = s.split(separator: "T")
-            guard parts.count == 2 else { return nil }
+            guard parts.count == 2, let timePart = parts[1].split(separator: ".").first else { return nil }
             let d = parts[0].split(separator: "-").compactMap { Int($0) }
-            let t = parts[1].split(separator: ".")[0].split(separator: ":").compactMap { Int($0) }
-            guard d.count == 3, t.count >= 2 else { return nil }
+            let t = timePart.split(separator: ":").compactMap { Int($0) }
+            guard d.count == 3, t.count >= 2, t.count <= 3,
+                  (1...12).contains(d[1]), (1...31).contains(d[2]), (0...23).contains(t[0]), (0...59).contains(t[1]),
+                  t.count < 3 || (0...60).contains(t[2]) else { return nil }
             var c = DateComponents()
             c.year = d[0]; c.month = d[1]; c.day = d[2]; c.hour = t[0]; c.minute = t[1]; c.second = t.count > 2 ? t[2] : 0
             return Calendar.forma.date(from: c)
-        }
     }
-    let sleep: [Entry]
 }
 
 private struct HRVResponse: Decodable {

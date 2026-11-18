@@ -35,7 +35,9 @@ struct TileArrangement<Kind: TileKind>: Equatable {
         let parts = storage.split(separator: "|", omittingEmptySubsequences: false)
         let orderIDs = parts.first.map { $0.split(separator: ",").map(String.init) } ?? []
         let hiddenIDs = parts.count > 1 ? parts[1].split(separator: ",").map(String.init) : []
-        var order = orderIDs.compactMap(Kind.init(rawValue:))
+        // Doppelte oder unbekannte Einträge (z. B. kaputte Speicherung) verwerfen.
+        var order: [Kind] = []
+        for kind in orderIDs.compactMap(Kind.init(rawValue:)) where !order.contains(kind) { order.append(kind) }
         var hidden = Set(hiddenIDs.compactMap(Kind.init(rawValue:)))
         // Neue Kacheln aus späteren Versionen hinten anhängen.
         for kind in Kind.allCases where !order.contains(kind) {
