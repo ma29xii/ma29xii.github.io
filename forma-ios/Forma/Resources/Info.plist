@@ -27,14 +27,12 @@
 			<string>com.ma29xii.forma.oauth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>$(FITBIT_REDIRECT_SCHEME)</string>
+				<string>$(GOOGLE_REDIRECT_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
-	<key>FitbitClientID</key>
-	<string>$(FITBIT_CLIENT_ID)</string>
-	<key>FitbitRedirectScheme</key>
-	<string>$(FITBIT_REDIRECT_SCHEME)</string>
+	<key>GoogleHealthClientID</key>
+	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.ma29xii.forma.refresh</string>
@@ -47,10 +45,6 @@
 	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSHealthShareUsageDescription</key>
-	<string>Health liest Herzfrequenzvariabilität, Ruhepuls, Schlafphasen, Schritte, aktive Energie, VO₂max, Atemfrequenz, Sauerstoffsättigung und Trainings aus Apple Health, um deine Erholung, deinen Schlaf und deine Belastung zu berechnen. Die Daten bleiben auf deinem iPhone.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Health schreibt keine Daten in Apple Health. Diese Angabe ist nur aus technischen Gründen nötig.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

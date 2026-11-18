@@ -1,12 +1,16 @@
 import Foundation
 
-struct HourlyMetrics: Identifiable, Sendable {
+struct HourlyMetrics: Identifiable, Equatable, Codable, Sendable {
     let start: Date
     let end: Date
     var steps: Double? = nil
     var activeEnergy: Double? = nil
     var hrv: Double? = nil
     var restingHR: Double? = nil
+    var heartRate: Double? = nil
+    var stepOrigin: GoogleMetricOrigin? = nil
+    var energyOrigin: GoogleMetricOrigin? = nil
+    var heartRateOrigin: GoogleMetricOrigin? = nil
 
     var id: Date { start }
 

@@ -1,28 +1,184 @@
 import Foundation
 import SwiftUI
-import UIKit
 
-/// Sammelt Daten aus der gewählten Quelle und berechnet die Tageswerte.
+/// Vereint den Google-Import, den gesicherten Stand und die lokalen Krafttrainings.
 @MainActor
 @Observable
 final class DataHub {
-    let health = HealthService()
-    let fitbit = FitbitService()
+    private let googleService = GoogleHealthService()
+    private let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
+    private var accountID: String?
+    private var connectionFailure: String?
+    private var connecting = false
 
-    /// Bis zu 180 Tage für das Körperalter.
-    private(set) var longDays: [DayMetrics]
-    /// Wurde seit dem Start schon einmal erfolgreich geladen? Vorher keine Beispielwerte vortäuschen.
+    var google: GoogleConnection {
+        guard googleService.isConfigured else { return .notConfigured }
+        if connecting { return .connecting }
+        if let connectionFailure { return .failed(connectionFailure) }
+        return accountID == nil ? .disconnected : .connected(lastSync: lastUpdate)
+    }
+
+    private(set) var longDays: [DayMetrics] = []
     private(set) var hasLoaded = false
-    /// Die letzten 30 Tage für Ringe und Trends, inklusive Forma-Krafttrainings (zählen in die Belastung).
+    private(set) var activeSource: DataSourceKind = .google
+    private(set) var isLoading = false
+    private(set) var lastUpdate: Date?
+    private(set) var lastBackgroundSync: Date?
+    private(set) var lastBackgroundAttempt: Date?
+    private(set) var syncNote: String?
+    private(set) var formaWorkouts: [WorkoutSummary] = []
+    private(set) var profileRevision = 0
+    private var storedHours: [Date: HourlyMetrics] = [:]
+    private var historyThrough: Date?
+    private var generation = 0
+    private var connectionGeneration = 0
+    private var inFlight: Task<RefreshResult, Never>?
+    private var attemptID: UUID?
+
+    var preferredSource: DataSourceKind {
+        didSet {
+            guard oldValue != preferredSource else { return }
+            if !isUITest { UserDefaults.standard.set(preferredSource.rawValue, forKey: "forma.source") }
+            invalidateRefresh()
+            showPreferredSource()
+            Task { await refresh() }
+        }
+    }
+
+    init() {
+        let defaults = UserDefaults.standard
+        preferredSource = isUITest ? .sample : Self.source(from: defaults.string(forKey: "forma.source"))
+        if !isUITest {
+            defaults.set(preferredSource.rawValue, forKey: "forma.source")
+            defaults.removeObject(forKey: "forma.healthAuthorized")
+            // Löscht nur den nicht mehr verwendbaren Eintrag, ohne ihn auszulesen.
+            _ = Keychain.set(nil, for: "fitbit.tokens")
+            accountID = googleService.accountID
+            lastBackgroundSync = defaults.object(forKey: "forma.google.lastBackgroundSync") as? Date
+            lastBackgroundAttempt = defaults.object(forKey: "forma.google.lastBackgroundAttempt") as? Date
+        }
+        showPreferredSource()
+    }
+
+    nonisolated static func source(from stored: String?) -> DataSourceKind {
+        stored == DataSourceKind.sample.rawValue ? .sample : .google
+    }
+
+    private func showPreferredSource() {
+        activeSource = preferredSource
+        syncNote = nil
+        if isSample {
+            longDays = SampleData.days()
+            hasLoaded = true
+        } else if let accountID, let cached = SyncStore.load(),
+                  cached.source == DataSourceKind.google.rawValue, cached.accountID == accountID {
+            longDays = SyncStore.normalized(cached.days)
+            storedHours = Dictionary((cached.hours ?? []).map { ($0.start, $0) }, uniquingKeysWith: { _, newer in newer })
+            historyThrough = cached.historyThrough
+            lastUpdate = cached.updated
+            hasLoaded = true
+        } else {
+            longDays = []
+            storedHours = [:]
+            historyThrough = nil
+            hasLoaded = false
+        }
+    }
+
+    func connectGoogle() async {
+        guard !connecting, accountID == nil, googleService.isConfigured, !isUITest else { return }
+        let generation = connectionGeneration
+        connecting = true
+        connectionFailure = nil
+        defer { if connectionGeneration == generation { connecting = false } }
+        do {
+            try await googleService.connect()
+            guard connectionGeneration == generation else { return }
+            accountID = googleService.accountID
+            clearGoogleCopy()
+            connecting = false
+            if preferredSource != .google { preferredSource = .google }
+            _ = await syncAndNotify(background: false)
+        } catch GoogleHealthError.cancelled {
+            // Ein geschlossener Anmeldedialog lässt sich erneut öffnen.
+        } catch is CancellationError {
+        } catch {
+            guard connectionGeneration == generation else { return }
+            connectionFailure = Self.message(for: error)
+        }
+    }
+
+    func disconnectGoogle() {
+        guard !isUITest else { return }
+        do {
+            try googleService.disconnect()
+            connectionGeneration += 1
+            connecting = false
+            accountID = nil
+            connectionFailure = nil
+            clearGoogleCopy()
+        } catch {
+            syncNote = Self.message(for: error)
+        }
+    }
+
+    func deleteLocalHealthCopy() {
+        guard !isUITest else { return }
+        clearGoogleCopy()
+    }
+
+    private func clearGoogleCopy() {
+        invalidateRefresh()
+        SyncStore.clear()
+        lastUpdate = nil
+        lastBackgroundSync = nil
+        lastBackgroundAttempt = nil
+        historyThrough = nil
+        storedHours = [:]
+        syncNote = nil
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "forma.google.lastBackgroundSync")
+        defaults.removeObject(forKey: "forma.google.lastBackgroundAttempt")
+        if activeSource == .google { longDays = [] }
+    }
+
+    private func invalidateRefresh() {
+        generation += 1
+        inFlight?.cancel()
+        inFlight = nil
+        attemptID = nil
+        isLoading = false
+    }
+
+    var todayDataNotice: String? {
+        if isSample { return nil }
+        if let day = longDays.last, day.date == Date.now.startOfDay, SyncStore.hasData(day) { return nil }
+        if isLoading { return "Lade deine Daten …" }
+        switch google {
+        case .notConfigured: return "Google Health ist noch nicht eingerichtet."
+        case .disconnected: return "Verbinde Google Health im Profil."
+        case .connecting: return "Google Health wird verbunden …"
+        case .failed(let message): return message
+        case .connected: return syncNote ?? "Google Health hat für heute noch keine Messungen geliefert."
+        }
+    }
+
+    var isSample: Bool { activeSource == .sample }
+    var today: DayMetrics { days.last ?? DayMetrics(date: .now.startOfDay) }
+    var yesterday: DayMetrics? { days.count > 1 ? days[days.count - 2] : nil }
+    var history: [DayMetrics] { Array(days.dropLast()) }
+
     var days: [DayMetrics] {
-        var recent = Array(longDays.suffix(30))
-        if activeSource == .health, let last = recent.last, last.date != Date.now.startOfDay {
-            recent = SyncStore.normalized(recent, keepDays: 30)
+        let recent = Array(longDays.suffix(30))
+        if !isSample, let last = recent.last, last.date != Date.now.startOfDay {
+            return includingFormaWorkouts(SyncStore.normalized(recent, keepDays: 30))
+        }
+        if !isSample, recent.isEmpty, !formaWorkouts.isEmpty {
+            return includingFormaWorkouts(SyncStore.normalized([], keepDays: 30))
         }
         return includingFormaWorkouts(recent)
     }
 
-    /// Das Dashboard übernimmt die bereinigten jüngsten Tage und dieselbe Trainingsquelle für ältere Tage.
     func dashboardHistory(recent: [DayMetrics]) -> [DayMetrics] {
         guard let first = recent.first else { return [] }
         return includingFormaWorkouts(longDays.filter { $0.date < first.date }) + recent
@@ -33,434 +189,337 @@ final class DataHub {
         let workoutsByDay = Dictionary(grouping: formaWorkouts) { $0.start.startOfDay }
         var result = days
         for i in result.indices {
-            for w in workoutsByDay[result[i].date] ?? [] {
-                let end = w.start.addingTimeInterval(w.duration)
-                // Nicht doppelt zählen, wenn dasselbe Training auch in Apple Health steht.
-                let overlaps = result[i].workouts.contains { h in h.start < end && w.start < h.start.addingTimeInterval(h.duration) }
-                if !overlaps { result[i].workouts.append(w) }
+            for workout in workoutsByDay[result[i].date] ?? [] {
+                let end = workout.start.addingTimeInterval(workout.duration)
+                let overlaps = result[i].workouts.contains {
+                    $0.start < end && workout.start < $0.start.addingTimeInterval($0.duration)
+                }
+                if !overlaps { result[i].workouts.append(workout) }
             }
         }
         return result
     }
 
-    /// Trainings aus Forma (SwiftData), gesetzt von der Oberfläche.
-    private(set) var formaWorkouts: [WorkoutSummary] = []
     func setFormaWorkouts(_ workouts: [WorkoutSummary]) {
         if workouts != formaWorkouts { formaWorkouts = workouts }
     }
-    private(set) var healthPerson: (birthDate: Date?, sex: BiologicalSex) = (nil, .unknown)
-    /// Fitbit erlaubt etwa 150 Anfragen pro Stunde: ältere Tage nur einmal laden.
-    private var fitbitCache: [Date: DayMetrics] = [:]
-    private(set) var activeSource: DataSourceKind = .automatic
-    private(set) var isLoading = false
-    /// Letzter erfolgreicher Import (überlebt Neustarts).
-    private(set) var lastUpdate: Date? = UserDefaults.standard.object(forKey: "forma.lastUpdate") as? Date {
-        didSet { UserDefaults.standard.set(lastUpdate, forKey: "forma.lastUpdate") }
-    }
-    /// Letzter Abruf, den iOS im Hintergrund ausgelöst hat.
-    private(set) var lastBackgroundSync: Date? = UserDefaults.standard.object(forKey: "forma.lastBackgroundSync") as? Date {
-        didSet { UserDefaults.standard.set(lastBackgroundSync, forKey: "forma.lastBackgroundSync") }
-    }
-    /// Kam während eines Abrufs ein neuer Anstoß, wird danach noch einmal geladen (nichts geht verloren).
-    private var refreshPending = false
-    private var inFlight: Task<RefreshResult, Never>?
-    /// Zählt Quellenwechsel; Abrufe einer überholten Quelle werden verworfen (Codex R-02-14).
-    private var generation = 0
-    /// Wartet ein Abruf auf das Entsperren des iPhones?
-    private(set) var waitingForUnlock = false
-    /// Letzter Versuch im Hintergrund (auch ohne neue Daten).
-    private(set) var lastBackgroundAttempt: Date? = UserDefaults.standard.object(forKey: "forma.lastBackgroundAttempt") as? Date {
-        didSet { UserDefaults.standard.set(lastBackgroundAttempt, forKey: "forma.lastBackgroundAttempt") }
-    }
-    /// Hinweis, falls Apple Health die Hintergrundzustellung nicht erlaubt.
-    private(set) var observerNote: String?
-    private var debounce: Task<Void, Never>?
-    // Der gespeicherte Wert heißt nur: Der Systemdialog wurde schon einmal abgeschlossen.
-    // Ob Lesefreigaben erteilt sind, lässt sich erst aus gelesenen Messwerten ableiten.
-    private var askedForHealthAccess = UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
-    private(set) var requestingHealthAccess = false
-    private(set) var healthAccessError: String?
-    private var lastHealthMeasurement: Date?
-    private var readHealthThisSession = false
-    /// Kurzer Hinweis zum Sync-Zustand (gesperrt, letzter Stand …), wird im Profil gezeigt.
-    private(set) var syncNote: String?
 
-    var healthStatus: String {
-        guard health.isAvailable else { return "Apple Health ist auf diesem Gerät nicht verfügbar." }
-        if requestingHealthAccess { return "Freigabe wird abgefragt …" }
-        if let healthAccessError { return healthAccessError }
-        if waitingForUnlock { return "Warte auf Entsperren" }
-        if let date = lastHealthMeasurement {
-            if readHealthThisSession && Calendar.forma.isDateInToday(date) { return "Verbunden · Daten von heute" }
-            if Calendar.forma.isDateInToday(date) { return "Letzte lesbare Daten von heute" }
-            return "Keine Daten seit \(Format.shortDate(date))"
-        }
-        if !askedForHealthAccess { return "Keine Freigabe angefragt" }
-        if isLoading { return "Daten werden geladen …" }
-        return "Keine lesbaren Daten. Prüfe in Apple Health die Freigabe."
-    }
-
-    var todayDataNotice: String? {
-        if isSample { return nil }
-        if healthAccessError != nil || !health.isAvailable { return healthStatus }
-        // Lokale Trainings können den Tageswert füllen, belegen aber keinen Apple-Health-Abruf.
-        if activeSource == .health, let day = longDays.last,
-           day.date == Date.now.startOfDay, SyncStore.hasData(day) { return nil }
-        if waitingForFitbit { return "Noch kein Fitbit-Schlaf für heute" }
-        if isLoading { return "Lade deine Daten …" }
-        return healthStatus
-    }
-
-    /// Manuelle Angaben aus dem Profil haben Vorrang, dann Apple Health, bei Beispieldaten eine Annahme.
     var person: PersonInfo {
         if isSample { return SampleData.person() }
         _ = profileRevision
         let defaults = UserDefaults.standard
         let year = defaults.integer(forKey: "forma.birthYear")
-        let manualSex = BiologicalSex(rawValue: defaults.string(forKey: "forma.sex") ?? "") ?? .unknown
-        let sex = manualSex != .unknown ? manualSex : healthPerson.sex
-        if year > 1900 {
+        let sex = BiologicalSex(rawValue: defaults.string(forKey: "forma.sex") ?? "") ?? .unknown
+        if (1901...Calendar.forma.component(.year, from: .now)).contains(year) {
             let birth = Calendar.forma.date(from: DateComponents(year: year, month: 7, day: 1))
             return PersonInfo(birthDate: birth, sex: sex, origin: .manual)
         }
-        if let birth = healthPerson.birthDate { return PersonInfo(birthDate: birth, sex: sex, origin: .health) }
         return PersonInfo(birthDate: nil, sex: sex, origin: .missing)
     }
 
-    /// Wird von der Profilseite gesetzt, damit abhängige Ansichten neu rechnen.
-    private(set) var profileRevision = 0
     func profileChanged() { profileRevision += 1 }
 
-    var preferredSource: DataSourceKind {
-        didSet {
-            UserDefaults.standard.set(preferredSource.rawValue, forKey: "forma.source")
-            guard oldValue != preferredSource else { return }
-            generation += 1
-            Task { await self.refresh() }
-        }
-    }
-
-    /// Löscht die lokale Kopie der Gesundheitsdaten (Codex R-02-02). Apple Health selbst bleibt unberührt.
-    func deleteLocalHealthCopy() {
-        generation += 1
-        SyncStore.clear()
-        lastUpdate = nil
-        lastBackgroundSync = nil
-        lastBackgroundAttempt = nil
-        syncNote = nil
-        lastHealthMeasurement = nil
-        readHealthThisSession = false
-        healthHours = []
-        if activeSource == .health { longDays = SyncStore.normalized([]) }
-    }
-
-    init() {
-        var source = DataSourceKind(rawValue: UserDefaults.standard.string(forKey: "forma.source") ?? "") ?? .automatic
-        // Die alte Fitbit-Schnittstelle ist abgeschaltet (Google, 2.11.2026).
-        if source == .fitbit { source = .automatic }
-        if ProcessInfo.processInfo.arguments.contains("-uitest") { source = .sample }
-        preferredSource = source
-        let expectsRealData = source != .sample && UserDefaults.standard.bool(forKey: "forma.healthAuthorized")
-        if expectsRealData, let cached = SyncStore.load() {
-            // Sofort mit dem letzten Stand starten, auch offline oder wenn Health gerade gesperrt ist.
-            // Auf heute normalisiert: Ein Stand von gestern erscheint nicht als „heute“ (Codex R-02-24).
-            longDays = SyncStore.normalized(cached.days)
-            activeSource = .health
-            lastHealthMeasurement = longDays.last(where: SyncStore.hasData)?.date
-            lastUpdate = cached.updated
-            hasLoaded = true
-        } else {
-            longDays = source == .sample ? SampleData.days() : []
-            activeSource = source == .sample ? .sample : .automatic
-            hasLoaded = source == .sample
-        }
-        if expectsRealData && !FormaApp.isUITest { startBackgroundSync() }
-        // Nach dem Entsperren sofort nachholen, was im gesperrten Zustand nicht lesbar war (Codex R-02-06).
-        _ = NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
-                                                   object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.waitingForUnlock else { return }
-                await self.syncAndNotify(background: true)
-            }
-        }
-    }
-
-    /// Ergebnis eines Abrufs (Codex R-02-06): Nur echte Aktualisierungen lösen den Coach aus.
-    enum RefreshResult: Equatable {
-        case updated
-        case partial(Set<MetricSeries>)
-        case unchanged       // nichts Neues übernommen (alles fehlgeschlagen oder verdächtig leer)
-        case locked          // iPhone gesperrt, Apple Health gibt nichts heraus
-        case superseded      // Quelle wurde während des Abrufs gewechselt, Ergebnis verworfen
-        case sample
-        var isFresh: Bool { self == .updated || { if case .partial = self { return true }; return false }() }
-    }
-
-    // MARK: Hintergrund
-
-    /// Startet die Apple-Health-Beobachter. Wird bei jedem App-Start aufgerufen,
-    /// auch wenn iOS die App nur im Hintergrund für neue Daten weckt.
-    func startBackgroundSync() {
-        Task { [health] in
-            let failed = await health.startObserving { [weak self] in
-                await self?.scheduleRefresh(background: true)
-            }
-            if !failed.isEmpty {
-                self.observerNote = "Hintergrundzustellung nicht verfügbar für: \(failed.joined(separator: ", ")). Health aktualisiert diese Werte beim Öffnen und über den regelmäßigen Hintergrundabruf."
-            } else {
-                self.observerNote = nil
-            }
-        }
-    }
-
-    /// Mehrere Anstöße kurz hintereinander (z. B. Schlaf + HRV nach dem Aufwachen) werden gebündelt.
-    func scheduleRefresh(background: Bool) async {
-        debounce?.cancel()
-        let task = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            await syncAndNotify(background: background)
-        }
-        debounce = task
-        await task.value
-    }
-
-    /// Hintergrundabruf durch iOS (BGAppRefreshTask).
-    func backgroundRefresh() async {
-        await syncAndNotify(background: true)
-    }
-
-    /// Ein Weg für alle Abrufe: laden, Zeitpunkte führen, Coach nur bei frischen Daten (Codex R-02-06/07).
-    @discardableResult
-    func syncAndNotify(background: Bool) async -> RefreshResult {
-        let result = await refresh()
-        if background { lastBackgroundAttempt = .now }
-        if result.isFresh {
-            if background { lastBackgroundSync = .now }
-            CoachNotifier.afterSync(self)
-        }
-        return result
-    }
-
-    /// Welche Ringe haben heute eine echte Grundlage? (Codex R-01-03)
-    struct Availability: Equatable {
-        var recovery: Bool
-        var sleep: Bool
-        var strain: Bool
-    }
-
-    /// Erholung braucht einen heutigen Herzwert **mit** Vergleichsbasis (mind. 4 frühere Werte).
-    /// Belastung braucht aktive Energie oder ein Training – Schritte gehen nicht in die Formel ein (Codex R-02-03).
-    var availability: Availability {
-        let t = waitingForFitbit ? (yesterday ?? today) : today
-        let hrvOK = t.hrv != nil && baseline(\.hrv) != nil
-        let rhrOK = t.restingHR != nil && baseline(\.restingHR) != nil
-        return Availability(
-            recovery: hrvOK || rhrOK,
-            sleep: t.sleep != nil,
-            strain: today.activeEnergy != nil || !today.workouts.isEmpty)
-    }
-
-    var isSample: Bool { activeSource == .sample }
-    var today: DayMetrics { days.last ?? DayMetrics(date: .now.startOfDay) }
-    var yesterday: DayMetrics? { days.count > 1 ? days[days.count - 2] : nil }
-    var history: [DayMetrics] { Array(days.dropLast()) }
-
-    private var healthHours: [HourlyMetrics] = []
-
     var hours: [HourlyMetrics] {
-        if isSample { return HourlyMetrics.samples(for: today) }
-        guard activeSource == .health, healthHours.first?.start.startOfDay == Date.now.startOfDay else { return [] }
-        return healthHours
+        isSample ? HourlyMetrics.samples(for: today) : cachedHours(for: .now)
+    }
+
+    func cachedHours(for date: Date) -> [HourlyMetrics] {
+        let day = date.startOfDay
+        return storedHours.values.filter { $0.start.startOfDay == day }.sorted { $0.start < $1.start }
+    }
+
+    func loadHours(for date: Date) async -> [HourlyMetrics] {
+        guard activeSource == .google, accountID != nil else { return [] }
+        let start = date.startOfDay
+        let end = min(start.adding(days: 1), .now)
+        let previous = cachedHours(for: date)
+        if start == Date.now.startOfDay || previous.contains(where: { $0.heartRate != nil }) { return previous }
+        let current = generation
+        guard let pulses = try? await googleService.loadPulse(from: start, until: end, calendar: .forma),
+              current == generation, !Task.isCancelled else { return current == generation ? previous : [] }
+        for pulse in pulses {
+            var hour = storedHours[pulse.start] ?? pulse
+            hour.heartRate = pulse.heartRate
+            hour.heartRateOrigin = pulse.heartRateOrigin
+            storedHours[pulse.start] = hour
+        }
+        return cachedHours(for: date)
     }
 
     var hourlyEstimates: [HourlyEstimate] {
         HourlyEstimate.timeline(hours: hours, today: today, history: history)
     }
 
-    /// Fitbit hat für heute noch keinen Schlaf geliefert: gestrige Werte gedimmt zeigen.
-    var waitingForFitbit: Bool { activeSource == .fitbit && today.sleep == nil }
-
-    var scores: DayScores { ScoreEngine.scores(today: today, history: history) }
-
-    var yesterdayScores: DayScores? {
-        guard days.count > 2 else { return nil }
-        let y = days[days.count - 2]
-        return ScoreEngine.scores(today: y, history: Array(days.dropLast(2)))
+    struct Availability: Equatable {
+        var recovery: Bool
+        var sleep: Bool
+        var strain: Bool
     }
 
-    /// Werte für die Ringe (bei fehlendem Fitbit-Sync: gestern).
-    var ringScores: DayScores {
-        if waitingForFitbit, let y = yesterdayScores {
-            var s = scores
-            s.recovery = y.recovery
-            s.sleep = y.sleep
-            s.target = y.target
-            return s
-        }
-        return scores
+    var availability: Availability {
+        Availability(recovery: today.hrv != nil && baseline(\.hrv) != nil
+                     || today.restingHR != nil && baseline(\.restingHR) != nil,
+                     sleep: today.sleep != nil, strain: today.activeEnergy != nil || !today.workouts.isEmpty)
+    }
+
+    var scores: DayScores { ScoreEngine.scores(today: today, history: history) }
+    var ringScores: DayScores { scores }
+
+    var yesterdayScores: DayScores? {
+        guard let yesterday, days.count > 2 else { return nil }
+        return ScoreEngine.scores(today: yesterday, history: Array(days.dropLast(2)))
     }
 
     func scores(for index: Int) -> DayScores {
         ScoreEngine.scores(today: days[index], history: Array(days.prefix(index)))
     }
 
-    /// Hat Tag `index` einen Herzwert mit Vergleichsbasis aus den Tagen davor?
     func hasRecoveryBasis(at index: Int) -> Bool {
-        let d = days
-        guard d.indices.contains(index) else { return false }
-        let prior = d.prefix(index)
-        let hrvOK = d[index].hrv != nil && ScoreEngine.baseline(prior.compactMap(\.hrv)) != nil
-        let rhrOK = d[index].restingHR != nil && ScoreEngine.baseline(prior.compactMap(\.restingHR)) != nil
-        return hrvOK || rhrOK
+        let days = self.days
+        guard days.indices.contains(index) else { return false }
+        let day = days[index]
+        let prior = Array(days.prefix(index))
+        return day.hrv != nil && ScoreEngine.baseline(for: \.hrv, today: day, history: prior) != nil
+            || day.restingHR != nil && ScoreEngine.baseline(for: \.restingHR, today: day, history: prior) != nil
     }
 
     func baseline(_ keyPath: KeyPath<DayMetrics, Double?>) -> ScoreEngine.Baseline? {
-        ScoreEngine.baseline(history.compactMap { $0[keyPath: keyPath] })
+        ScoreEngine.baseline(for: keyPath, today: today, history: history)
     }
 
-    // MARK: Laden
+    enum RefreshResult: Equatable {
+        case updated
+        case partial(Set<MetricSeries>)
+        case unchanged
+        case superseded
+        case sample
 
-    func requestHealthAccess() async {
-        guard !requestingHealthAccess, health.isAvailable else { return }
-        requestingHealthAccess = true
-        defer { requestingHealthAccess = false }
-        healthAccessError = nil
-        do {
-            try await health.requestAuthorization()
-            askedForHealthAccess = true
-            UserDefaults.standard.set(true, forKey: "forma.healthAuthorized")
-            startBackgroundSync()
-        } catch {
-            healthAccessError = "Apple Health konnte nicht verbunden werden. Prüfe die Freigabe und ob diese App-Version HealthKit unterstützt."
+        var isFresh: Bool {
+            switch self {
+            case .updated, .partial: true
+            default: false
+            }
         }
-        if preferredSource != .health { preferredSource = .health }
-        await syncAndNotify(background: false)
     }
 
-    /// Lädt die gewählte Quelle. Läuft schon ein Abruf, wartet der Aufrufer darauf und es folgt
-    /// genau ein weiterer Durchlauf – kein Anstoß geht verloren (Codex R-02-06).
+    func backgroundRefresh() async {
+        await syncAndNotify(background: true)
+    }
+
+    @discardableResult
+    func syncAndNotify(background: Bool) async -> RefreshResult {
+        let current = generation
+        let result = await refresh(background: background)
+        guard current == generation, !Task.isCancelled, !isSample, !isUITest else { return result }
+        if background, accountID != nil {
+            lastBackgroundAttempt = .now
+            UserDefaults.standard.set(lastBackgroundAttempt, forKey: "forma.google.lastBackgroundAttempt")
+        }
+        if result.isFresh {
+            if background {
+                lastBackgroundSync = .now
+                UserDefaults.standard.set(lastBackgroundSync, forKey: "forma.google.lastBackgroundSync")
+            }
+            CoachNotifier.afterSync(self)
+        }
+        return result
+    }
+
     @discardableResult
     func refresh() async -> RefreshResult {
-        if let running = inFlight {
-            refreshPending = true
-            return await running.value
-        }
-        let task = Task { @MainActor [self] in
-            defer {
-                inFlight = nil
-                isLoading = false
-                hasLoaded = true
+        await refresh(background: false)
+    }
+
+    private func refresh(background: Bool) async -> RefreshResult {
+        if let inFlight {
+            let result = await inFlight.value
+            if result == .superseded, !Task.isCancelled, self.inFlight == nil {
+                return await refresh(background: background)
             }
-            var result: RefreshResult
-            repeat {
-                refreshPending = false
-                result = await performRefresh()
-            } while refreshPending
             return result
         }
+        if isSample { return .sample }
+        guard googleService.isConfigured, !connecting else { return .unchanged }
+        let id = UUID()
+        let current = generation
+        let task = Task { @MainActor in
+            defer {
+                if attemptID == id {
+                    attemptID = nil
+                    inFlight = nil
+                    isLoading = false
+                    hasLoaded = true
+                }
+            }
+            return await performRefresh(generation: current, background: background)
+        }
+        attemptID = id
         inFlight = task
         isLoading = true
-        return await task.value
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
-    private func performRefresh() async -> RefreshResult {
-        let myGeneration = generation
-        let source = resolveSource()
-        switch source {
-        case .fitbit:
-            var loaded: [DayMetrics] = []
-            for offset in stride(from: 13, through: 0, by: -1) {
-                let date = Date.now.startOfDay.adding(days: -offset)
-                if offset > 1, let cached = fitbitCache[date] {
-                    loaded.append(cached)
-                } else {
-                    let day = await fitbit.loadDay(date).sanitized()
-                    if !fitbit.isRateLimited { fitbitCache[date] = day }
-                    loaded.append(fitbitCache[date] ?? day)
-                }
+    private func performRefresh(generation: Int, background: Bool) async -> RefreshResult {
+        do {
+            try googleService.restore()
+            guard let account = googleService.accountID else { return .unchanged }
+            if accountID != account {
+                accountID = account
+                showPreferredSource()
             }
-            guard myGeneration == generation else { return .superseded }
-            if loaded.contains(where: { $0.hrv != nil || $0.sleep != nil }) {
-                longDays = loaded
-                activeSource = .fitbit
-                lastUpdate = .now
-                return .updated
+            let calendar = Calendar.forma
+            let today = calendar.startOfDay(for: .now)
+            let end = today.adding(days: 1)
+            let recent = today.adding(days: -6)
+            let oldest = today.adding(days: -179)
+            if let updated = lastUpdate, updated.startOfDay < recent { historyThrough = nil }
+            let summary = try await googleService.load(from: recent, until: end, calendar: calendar, includePulse: true)
+            try checkRefresh(generation, today: today, calendar: calendar)
+            let currentHistory = historyThrough ?? (summary.failed.isEmpty ? recent : nil)
+            let initial = merge(summary, account: account, today: today, from: recent, until: end,
+                                historyThrough: currentHistory, updatesCurrent: true)
+            guard initial != .unchanged || summary.failed.isEmpty else { return initial }
+
+            // Der Hintergrund holt nach der aktuellen Woche jeweils einen älteren Abschnitt nach.
+            // Im Vordergrund kann der erste Import bis zu 180 Tage vervollständigen.
+            while let upper = historyThrough, upper > oldest {
+                let lower = max(oldest, upper.adding(days: -14))
+                let older = try await googleService.load(from: lower, until: upper, calendar: calendar, includePulse: false)
+                try checkRefresh(generation, today: today, calendar: calendar)
+                let result = merge(older, account: account, today: today, from: lower, until: upper,
+                                   historyThrough: older.failed.isEmpty ? lower : upper, updatesCurrent: false)
+                if background || !older.failed.isEmpty || result == .unchanged { break }
             }
-            return .unchanged
-        case .health:
-            let previous = activeSource == .health ? longDays : (SyncStore.load().map { SyncStore.normalized($0.days) } ?? [])
-            // Echte Quelle und realer Altbestand gehören zusammen, auch wenn jeder Leseversuch scheitert.
-            longDays = previous
-            activeSource = .health
-            guard health.isAvailable, askedForHealthAccess else { return .unchanged }
-            // Bei gesperrtem iPhone gibt Apple Health nichts heraus. Dann nichts überschreiben (später erneut).
-            guard UIApplication.shared.isProtectedDataAvailable else {
-                waitingForUnlock = true
-                syncNote = "iPhone gesperrt – Health holt die Daten nach dem Entsperren."
-                return .locked
-            }
-            waitingForUnlock = false
-            async let hourly = health.loadHours()
-            let imported = await health.loadDays(count: 180)
-            let person = await health.person()
-            let hours = await hourly
-            guard myGeneration == generation else { return .superseded }
-            healthPerson = person
-            healthHours = hours
-            let fresh = imported.days.map { $0.sanitized() }
-            if imported.failed.count < MetricSeries.allCases.count {
-                let lastReadable = fresh.last(where: SyncStore.hasData)?.date
-                readHealthThisSession = lastReadable != nil
-                if let lastReadable {
-                    lastHealthMeasurement = lastReadable
-                    healthAccessError = nil
-                }
+            return initial
+        } catch is CancellationError {
+            return .superseded
+        } catch {
+            guard generation == self.generation, !Task.isCancelled else { return .superseded }
+            if let problem = error as? GoogleHealthError, problem == .reauthorize || problem == .notLinked {
+                try? googleService.clearCredentials()
+                accountID = nil
+                // Beim nächsten Verbinden wird die Kopie vor dem ersten neuen Import entfernt.
+                longDays = []
+                storedHours = [:]
+                lastUpdate = nil
+                connectionFailure = Self.message(for: error)
             } else {
-                readHealthThisSession = false
+                syncNote = Self.message(for: error)
             }
-            switch SyncStore.merge(old: previous, new: fresh, failed: imported.failed) {
-            case .rejectedEmpty:
-                if !previous.isEmpty { longDays = SyncStore.normalized(previous) }
-                syncNote = imported.failed.count == MetricSeries.allCases.count
-                    ? "Apple Health war gerade nicht lesbar. Du siehst den letzten Stand."
-                    : "Apple Health liefert gerade keine Daten mehr (Zugriff geändert?). Du siehst den letzten Stand."
-                return .unchanged
-            case .merged(let merged):
-                longDays = merged
-                let hasData = merged.suffix(30).contains(where: SyncStore.hasData)
-                guard hasData else {
-                    // Keine stillen Beispieldaten, wenn Apple Health freigegeben ist (Codex R-01-03).
-                    syncNote = nil
-                    return .unchanged
-                }
-                lastUpdate = .now
-                let saved = SyncStore.save(.init(days: merged, updated: .now, source: "health"))
-                if !imported.failed.isEmpty {
-                    syncNote = "Teilweise aktualisiert. Nicht lesbar: \(imported.failed.map(\.title).sorted().joined(separator: ", ")) – dort gilt der letzte Stand."
-                } else {
-                    syncNote = saved ? nil : "Die lokale Kopie konnte nicht gespeichert werden. Beim nächsten Start lädt Health neu aus Apple Health."
-                }
-                return imported.failed.isEmpty ? .updated : .partial(imported.failed)
-            }
-        case .sample:
-            guard myGeneration == generation else { return .superseded }
-            longDays = SampleData.days()
-            activeSource = .sample
-            return .sample
-        case .automatic:
-            longDays = []
-            activeSource = .automatic
             return .unchanged
         }
     }
 
-    private func resolveSource() -> DataSourceKind {
-        switch preferredSource {
-        case .sample: return .sample
-        case .fitbit: return fitbit.isConnected ? .fitbit : .automatic
-        case .health: return .health
-        case .automatic: return askedForHealthAccess ? .health : .automatic
+    private func checkRefresh(_ generation: Int, today: Date, calendar: Calendar) throws {
+        try Task.checkCancellation()
+        guard generation == self.generation, today == Date.now.startOfDay,
+              calendar.timeZone == Calendar.forma.timeZone else { throw CancellationError() }
+    }
+
+    private func merge(_ imported: GoogleHealthService.Import, account: String, today: Date,
+                       from: Date, until: Date, historyThrough: Date?, updatesCurrent: Bool) -> RefreshResult {
+        var failed = imported.failed
+        if failed.contains(.steps) { failed.insert(.activeEnergy) }
+        var new = imported.days
+        if let hours = imported.hours, !failed.contains(.steps), failed.contains(.activeEnergy) {
+            let matching = hours.compactMap { hour -> HourlyMetrics? in
+                guard let old = storedHours[hour.start], old.energyOrigin == hour.stepOrigin,
+                      old.activeEnergy != nil else { return nil }
+                return old
+            }
+            let byDay = Dictionary(grouping: matching) { $0.start.startOfDay }
+            for index in new.indices {
+                let hours = byDay[new[index].date] ?? []
+                let energy = hours.compactMap(\.activeEnergy)
+                new[index].activeEnergy = energy.isEmpty ? nil : energy.reduce(0, +)
+                new[index].setOrigins(hours.compactMap(\.energyOrigin), for: .activeEnergy)
+            }
         }
+        var retained = failed
+        if !failed.contains(.steps) { retained.remove(.activeEnergy) }
+        // Ein leeres Ergebnis bei Teilfehlern soll lesbare alte Messungen nicht löschen.
+        if !new.contains(where: SyncStore.hasData), !failed.isEmpty,
+           longDays.contains(where: { $0.date >= from && $0.date < until && SyncStore.hasData($0) }) {
+            syncNote = partialNotice(failed)
+            return .unchanged
+        }
+        guard case .merged(let days) = SyncStore.merge(old: longDays, new: new, failed: retained, today: today) else {
+            if updatesCurrent || !failed.isEmpty {
+                syncNote = failed.isEmpty ? "Google Health hat gerade keine Messungen geliefert. Du siehst den letzten Stand."
+                    : partialNotice(failed)
+            }
+            return .unchanged
+        }
+        mergeHours(imported, from: from, until: until, today: today, energyFailed: failed.contains(.activeEnergy))
+        longDays = days
+        self.historyThrough = historyThrough
+        let hasMeasurement = new.contains(where: SyncStore.hasData)
+        if hasMeasurement && (updatesCurrent || lastUpdate == nil) { lastUpdate = .now }
+        let snapshot = SyncStore.Snapshot(days: days, updated: lastUpdate, source: DataSourceKind.google.rawValue,
+                                          accountID: account, hours: Array(storedHours.values),
+                                          historyThrough: historyThrough)
+        if !SyncStore.save(snapshot) {
+            syncNote = "Die lokale Kopie konnte nicht gespeichert werden. Health versucht es beim nächsten Abruf erneut."
+        } else if !failed.isEmpty {
+            syncNote = partialNotice(failed)
+        } else if updatesCurrent {
+            syncNote = nil
+        }
+        if updatesCurrent && !hasMeasurement { return .unchanged }
+        return failed.isEmpty ? .updated : .partial(failed)
+    }
+
+    private func mergeHours(_ imported: GoogleHealthService.Import, from: Date, until: Date, today: Date,
+                            energyFailed: Bool) {
+        if let activity = imported.hours {
+            let previous = storedHours
+            for start in previous.keys where start >= from && start < until {
+                guard var hour = storedHours[start] else { continue }
+                hour.steps = nil
+                hour.stepOrigin = nil
+                hour.activeEnergy = nil
+                hour.energyOrigin = nil
+                storedHours[start] = hour.heartRate == nil ? nil : hour
+            }
+            for var hour in activity {
+                let old = previous[hour.start]
+                hour.heartRate = old?.heartRate
+                hour.heartRateOrigin = old?.heartRateOrigin
+                if energyFailed, old?.energyOrigin == hour.stepOrigin {
+                    hour.activeEnergy = old?.activeEnergy
+                    hour.energyOrigin = old?.energyOrigin
+                }
+                storedHours[hour.start] = hour
+            }
+        }
+        if let pulses = imported.pulses {
+            for start in Array(storedHours.keys) where start >= today {
+                guard var hour = storedHours[start] else { continue }
+                hour.heartRate = nil
+                hour.heartRateOrigin = nil
+                storedHours[start] = hour.steps == nil ? nil : hour
+            }
+            for pulse in pulses {
+                var hour = storedHours[pulse.start] ?? pulse
+                hour.heartRate = pulse.heartRate
+                hour.heartRateOrigin = pulse.heartRateOrigin
+                storedHours[pulse.start] = hour
+            }
+        }
+        let cutoff = today.adding(days: -179)
+        storedHours = storedHours.filter { $0.key >= cutoff && $0.key < today.adding(days: 1) }
+    }
+
+    private func partialNotice(_ failed: Set<MetricSeries>) -> String {
+        let titles = failed.map(\.title).sorted().joined(separator: ", ")
+        return "Ein Teil der Daten konnte gerade nicht geladen werden. Letzter Stand für \(titles)."
+    }
+
+    private static func message(for error: any Error) -> String {
+        (error as? GoogleHealthError)?.errorDescription ?? "Google Health ist gerade nicht erreichbar. Versuch es später erneut."
     }
 }

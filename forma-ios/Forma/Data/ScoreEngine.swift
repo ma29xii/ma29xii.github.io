@@ -16,6 +16,25 @@ enum ScoreEngine {
         return Baseline(mean: mean, sd: max(sqrt(variance), mean * minimumRelativeSpread))
     }
 
+    static func baseline(for value: KeyPath<DayMetrics, Double?>, today: DayMetrics,
+                         history: [DayMetrics]) -> Baseline? {
+        let series: MetricSeries
+        switch value {
+        case \DayMetrics.hrv: series = .hrv
+        case \DayMetrics.restingHR: series = .restingHR
+        case \DayMetrics.respiratoryRate: series = .respiratoryRate
+        default: return baseline(history.compactMap { $0[keyPath: value] })
+        }
+        return baseline(history.compactMap { previous in
+            sameBaselineSource(for: series, today: today, previous: previous) ? previous[keyPath: value] : nil
+        })
+    }
+
+    static func sameBaselineSource(for series: MetricSeries, today: DayMetrics, previous: DayMetrics) -> Bool {
+        guard let origin = today.origins?[series]?.first else { return previous.origins?[series] == nil }
+        return origin.device != nil && previous.origins?[series] == [origin]
+    }
+
     /// Schlafwert: Dauer gegen Bedarf (60 %), Effizienz (20 %), Tief- und REM-Anteil (20 %).
     static func sleepScore(_ night: SleepNight?, need: TimeInterval) -> Int {
         guard let night, night.asleep > 0 else { return 0 }
@@ -31,9 +50,9 @@ enum ScoreEngine {
     /// Erholung: HRV und Ruhepuls gegen deinen 30-Tage-Normalwert, dazu Schlaf und Atemfrequenz.
     static func recovery(today: DayMetrics, history: [DayMetrics], sleepScore: Int) -> Int {
         var score = 58.0
-        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { score += 10 * clampZ(b.z(hrv)) }
-        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { score -= 7 * clampZ(b.z(rhr)) }
-        if let resp = today.respiratoryRate, let b = baseline(history.compactMap(\.respiratoryRate)) { score -= 4 * clampZ(b.z(resp)) }
+        if let hrv = today.hrv, let b = baseline(for: \.hrv, today: today, history: history) { score += 10 * clampZ(b.z(hrv)) }
+        if let rhr = today.restingHR, let b = baseline(for: \.restingHR, today: today, history: history) { score -= 7 * clampZ(b.z(rhr)) }
+        if let resp = today.respiratoryRate, let b = baseline(for: \.respiratoryRate, today: today, history: history) { score -= 4 * clampZ(b.z(resp)) }
         if sleepScore > 0 { score += 0.25 * Double(sleepScore - 70) }
         return Int(score.rounded()).clamped(1, 99)
     }
@@ -82,8 +101,8 @@ enum ScoreEngine {
         let dayFatigue = max(0, hour - 8) * 1.4
         let energy = Int((Double(rec) * 0.65 + Double(sleepValue) * 0.35 - Double(strainValue) * 0.3 - dayFatigue).rounded()).clamped(3, 100)
         var stress = 1.2 + Double(strainValue) / 120
-        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { stress += 0.3 * clampZ(b.z(rhr)) }
-        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { stress -= 0.2 * clampZ(b.z(hrv)) }
+        if let rhr = today.restingHR, let b = baseline(for: \.restingHR, today: today, history: history) { stress += 0.3 * clampZ(b.z(rhr)) }
+        if let hrv = today.hrv, let b = baseline(for: \.hrv, today: today, history: history) { stress -= 0.2 * clampZ(b.z(hrv)) }
         return DayScores(recovery: rec, sleep: sleepValue, strain: strainValue, target: target(recovery: rec),
                          energy: energy, stress: min(3, max(0, stress)), sleepNeed: need, sleepDebt: debt)
     }

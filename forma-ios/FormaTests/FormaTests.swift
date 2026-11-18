@@ -5,40 +5,44 @@ import SwiftData
 /// Angriffs- und Logiktests: kaputte Eingaben dürfen nie abstürzen oder Unsinn liefern.
 final class ParsingAndMathTests: XCTestCase {
 
-    // MARK: Fitbit-Zeit (kommt aus dem Netz, also nicht vertrauenswürdig)
+    // MARK: Google-Health-Zeit und OAuth
 
-    func testFitbitTimeValid() {
-        let date = FitbitTime.parse("2026-11-17T23:10:30.000")
-        XCTAssertNotNil(date)
-        let c = Calendar.forma.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date!)
-        XCTAssertEqual([c.year, c.month, c.day, c.hour, c.minute, c.second], [2026, 11, 17, 23, 10, 30])
+    func testGoogleHealthTimeValid() throws {
+        let date = try XCTUnwrap(GoogleHealthTime.parse("2026-11-17T23:10:30.000+01:00"))
+        XCTAssertEqual(GoogleHealthTime.physical(date), "2026-11-17T22:10:30Z")
     }
 
-    func testFitbitTimeMalformedNeverCrashes() {
+    func testGoogleHealthTimeMalformedNeverCrashes() {
         let evil = ["", "T", "2026-11-17T", "2026-11-17T.", "2026-11-17T..", "T23:10", "2026-13-01T10:00", "2026-11-17T25:00",
-                    "2026-11-17T10:61", "abc", "2026-11-17T10", "2026-11-17T10:00:00:00", "😈T😈", String(repeating: "9", count: 10_000)]
+                    "2026-11-17T10:61", "abc", "2026-11-17T10", "2026-11-17T10:00:00:00", "😈T😈", String(repeating: "9", count: 10_000),
+                    "2026-13-01T10:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T10:61:00Z", "2026-11-17T10:00:00"]
         for input in evil {
-            XCTAssertNil(FitbitTime.parse(input), "Sollte nil sein: \(input.prefix(40))")
+            XCTAssertNil(GoogleHealthTime.parse(input), "Sollte nil sein: \(input.prefix(40))")
         }
     }
 
     func testRetryAfterHeader() {
-        XCTAssertEqual(FitbitService.retryAfter("60"), 60)
-        XCTAssertEqual(FitbitService.retryAfter(" 120 "), 120)
-        XCTAssertEqual(FitbitService.retryAfter("999999"), 3 * 3600)
-        XCTAssertNil(FitbitService.retryAfter("abc"))
-        XCTAssertNil(FitbitService.retryAfter("-5"))
-        XCTAssertNil(FitbitService.retryAfter("nan"))
-        XCTAssertNil(FitbitService.retryAfter(nil))
+        let now = Date(timeIntervalSince1970: 0)
+        XCTAssertEqual(GoogleHealthService.retryDate("60", now: now), now.addingTimeInterval(60))
+        XCTAssertEqual(GoogleHealthService.retryDate(" 120 ", now: now), now.addingTimeInterval(120))
+        XCTAssertEqual(GoogleHealthService.retryDate("999999", now: now), now.addingTimeInterval(3 * 3600))
+        XCTAssertEqual(GoogleHealthService.retryDate("Thu, 01 Jan 1970 00:01:30 GMT", now: now), now.addingTimeInterval(90))
+        XCTAssertNil(GoogleHealthService.retryDate("abc", now: now))
+        XCTAssertNil(GoogleHealthService.retryDate("-5", now: now))
+        XCTAssertNil(GoogleHealthService.retryDate("nan", now: now))
+        XCTAssertNil(GoogleHealthService.retryDate(nil, now: now))
     }
 
-    func testPKCEChallengeIsBase64URL() {
+    func testPKCEChallengeIsBase64URL() throws {
         // RFC 7636, Anhang B
-        XCTAssertEqual(FitbitService.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+        XCTAssertEqual(GoogleHealthService.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
                        "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-        let random = FitbitService.randomString(length: 64)
-        XCTAssertEqual(random.count, 64)
-        XCTAssertNotEqual(random, FitbitService.randomString(length: 64))
+        let random = try GoogleHealthService.randomString()
+        XCTAssertEqual(random.count, 43)
+        XCTAssertTrue(random.utf8.allSatisfy { byte in
+            (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte) || byte == 45 || byte == 95
+        })
+        XCTAssertNotEqual(random, try GoogleHealthService.randomString())
     }
 
     // MARK: Scheibenrechner

@@ -62,7 +62,7 @@ enum TrainingAdjustment: String, Sendable, Codable {
         }
     }
 
-    private static func key(_ date: Date = .now) -> String { "forma.adjust." + FitbitService.dayString(date) }
+    private static func key(_ date: Date = .now) -> String { "forma.adjust." + GoogleHealthTime.day(date, calendar: .forma) }
 
     static var today: TrainingAdjustment? {
         get { TrainingAdjustment(rawValue: UserDefaults.standard.string(forKey: key()) ?? "") }

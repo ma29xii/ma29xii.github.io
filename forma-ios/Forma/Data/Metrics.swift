@@ -3,7 +3,7 @@ import Foundation
 /// Messwerte eines Tages, unabhängig von der Quelle.
 struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
     var date: Date                 // Tagesbeginn
-    var hrv: Double? = nil         // ms (SDNN bei Apple, RMSSD bei Fitbit)
+    var hrv: Double? = nil         // ms (Fitbit-RMSSD)
     var restingHR: Double? = nil   // bpm
     var respiratoryRate: Double? = nil // Atemzüge/min
     var spo2: Double? = nil        // %
@@ -12,8 +12,18 @@ struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
     var activeEnergy: Double? = nil // kcal
     var sleep: SleepNight? = nil
     var workouts: [WorkoutSummary] = []
+    var skinTemperature: Double? = nil // nächtliche Hauttemperatur in °C
+    var origins: [MetricSeries: [GoogleMetricOrigin]]? = nil
 
     var id: Date { date }
+
+    mutating func setOrigins(_ values: [GoogleMetricOrigin], for series: MetricSeries) {
+        if origins == nil { origins = [:] }
+        origins?[series] = values.isEmpty ? nil : Array(Set(values)).sorted {
+            if $0.family != $1.family { return $0.family.rawValue < $1.family.rawValue }
+            return ($0.device ?? "") < ($1.device ?? "")
+        }
+    }
 
     /// Verwirft unplausible Messwerte (NaN, negativ, physiologisch unmöglich), damit
     /// keine Berechnung abstürzt oder Unsinn zeigt.
@@ -30,10 +40,12 @@ struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
         d.vo2max = keep(vo2max, 10...95)
         d.steps = keep(steps, 0...150_000)
         d.activeEnergy = keep(activeEnergy, 0...12_000)
+        d.skinTemperature = keep(skinTemperature, 20...45)
         if let night = sleep {
             let segments = night.segments.filter { $0.end > $0.start && $0.duration <= 12 * 3600 }
-            d.sleep = (night.end > night.start && night.inBed <= 24 * 3600 && !segments.isEmpty)
-                ? SleepNight(start: night.start, end: night.end, segments: segments) : nil
+            let reported = keep(night.reportedAsleep, 1...max(1, night.inBed))
+            d.sleep = (night.end > night.start && night.inBed <= 24 * 3600 && (!segments.isEmpty || reported != nil))
+                ? SleepNight(start: night.start, end: night.end, segments: segments, reportedAsleep: reported) : nil
         }
         d.workouts = workouts.filter { $0.duration.isFinite && $0.duration > 0 && $0.duration <= 24 * 3600 }
             .map { w in var w = w; if let e = w.energy, !e.isFinite || e < 0 || e > 10_000 { w.energy = nil }; return w }
@@ -43,7 +55,7 @@ struct DayMetrics: Equatable, Sendable, Identifiable, Codable {
 
 /// Einzelne Messreihen eines Imports (für Teil-Erfolge, Codex R-02-01).
 enum MetricSeries: String, CaseIterable, Codable, Sendable {
-    case hrv, restingHR, respiratoryRate, spo2, vo2max, steps, activeEnergy, sleep, workouts
+    case hrv, restingHR, respiratoryRate, spo2, vo2max, steps, activeEnergy, sleep, workouts, skinTemperature
 
     var title: String {
         switch self {
@@ -56,6 +68,7 @@ enum MetricSeries: String, CaseIterable, Codable, Sendable {
         case .activeEnergy: "Aktive Energie"
         case .sleep: "Schlaf"
         case .workouts: "Trainings"
+        case .skinTemperature: "Hauttemperatur"
         }
     }
 }
@@ -85,11 +98,15 @@ struct SleepNight: Equatable, Sendable, Codable {
     var start: Date
     var end: Date
     var segments: [Segment]
+    var reportedAsleep: TimeInterval? = nil
 
     var inBed: TimeInterval { end.timeIntervalSince(start) }
     func total(_ stage: Stage) -> TimeInterval { SleepNight.unionLength(segments.filter { $0.stage == stage }) }
     /// Schlafzeit als Vereinigung der Intervalle: Überlappungen zählen nur einmal.
-    var asleep: TimeInterval { SleepNight.unionLength(segments.filter { $0.stage != .awake }) }
+    var asleep: TimeInterval {
+        let measured = SleepNight.unionLength(segments.filter { $0.stage != .awake })
+        return measured > 0 ? measured : (reportedAsleep ?? 0)
+    }
     var efficiency: Double { inBed > 0 ? min(1, asleep / inBed) : 0 }
     /// Hat die Nacht echte Phasen (Tief/REM)? Sonst ist nur „geschlafen“ bekannt.
     var hasStages: Bool { segments.contains { $0.stage == .deep || $0.stage == .rem } }
@@ -158,13 +175,11 @@ struct WorkoutSummary: Equatable, Sendable, Identifiable, Codable {
 }
 
 enum DataSourceKind: String, Sendable, CaseIterable, Identifiable {
-    case automatic, health, fitbit, sample
+    case google, sample
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .automatic: "Automatisch"
-        case .health: "Apple Health"
-        case .fitbit: "Fitbit"
+        case .google: "Google Health"
         case .sample: "Beispieldaten"
         }
     }

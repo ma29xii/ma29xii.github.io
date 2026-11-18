@@ -14,14 +14,26 @@ struct DashboardDay: Sendable {
         let prior = history.filter { $0.date >= previous && $0.date < day.date }
         self.history = prior
         sleepScore = Self.sleepScore(day, history: prior)
-        let hasHeartBasis = (day.hrv != nil && ScoreEngine.baseline(prior.compactMap(\.hrv)) != nil)
-            || (day.restingHR != nil && ScoreEngine.baseline(prior.compactMap(\.restingHR)) != nil)
+        let hasHeartBasis = (day.hrv != nil && ScoreEngine.baseline(for: \.hrv, today: day, history: prior) != nil)
+            || (day.restingHR != nil && ScoreEngine.baseline(for: \.restingHR, today: day, history: prior) != nil)
         recovery = hasHeartBasis ? ScoreEngine.recovery(today: day, history: prior, sleepScore: sleepScore ?? 0) : nil
         strain = day.activeEnergy != nil || !day.workouts.isEmpty ? ScoreEngine.strain(day) : nil
     }
 
+    func baseline(for value: KeyPath<DayMetrics, Double?>) -> ScoreEngine.Baseline? {
+        ScoreEngine.baseline(for: value, today: day, history: history)
+    }
+
     func baseline(_ value: (DayMetrics) -> Double?) -> ScoreEngine.Baseline? {
-        ScoreEngine.baseline(history.compactMap(value))
+        ScoreEngine.baseline(history.compactMap { previous in
+            var compatible = previous
+            if !ScoreEngine.sameBaselineSource(for: .hrv, today: day, previous: previous) { compatible.hrv = nil }
+            if !ScoreEngine.sameBaselineSource(for: .restingHR, today: day, previous: previous) { compatible.restingHR = nil }
+            if !ScoreEngine.sameBaselineSource(for: .respiratoryRate, today: day, previous: previous) {
+                compatible.respiratoryRate = nil
+            }
+            return value(compatible)
+        })
     }
 
     /// Für historische Schlafwerte wird stets der Bedarf der jeweiligen Nacht zugrunde gelegt.

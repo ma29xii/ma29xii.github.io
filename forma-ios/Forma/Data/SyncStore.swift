@@ -4,14 +4,16 @@ import Foundation
 ///
 /// Zweck: Forma soll nie Daten „verlieren“, nur weil ein Abruf scheitert.
 /// - Die App startet sofort mit dem letzten Stand (auch offline).
-/// - Ein leerer oder unvollständiger Abruf (z. B. bei gesperrtem iPhone, wenn Apple Health
-///   keine Daten herausgibt) überschreibt keine vorhandenen Werte.
+/// - Ein fehlgeschlagener Abruf überschreibt keine vorhandenen Werte.
 /// - Spät nachsynchronisierte Werte (Uhr war nicht verbunden) werden ergänzt.
 enum SyncStore {
     struct Snapshot: Codable, Sendable {
         var days: [DayMetrics]
-        var updated: Date
+        var updated: Date?
         var source: String
+        var accountID: String? = nil
+        var hours: [HourlyMetrics]? = nil
+        var historyThrough: Date? = nil
     }
 
     private static var url: URL? {
@@ -31,7 +33,7 @@ enum SyncStore {
         do {
             // Nach dem ersten Entsperren lesbar: Hintergrund-Abrufe können auch bei gesperrtem Bildschirm schreiben.
             try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            // Gesundheitskopie nicht in iCloud-/iTunes-Backups (rekonstruierbar aus Apple Health, Codex R-02-02).
+            // Gesundheitskopie nicht in iCloud-/iTunes-Backups (rekonstruierbar aus Google Health).
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
             try url.setResourceValues(values)
@@ -68,8 +70,8 @@ enum SyncStore {
 
     /// Hat ein Tag überhaupt Messwerte?
     static func hasData(_ d: DayMetrics) -> Bool {
-        d.hrv != nil || d.restingHR != nil || d.sleep != nil || (d.steps ?? 0) > 0 || d.activeEnergy != nil
-            || d.respiratoryRate != nil || d.spo2 != nil || d.vo2max != nil || !d.workouts.isEmpty
+        d.hrv != nil || d.restingHR != nil || d.sleep != nil || d.steps != nil || d.activeEnergy != nil
+            || d.respiratoryRate != nil || d.spo2 != nil || d.vo2max != nil || d.skinTemperature != nil || !d.workouts.isEmpty
     }
 
     enum MergeResult: Equatable {
@@ -79,15 +81,17 @@ enum SyncStore {
     }
 
     /// Führt einen neuen Abruf mit dem gespeicherten Stand zusammen – pro Messreihe (Codex R-02-01):
-    /// - Reihe erfolgreich gelesen → der neue Wert gilt, auch `nil` (in Apple Health gelöscht).
-    /// - Reihe fehlgeschlagen (z. B. iPhone gesperrt) → der gespeicherte Wert bleibt.
+    /// - Reihe erfolgreich gelesen → der neue Wert gilt, auch `nil`.
+    /// - Reihe fehlgeschlagen → der gespeicherte Wert bleibt.
     /// - Alle Reihen fehlgeschlagen, oder alles leer obwohl vorher Daten da waren → nichts überschreiben.
     static func merge(old: [DayMetrics], new: [DayMetrics], failed: Set<MetricSeries> = [],
                       today: Date = Date.now.startOfDay, keepDays: Int = 180) -> MergeResult {
         if failed.count == MetricSeries.allCases.count { return .rejectedEmpty }
         let oldHasData = old.contains(where: hasData)
         let newHasData = new.contains(where: hasData)
-        if oldHasData && !newHasData && failed.isEmpty { return .rejectedEmpty }
+        let oldInWindowHasData = oldHasData && !Set(old.filter(hasData).map(\.date))
+            .isDisjoint(with: new.map(\.date))
+        if oldInWindowHasData && !newHasData && failed.isEmpty { return .rejectedEmpty }
 
         var oldByDate: [Date: DayMetrics] = [:]
         for d in old { oldByDate[d.date] = d }
@@ -110,6 +114,8 @@ enum SyncStore {
                     if failed.contains(.activeEnergy) { m.activeEnergy = o.activeEnergy }
                     if failed.contains(.sleep) { m.sleep = o.sleep }
                     if failed.contains(.workouts) { m.workouts = o.workouts }
+                    if failed.contains(.skinTemperature) { m.skinTemperature = o.skinTemperature }
+                    for series in failed { m.setOrigins(o.origins?[series] ?? [], for: series) }
                 }
                 result.append(m)
             } else {
