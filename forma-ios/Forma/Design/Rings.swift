@@ -66,3 +66,143 @@ struct RingView: View, Animatable {
         .frame(width: size, height: size)
     }
 }
+
+// MARK: - Today-Kopf: offener Bogen (Recovery) und Kapseln (Strain, Sleep)
+
+/// Offener 270°-Bogen mit Öffnung unten. Eigene Form statt eines geschlossenen Rings.
+struct RecoveryArc: View, Animatable {
+    nonisolated var value: Double
+    var color: Color
+    var size: CGFloat
+    var lineWidth: CGFloat = 14
+    var missing = false
+    var caption = "Recovery"
+    var word: String? = nil
+
+    nonisolated var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    /// Mittelpunkt-Versatz des Endpunkts; 0 % liegt unten links (135°), 100 % unten rechts (405°).
+    nonisolated static func endpoint(fraction: Double, radius: CGFloat) -> CGSize {
+        let angle = (135 + 270 * min(1, max(0, fraction))) * .pi / 180
+        return CGSize(width: radius * cos(angle), height: radius * sin(angle))
+    }
+
+    var body: some View {
+        let bounded = value.isFinite ? min(100, max(0, value)) : 0
+        let fraction = missing ? 0 : bounded / 100
+        let arc = StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        ZStack {
+            Circle()
+                .inset(by: lineWidth / 2)
+                .trim(from: 0, to: 0.75)
+                .stroke(Theme.track, style: arc)
+                .rotationEffect(.degrees(135))
+            if fraction > 0.001 {
+                Circle()
+                    .inset(by: lineWidth / 2)
+                    .trim(from: 0, to: 0.75 * fraction)
+                    .stroke(AngularGradient(colors: [color.opacity(0.7), color], center: .center,
+                                            startAngle: .zero, endAngle: .degrees(270 * fraction)), style: arc)
+                    .rotationEffect(.degrees(135))
+                Circle()
+                    .fill(color)
+                    .frame(width: lineWidth, height: lineWidth)
+                    .shadow(color: color.opacity(0.6), radius: 12)
+                    .offset(Self.endpoint(fraction: fraction, radius: size / 2 - lineWidth / 2))
+            }
+            VStack(spacing: 0) {
+                Text(caption)
+                    .font(.system(size: max(11, size * 0.065), weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Theme.textPrimary.opacity(0.6))
+                HStack(alignment: .firstTextBaseline, spacing: 1) {
+                    Text(missing ? "–" : "\(Int(bounded.rounded()))")
+                        .font(.system(size: size * 0.41, weight: .semibold, design: .rounded))
+                        .tracking(-1.5)
+                    if !missing {
+                        Text("%")
+                            .font(.system(size: size * 0.13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundStyle(missing ? Theme.textSecondary : Theme.textPrimary)
+            }
+            .frame(width: size * 0.7)
+            Text(missing ? "Keine Messung" : (word ?? ""))
+                .font(.system(size: max(12, size * 0.08), weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: size * 0.6)
+                .offset(y: size * 0.4)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// Senkrechte Kapsel wie ein Füllstand, mit Zahl darüber und optionalem Zielband.
+struct LevelCapsule: View, Animatable {
+    nonisolated var value: Double
+    var color: Color
+    var height: CGFloat = 104
+    var missing = false
+    var band: ClosedRange<Double>? = nil
+    var suffix = ""
+    var numberSize: CGFloat = 28
+
+    nonisolated var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View {
+        let bounded = value.isFinite ? min(100, max(0, value)) : 0
+        let width = height * 0.58
+        let shape = Capsule(style: .continuous)
+        VStack(spacing: Space.s2) {
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(missing ? "–" : "\(Int(bounded.rounded()))")
+                    .font(.system(size: numberSize, weight: .semibold, design: .rounded))
+                if !missing && !suffix.isEmpty {
+                    Text(suffix)
+                        .font(.system(size: numberSize * 0.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .foregroundStyle(missing ? Theme.textSecondary : Theme.textPrimary)
+            ZStack(alignment: .bottom) {
+                shape.fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.035)],
+                                          startPoint: .top, endPoint: .bottom))
+                if !missing {
+                    Rectangle()
+                        .fill(LinearGradient(colors: [color, color.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+                        .frame(height: height * bounded / 100)
+                }
+                if let band {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.14))
+                        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.5)).frame(height: 1) }
+                        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.5)).frame(height: 1) }
+                        .frame(height: height * (band.upperBound - band.lowerBound) / 100)
+                        .offset(y: -height * band.lowerBound / 100)
+                }
+            }
+            .frame(width: width, height: height)
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
+                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
+            }
+        }
+    }
+}

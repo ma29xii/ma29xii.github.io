@@ -9,12 +9,31 @@ final class DesignTodayTests: XCTestCase {
         (1...10).map { make($0) }
     }
 
-    // MARK: Reiter
+    // MARK: Kopf
 
-    func testTabIdentifiersStayStableForTheTour() {
-        XCTAssertEqual(TodayPage.all.map(\.identifier),
-                       ["today.tab.overview", "today.tab.sleep", "today.tab.recovery", "today.tab.strain"])
-        XCTAssertEqual(Set(TodayPage.all).count, 4)
+    func testRingRouteZoomsOnlyFromTheHeader() {
+        XCTAssertFalse(RingRoute(kind: .sleep).zoom)
+        XCTAssertNotEqual(RingRoute(kind: .sleep, zoom: true), RingRoute(kind: .sleep))
+        XCTAssertEqual(Set(RingKind.allCases.map { RingRoute(kind: $0, zoom: true) }).count, 3)
+    }
+
+    func testRecoveryArcRunsFromLowerLeftToLowerRight() {
+        let start = RecoveryArc.endpoint(fraction: 0, radius: 100)
+        let middle = RecoveryArc.endpoint(fraction: 0.5, radius: 100)
+        let end = RecoveryArc.endpoint(fraction: 1, radius: 100)
+        XCTAssertEqual(start.width, -70.71, accuracy: 0.01)
+        XCTAssertEqual(start.height, 70.71, accuracy: 0.01)   // unten links (y zeigt nach unten)
+        XCTAssertEqual(middle.width, 0, accuracy: 0.01)
+        XCTAssertEqual(middle.height, -100, accuracy: 0.01)   // oben in der Mitte
+        XCTAssertEqual(end.width, 70.71, accuracy: 0.01)
+        XCTAssertEqual(end.height, 70.71, accuracy: 0.01)     // unten rechts
+        XCTAssertEqual(RecoveryArc.endpoint(fraction: 3, radius: 100).width, end.width, accuracy: 0.01)
+    }
+
+    func testSleepDebtNoteOnlyFromFifteenMinutes() {
+        XCTAssertNil(TodayView.debtNote(0))
+        XCTAssertNil(TodayView.debtNote(14 * 60))
+        XCTAssertEqual(TodayView.debtNote(79 * 60), "Schuld 1 h 19 min")
     }
 
     // MARK: Satz zum Tag

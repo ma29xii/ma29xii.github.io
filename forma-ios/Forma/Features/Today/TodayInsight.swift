@@ -1,20 +1,9 @@
 import Foundation
 
-/// Reiter auf Today. Die Kennungen nutzt der UI-Rundgang (`today.tab.*`).
-enum TodayPage: Hashable, Identifiable {
-    case overview, ring(RingKind)
-
-    static let all: [Self] = [.overview, .ring(.sleep), .ring(.recovery), .ring(.strain)]
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .overview: "Overview"
-        case .ring(let kind): kind.title
-        }
-    }
-
-    var identifier: String { "today.tab." + title.lowercased() }
+/// Ziel beim Antippen einer Anzeige oder Zeile: die Detailseite, mit Zoom nur aus dem Kopf.
+struct RingRoute: Hashable {
+    let kind: RingKind
+    var zoom = false
 }
 
 /// Die Zahl, das Detail und der Verlauf benutzen dieselbe Verfügbarkeitsprüfung.

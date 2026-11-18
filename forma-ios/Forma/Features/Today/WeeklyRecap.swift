@@ -2,12 +2,11 @@ import SwiftUI
 
 struct WeeklyRecapLink: View {
     let period: WeeklyInsight.Period
-    let days: [DayMetrics]
 
     var body: some View {
         InsightLink(title: "Wochenrückblick", subtitle: Self.span(period.currentStart, days: period.dayCount),
                     icon: "calendar", tint: Theme.textSecondary, identifier: "today.weekly.open") {
-            WeeklyRecapDetail(period: period, rows: WeeklyInsight.rows(period: period, history: InsightHistory(days)))
+            WeeklyRecapDetail(period: period)
         }
     }
 
@@ -18,11 +17,13 @@ struct WeeklyRecapLink: View {
 
 private struct WeeklyRecapDetail: View {
     let period: WeeklyInsight.Period
-    let rows: [WeeklyInsight.Row]
+    @Environment(DataHub.self) private var hub
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
     var body: some View {
+        let history = InsightHistory(hub.dashboardHistory(recent: hub.days))
+        let rows = WeeklyInsight.rows(period: period, history: history)
         InsightPage(title: "Wochenrückblick") {
             VStack(alignment: .leading, spacing: Space.s1) {
                 DashboardHeading(title: "Tagesdurchschnitt")
@@ -30,6 +31,10 @@ private struct WeeklyRecapDetail: View {
                     .font(.formaRowTitle)
                 if period.dayCount == 6 {
                     Text("Am Montag kommt der Sonntag dazu.")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                } else if !hub.isSample, let updated = hub.lastUpdate, updated < period.currentStart.adding(days: 7) {
+                    Text("Abgerufen am \(Format.shortDate(updated)). Sonntagswerte können noch unvollständig sein.")
                         .font(.formaCaption)
                         .foregroundStyle(Theme.textSecondary)
                 }

@@ -167,15 +167,19 @@ struct ComparisonFooter: View {
     }
 }
 
-/// Ring mit Hochzählen vom letzten Wert; bei Reduce Motion springt er sofort.
+/// Anzeige eines Tageswerts in der eigenen Form-Sprache: Recovery als offener Bogen, Strain und Sleep als Kapseln.
+/// Zählt beim Erscheinen vom letzten Wert hoch; bei Reduce Motion springt sie sofort.
 struct DashboardRing: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var displayed = 0.0
 
     let kind: RingKind
     let value: Int?
+    /// Bogen: Durchmesser. Kapsel: Höhe.
     let size: CGFloat
     var expanded = false
+    var band: ClosedRange<Int>? = nil
+    var delay: Double = 0
 
     nonisolated static func tint(kind: RingKind, value: Int?) -> Color {
         switch kind {
@@ -193,14 +197,25 @@ struct DashboardRing: View {
         guard expanded else { return kind.title }
         return kind == .sleep ? "Schlafleistung" : kind.title
     }
-    private var suffix: String { kind == .strain ? "" : "%" }
 
     var body: some View {
-        RingView(value: displayed, color: Self.tint(kind: kind, value: value), size: size,
-                 lineWidth: expanded ? 10 : 6, numberSize: expanded ? size * 0.28 : nil,
-                 missing: value == nil, suffix: suffix, subtitle: expanded ? name : nil)
+        let tint = Self.tint(kind: kind, value: value)
+        Group {
+            if kind == .recovery {
+                RecoveryArc(value: displayed, color: tint, size: size, lineWidth: expanded ? 16 : 14,
+                            missing: value == nil, word: value.map(Theme.recoveryWord))
+            } else {
+                VStack(spacing: Space.s2) {
+                    LevelCapsule(value: displayed, color: tint, height: size, missing: value == nil,
+                                 band: band.map { Double($0.lowerBound)...Double($0.upperBound) },
+                                 suffix: kind == .sleep ? "%" : "", numberSize: expanded ? 44 : 28)
+                    if expanded { Text(name).formaLabelStyle() }
+                }
+            }
+        }
         .onChange(of: value, initial: true) { _, latest in
-            withAnimation(reduceMotion || latest == nil ? nil : .easeOut(duration: 0.8)) {
+            let motion: Animation = .spring(response: kind == .recovery ? 0.9 : 0.75, dampingFraction: 0.85).delay(delay)
+            withAnimation(reduceMotion || latest == nil ? nil : motion) {
                 displayed = Double(latest ?? 0)
             }
         }

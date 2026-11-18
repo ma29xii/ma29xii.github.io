@@ -24,6 +24,7 @@ struct InsightLink<Destination: View>: View {
                         DashboardHeading(title: title)
                         Text(subtitle)
                             .font(.formaBody)
+                            .monospacedDigit()
                             .formaNumberTransition(number ?? 0)
                     }
                     Spacer(minLength: Space.s2)
@@ -216,7 +217,7 @@ private struct SleepConsistencyDetail: View {
                             }
                         } else {
                             Label("Bettzeit", systemImage: "minus").foregroundStyle(Theme.sleep)
-                            Label("Aufwachen", systemImage: "circle.fill").foregroundStyle(Theme.textSecondary)
+                            Label("Aufwachen", systemImage: "minus.rectangle").foregroundStyle(Theme.textSecondary)
                         }
                     }
                 }
@@ -242,7 +243,7 @@ private struct SleepConsistencyDetail: View {
                         .accessibilityValue(Format.clock(times.start))
                     PointMark(x: x, y: .value("Aufwachzeit", plotMinute(times.wake)))
                         .symbol {
-                            Circle().fill(Theme.textSecondary).frame(width: 5, height: 5)
+                            Capsule().strokeBorder(Theme.textSecondary, lineWidth: 1).frame(width: 10, height: 5)
                         }
                         .accessibilityLabel("Aufwachen \(Format.shortDate(night.date))")
                         .accessibilityValue(Format.clock(times.end))

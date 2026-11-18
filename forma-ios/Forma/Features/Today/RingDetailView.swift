@@ -13,7 +13,8 @@ struct RingDetailView: View {
 
         VStack(alignment: .leading, spacing: Space.gap) {
             VStack(spacing: Space.s2) {
-                DashboardRing(kind: kind, value: value, size: 188, expanded: true)
+                DashboardRing(kind: kind, value: value, size: kind == .recovery ? 220 : 168, expanded: true,
+                              band: kind == .strain ? snapshot.recovery.map { ScoreEngine.target(recovery: $0) } : nil)
                     .accessibilityIdentifier("ring.detail." + kind.rawValue)
                 Text(value == nil ? "Keine Messung" : Format.dayTitle(day.date))
                     .font(.formaCaption)

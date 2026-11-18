@@ -3,11 +3,10 @@ import SwiftUI
 
 struct TodayView: View {
     @Environment(DataHub.self) private var hub
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(AppState.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var tabUnderline
-    @State private var selectedDate: Date?
-    @State private var page = TodayPage.overview
+    @Namespace private var zoomSpace
+    @State private var compact = false
 
     var body: some View {
         let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
@@ -18,58 +17,54 @@ struct TodayView: View {
 
     private func dashboard(at now: Date) -> some View {
         let today = now.startOfDay
-        let daily = hub.days
-        let history = hub.dashboardHistory(recent: daily)
-        let firstDay = min(daily.first?.date ?? today, today)
-        let date = min(today, max(firstDay, selectedDate ?? today))
-        let day = daily.first { $0.date == date } ?? DayMetrics(date: date)
+        let history = hub.dashboardHistory(recent: hub.days)
+        let day = hub.days.first { $0.date == today } ?? DayMetrics(date: today)
         let snapshot = DashboardDay(day: day, history: history)
-        let period = date == today ? WeeklyInsight.period(at: now) : nil
+        let period = WeeklyInsight.period(at: now)
+        let stress = stressSlots(snapshot)
 
         return NavigationStack {
-            VStack(spacing: 0) {
-                VStack(spacing: Space.s2) {
-                    DateStepper(title: date == today ? "Heute" : Format.dayTitle(date),
-                                canPrevious: date > firstDay, canNext: date < today,
-                                previous: { selectedDate = date.adding(days: -1) },
-                                next: {
-                                    let nextDay = date.adding(days: 1)
-                                    selectedDate = nextDay == today ? nil : nextDay
-                                })
-                    tabStrip
-                }
-                .padding(.horizontal, Space.page)
-                RowDivider(inset: 0)
-
-                // Kein `.id(page)` am ScrollView: der Seitenwechsel tauscht nur den Inhalt
-                // und scrollt nach oben, damit Zustand, Pull-to-Refresh und Tippziele stabil bleiben.
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: Space.gap) {
-                            Color.clear.frame(height: 0).id(Self.top)
-                            sourceStatus(for: date, today: today)
-                            switch page {
-                            case .overview:
-                                overview(snapshot, history: history, today: today, weeklyPeriod: period)
-                                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
-                                    .transition(.opacity)
-                            case .ring(let kind):
-                                RingDetailView(kind: kind, snapshot: snapshot, history: history)
-                                    .id(kind)
-                                    .transition(.opacity)
-                            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Space.gap) {
+                        sourceStatus
+                        header(snapshot)
+                            .id(Self.top)
+                            .padding(.bottom, Space.s2)
+                        coachLine(snapshot)
+                        HealthMonitor(snapshot: snapshot)
+                        StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
+                                          isLoading: false, history: history)
+                        if let period {
+                            WeeklyRecapLink(period: period)
+                                .transition(.opacity)
                         }
-                        .padding(.horizontal, Space.page)
-                        .padding(.top, Space.s3)
-                        .padding(.bottom, Space.s6)
+                        activities(snapshot.day)
+                        comparison(snapshot, history: history)
                     }
-                    .refreshable { await hub.refresh() }
-                    .onChange(of: page) { _, _ in proxy.scrollTo(Self.top, anchor: .top) }
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
+                    .padding(.horizontal, Space.page)
+                    .padding(.top, Space.s2)
+                    .padding(.bottom, Space.s6)
+                }
+                .refreshable { await hub.refresh() }
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top > Self.compactOffset
+                } action: { _, isCompact in
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { compact = isCompact }
+                }
+                .overlay(alignment: .top) {
+                    if compact {
+                        compactBar(snapshot) {
+                            withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(Self.top, anchor: .top) }
+                        }
+                        .transition(.opacity)
+                    }
                 }
             }
             .background(alignment: .top) {
                 if let recovery = snapshot.recovery {
-                    TodayRecoveryGlow(recovery: recovery, isOverview: page == .overview)
+                    TodayRecoveryGlow(recovery: recovery)
                 }
             }
             .dashboardScreen()
@@ -78,90 +73,40 @@ struct TodayView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
+            .navigationDestination(for: RingRoute.self) { route in
+                InsightPage(title: route.kind.title) {
+                    RingDetailView(kind: route.kind, snapshot: snapshot, history: history)
+                }
+                .todayZoom(route.zoom && !reduceMotion ? route.kind : nil, in: zoomSpace)
+            }
         }
-        .sensoryFeedback(.selection, trigger: page)
-        .onChange(of: hub.activeSource) { _, _ in selectedDate = nil }
     }
 
     private static let top = "today.top"
-
-    private func select(_ target: TodayPage) {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { page = target }
-    }
-
-    // MARK: Reiter
-
-    private var tabStrip: some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                ScrollView(.horizontal) { tabs }
-                    .scrollIndicators(.hidden)
-            } else {
-                tabs
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Today-Reiter")
-    }
-
-    private var tabs: some View {
-        HStack(spacing: 0) {
-            ForEach(TodayPage.all) { item in
-                let isSelected = page == item
-                Button {
-                    select(item)
-                } label: {
-                    VStack(spacing: 0) {
-                        Text(item.title)
-                            .font(.formaLabel)
-                            .tracking(Tracking.micro)
-                            .textCase(.uppercase)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                        ZStack {
-                            Capsule().fill(.clear)
-                            if isSelected {
-                                Capsule().fill(Theme.textPrimary)
-                                    .matchedGeometryEffect(id: "underline", in: tabUnderline)
-                            }
-                        }
-                        .frame(height: 2)
-                    }
-                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
-                    .padding(.horizontal, Space.s2)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-                .accessibilityIdentifier(item.identifier)
-            }
-        }
-    }
+    /// Ab hier ist der Kopf größtenteils aus dem Bild; die Kompaktleiste übernimmt.
+    static let compactOffset: CGFloat = 220
 
     // MARK: Status
 
-    @ViewBuilder private func sourceStatus(for date: Date, today: Date) -> some View {
+    @ViewBuilder private var sourceStatus: some View {
         if hub.isSample {
             SampleDataBadge()
-        } else if date == today {
-            if let status = hub.todayDataNotice {
-                VStack(alignment: .leading, spacing: Space.s1) {
-                    Label(status, systemImage: "heart")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
-                    if !hub.days.contains(where: Self.hasAnyMeasurement) {
-                        Button("Beispieldaten anzeigen") { hub.preferredSource = .sample }
-                            .font(.formaCaptionStrong)
-                            .frame(minHeight: 44)
-                    }
-                }
-            } else if let updated = hub.lastUpdate {
-                Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))"
-                     : "Abgerufen am \(Format.shortDate(updated))")
+        } else if let status = hub.todayDataNotice {
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Label(status, systemImage: "heart")
                     .font(.formaCaption)
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(Theme.textSecondary)
+                if !hub.days.contains(where: Self.hasAnyMeasurement) {
+                    Button("Beispieldaten anzeigen") { hub.preferredSource = .sample }
+                        .font(.formaCaptionStrong)
+                        .frame(minHeight: 44)
+                }
             }
+        } else if let updated = hub.lastUpdate {
+            Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))"
+                 : "Abgerufen am \(Format.shortDate(updated))")
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textTertiary)
         }
     }
 
@@ -171,82 +116,159 @@ struct TodayView: View {
             || day.skinTemperature != nil || day.vo2max != nil || !day.workouts.isEmpty
     }
 
-    // MARK: Overview
+    /// Schlafschuld als kurze Zeile unter der Schlaf-Kapsel, erst ab 15 Minuten.
+    nonisolated static func debtNote(_ debt: TimeInterval) -> String? {
+        debt >= 15 * 60 ? "Schuld \(Format.duration(debt))" : nil
+    }
 
-    private func overview(_ snapshot: DashboardDay, history: [DayMetrics], today: Date,
-                          weeklyPeriod: WeeklyInsight.Period?) -> some View {
-        // Stundenwerte gibt es nur für heute (bzw. als Beispiel); frühere Tage zeigen eine Lücke statt Ersatzwerten.
-        let hours: [HourlyMetrics] = if hub.isSample {
-            HourlyMetrics.samples(for: snapshot.day)
-        } else if snapshot.day.date == today {
-            hub.hours
-        } else {
-            []
+    // MARK: Kopf
+
+    /// Recovery groß in der Mitte, Strain und Sleep als Kapseln daneben, etwas tiefer gesetzt.
+    private func header(_ snapshot: DashboardDay) -> some View {
+        let debt = snapshot.day.sleep == nil ? nil : Self.debtNote(ScoreEngine.sleepDebt(history: snapshot.history))
+        return HStack(alignment: .top, spacing: 0) {
+            side(.strain, snapshot, band: snapshot.recovery.map { ScoreEngine.target(recovery: $0) },
+                 note: nil, delay: 0.08)
+            gauge(.recovery, snapshot) {
+                DashboardRing(kind: .recovery, value: snapshot.recovery, size: 184)
+            }
+            .frame(width: 184)
+            side(.sleep, snapshot, band: nil, note: debt, delay: 0.16)
         }
+        .frame(maxWidth: .infinity)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private func side(_ kind: RingKind, _ snapshot: DashboardDay, band: ClosedRange<Int>?, note: String?,
+                      delay: Double) -> some View {
+        gauge(kind, snapshot) {
+            VStack(spacing: Space.s2) {
+                DashboardRing(kind: kind, value: snapshot.value(for: kind), size: 104, band: band, delay: delay)
+                Text(kind.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Theme.textSecondary)
+                if let note {
+                    Text(note)
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .padding(.top, Space.s5)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Antippbare Anzeige: öffnet die Detailseite per Push und zoomt aus genau dieser Form.
+    private func gauge<Content: View>(_ kind: RingKind, _ snapshot: DashboardDay,
+                                      @ViewBuilder label: () -> Content) -> some View {
+        NavigationLink(value: RingRoute(kind: kind, zoom: true)) {
+            label()
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .matchedTransitionSource(id: kind, in: zoomSpace) { source in
+            source.background(.clear).clipShape(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous))
+        }
+        .accessibilityLabel(kind.title)
+        .accessibilityValue(DashboardRing.spokenValue(kind: kind, value: snapshot.value(for: kind)))
+        .accessibilityHint("Öffnet die Details")
+        .accessibilityIdentifier("ring." + kind.rawValue)
+    }
+
+    /// Ruhige Leiste, sobald der Kopf weggescrollt ist. Tippen springt zurück nach oben.
+    private func compactBar(_ snapshot: DashboardDay, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Space.s4) {
+                ForEach([RingKind.strain, .recovery, .sleep]) { kind in
+                    HStack(spacing: Space.s1) {
+                        Circle()
+                            .fill(DashboardRing.tint(kind: kind, value: snapshot.value(for: kind)))
+                            .frame(width: 6, height: 6)
+                        Text(kind.title)
+                            .font(.formaMicro)
+                            .textCase(.uppercase)
+                            .foregroundStyle(Theme.textSecondary)
+                        Text(snapshot.value(for: kind).map(String.init) ?? "–")
+                            .font(.formaValue)
+                            .formaNumberTransition(Double(snapshot.value(for: kind) ?? 0))
+                    }
+                }
+            }
+            .padding(.horizontal, Space.s4)
+            .frame(minHeight: 40)
+            .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, Space.s1)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Tageswerte")
+        .accessibilityValue([RingKind.recovery, .strain, .sleep]
+            .map { "\($0.title) \(DashboardRing.spokenValue(kind: $0, value: snapshot.value(for: $0)))" }
+            .joined(separator: ", "))
+        .accessibilityHint("Springt nach oben")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("today.compact")
+    }
+
+    // MARK: Coach-Zeile
+
+    private func coachLine(_ snapshot: DashboardDay) -> some View {
+        let sentence = TodayInsight.sentence(for: snapshot)
+        return Button {
+            app.openCoach(with: "Was bedeutet das für meinen Tag? \(sentence)")
+        } label: {
+            HStack(spacing: Space.s3) {
+                Image(systemName: "sparkle")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(DashboardRing.tint(kind: .recovery, value: snapshot.recovery))
+                Text(sentence)
+                    .font(.system(.body))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding(Space.s4)
+            .frame(minHeight: 56)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(Theme.hairline, lineWidth: 0.75)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Coach")
+        .accessibilityValue(sentence)
+        .accessibilityHint("Öffnet den Coach")
+        .accessibilityIdentifier("today.insight")
+    }
+
+    // MARK: Stress
+
+    private func stressSlots(_ snapshot: DashboardDay) -> (slots: [StressSlot], energy: Int?) {
+        let hours: [HourlyMetrics] = hub.isSample ? HourlyMetrics.samples(for: snapshot.day) : hub.hours
         let estimates = HourlyEstimate.timeline(hours: hours, today: snapshot.day, history: snapshot.history)
         let slots = zip(hours, estimates).map { hour, estimate in
             StressSlot(start: hour.start, end: hour.end, value: estimate.stress)
         }
-
-        return VStack(alignment: .leading, spacing: Space.gap) {
-            ringTrio(snapshot)
-            Text(TodayInsight.sentence(for: snapshot))
-                .font(.formaBodyLarge)
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, Space.s2)
-                .accessibilityIdentifier("today.insight")
-            comparison(snapshot, history: history, hours: hours)
-            HealthMonitor(snapshot: snapshot)
-            if let weeklyPeriod {
-                WeeklyRecapLink(period: weeklyPeriod, days: history)
-                    .transition(.opacity)
-            }
-            StressMonitorCard(day: snapshot.day, slots: slots, energy: estimates.compactMap(\.energy).last,
-                              isLoading: false, history: history)
-            activities(snapshot.day)
-        }
+        return (slots, estimates.compactMap(\.energy).last)
     }
 
-    private func ringTrio(_ snapshot: DashboardDay) -> some View {
-        GeometryReader { geometry in
-            let size = min(104, max(44, (geometry.size.width - 2 * Space.s5) / 3))
-            HStack(alignment: .top, spacing: 0) {
-                ForEach([RingKind.sleep, .recovery, .strain]) { kind in
-                    Button {
-                        select(.ring(kind))
-                    } label: {
-                        VStack(spacing: Space.s2) {
-                            DashboardRing(kind: kind, value: snapshot.value(for: kind), size: size)
-                            HStack(spacing: 3) {
-                                Text(kind.title)
-                                    .font(.formaLabel)
-                                    .tracking(Tracking.micro)
-                                    .textCase(.uppercase)
-                                    .minimumScaleFactor(0.6)
-                                    .lineLimit(1)
-                                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                            }
-                            .foregroundStyle(Theme.textSecondary)
-                            .accessibilityHidden(true)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(kind.title)
-                    .accessibilityValue(DashboardRing.spokenValue(kind: kind, value: snapshot.value(for: kind)))
-                    .accessibilityHint("Öffnet die Details")
-                    .accessibilityIdentifier("ring." + kind.rawValue)
-                }
-            }
-        }
-        .frame(height: typeSize.isAccessibilitySize ? 160 : 136)
-        .padding(.top, Space.s1)
-    }
+    // MARK: Kennzahlen
 
-    private func comparison(_ snapshot: DashboardDay, history: [DayMetrics], hours: [HourlyMetrics]) -> some View {
+    private func comparison(_ snapshot: DashboardDay, history: [DayMetrics]) -> some View {
+        let hours: [HourlyMetrics] = hub.isSample ? HourlyMetrics.samples(for: snapshot.day) : hub.hours
         let sleepAverage = DashboardTrends.mean(points: DashboardTrends.points(kind: .sleep, days: history,
             domain: snapshot.day.date.adding(days: -30)...snapshot.day.date.adding(days: -1)))
         return VStack(alignment: .leading, spacing: Space.s2) {
@@ -262,18 +284,18 @@ struct TodayView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("today.steps")
                 RowDivider()
-                pageRow(.recovery, id: "today.metric.hrv") {
+                detailRow(.recovery, id: "today.metric.hrv") {
                     ComparisonRow(title: "HRV", icon: "waveform.path.ecg", value: snapshot.day.hrv,
                                   baseline: snapshot.baseline { $0.hrv }?.mean, format: MetricKind.hrv.measurement,
                                   showsChevron: true)
                 }
                 RowDivider()
-                pageRow(.sleep, id: "today.metric.sleep") {
+                detailRow(.sleep, id: "today.metric.sleep") {
                     ComparisonRow(title: "Schlafleistung", icon: "moon", value: snapshot.sleepScore.map(Double.init),
                                   baseline: sleepAverage, format: { Format.number($0) + " %" }, showsChevron: true)
                 }
                 RowDivider()
-                pageRow(.strain, id: "today.metric.energy") {
+                detailRow(.strain, id: "today.metric.energy") {
                     ComparisonRow(title: "Aktive Kalorien", icon: "flame", value: snapshot.day.activeEnergy,
                                   baseline: snapshot.baseline { $0.activeEnergy }?.mean,
                                   format: MetricKind.activeEnergy.measurement, showsChevron: true)
@@ -283,9 +305,9 @@ struct TodayView: View {
         }
     }
 
-    /// Zeile, die zum passenden Reiter wechselt (Detail des Rings).
-    private func pageRow<Row: View>(_ kind: RingKind, id: String, @ViewBuilder label: () -> Row) -> some View {
-        Button { select(.ring(kind)) } label: { label() }
+    /// Zeile, die die Detailseite des passenden Werts öffnet (ohne Zoom, der gehört dem Kopf).
+    private func detailRow<Row: View>(_ kind: RingKind, id: String, @ViewBuilder label: () -> Row) -> some View {
+        NavigationLink(value: RingRoute(kind: kind)) { label() }
             .buttonStyle(.plain)
             .accessibilityHint("Öffnet \(kind.title)")
             .accessibilityIdentifier(id)
@@ -302,7 +324,7 @@ struct TodayView: View {
                 if entries.isEmpty { DashboardEmpty(title: "Kein Schlaf oder Training aufgezeichnet") }
                 ForEach(entries) { entry in
                     if entry.id != entries.first?.id { RowDivider() }
-                    Button { select(.ring(entry.kind)) } label: { activityRow(entry) }
+                    NavigationLink(value: RingRoute(kind: entry.kind)) { activityRow(entry) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("today.activity." + entry.id)
                 }
@@ -344,15 +366,26 @@ struct TodayView: View {
     }
 }
 
+private extension View {
+    /// Zoom nur, wenn die Seite aus dem Kopf geöffnet wurde und Bewegung erlaubt ist.
+    @ViewBuilder func todayZoom(_ source: RingKind?, in space: Namespace.ID) -> some View {
+        if let source {
+            navigationTransition(.zoom(sourceID: source, in: space))
+        } else {
+            self
+        }
+    }
+}
+
 private struct TodayRecoveryGlow: View {
     let recovery: Int
-    let isOverview: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var visible = false
 
     var body: some View {
-        let calm = reduceMotion || scenePhase != .active || lowPower || !isOverview
+        let calm = reduceMotion || scenePhase != .active || lowPower || !visible
         let tint = Theme.recovery(recovery)
         TimelineView(.animation(minimumInterval: 1.0 / 24, paused: calm)) { context in
             let drift: Float = calm ? 0 : Float(sin(context.date.timeIntervalSinceReferenceDate * 0.6)) * 0.055
@@ -367,6 +400,8 @@ private struct TodayRecoveryGlow: View {
         .frame(height: 235)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
             lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         }
