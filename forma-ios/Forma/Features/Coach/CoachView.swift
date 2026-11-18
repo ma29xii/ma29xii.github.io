@@ -41,16 +41,22 @@ struct CoachView: View {
                             if hub.isSample { SampleDataBadge() }
                             Label(hasKey && claudeConsent ? "Claude (extern)" : "Lokaler Coach", systemImage: hasKey && claudeConsent ? "cloud" : "iphone")
                                 .font(.formaMicro)
+                                .tracking(Tracking.micro)
+                                .textCase(.uppercase)
                                 .foregroundStyle(Theme.textSecondary)
                                 .padding(.horizontal, 10).frame(height: 26)
-                                .background(Capsule().fill(Color.white.opacity(0.07)))
+                                .background(Capsule().fill(Theme.cardRaised))
                                 .accessibilityLabel(hasKey && claudeConsent ? "Antworten kommen von Claude über das Internet" : "Antworten werden auf dem iPhone berechnet")
                         }
                         .padding(.top, Space.s1)
+                        Text("Heute")
+                            .formaLabelStyle()
+                            .padding(.top, Space.s4)
                         Text(CoachEngine.dailyLine(context))
-                            .font(.formaBodyLarge)
+                            .font(.system(.title3, weight: .medium))
                             .foregroundStyle(Theme.textPrimary)
-                            .padding(.top, Space.s3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.bottom, Space.s2)
                         suggestionCard
                         ForEach(messages) { message in
                             bubble(message).id(message.id)
@@ -70,10 +76,7 @@ struct CoachView: View {
             .formaScreen()
             .navigationTitle("Coach")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { app.showProfile = true } label: { Image(systemName: "person.crop.circle") }
-                        .accessibilityLabel("Profil und Einstellungen")
-                }
+                ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
             .onAppear {
                 if hub.isSample && messages.isEmpty {
@@ -116,8 +119,8 @@ struct CoachView: View {
             Plate {
                 VStack(alignment: .leading, spacing: Space.s3) {
                     Label("Vorschlag für heute", systemImage: "sparkles")
-                        .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                    Text(suggested.title).font(.formaRowTitle)
+                        .formaLabelStyle()
+                    Text(suggested.title).font(.system(.headline))
                     Text(CoachEngine.suggestionReason(suggested, context)).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                     if adjustment == suggested {
                         Label("Übernommen für das nächste Training heute", systemImage: "checkmark")
@@ -159,12 +162,13 @@ struct CoachView: View {
                 .foregroundStyle(m.role == .user ? Theme.onSelection : Theme.textPrimary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 20, bottomLeadingRadius: m.role == .user ? 20 : 6,
-                        bottomTrailingRadius: m.role == .user ? 6 : 20, topTrailingRadius: 20, style: .continuous)
-                    .fill(m.role == .user ? Theme.selection : Theme.plate)
-                )
+                .background {
+                    let shape = UnevenRoundedRectangle(
+                        topLeadingRadius: Radius.plate, bottomLeadingRadius: m.role == .user ? Radius.plate : 6,
+                        bottomTrailingRadius: m.role == .user ? 6 : Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
+                    shape.fill(m.role == .user ? Theme.selection : Theme.card)
+                        .overlay { if m.role == .coach { shape.strokeBorder(Theme.hairline, lineWidth: 0.75) } }
+                }
                 .textSelection(.enabled)
             if m.role == .coach { Spacer(minLength: 48) }
         }
@@ -174,16 +178,25 @@ struct CoachView: View {
         VStack(spacing: Space.s2) {
             if messages.isEmpty {
                 // Vollständig lesbare Einstiegsfragen statt abgeschnittener Chips (Codex R-01-33).
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(suggestions, id: \.self) { s in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(suggestions.enumerated()), id: \.element) { index, s in
+                        if index > 0 { RowDivider() }
                         Button { send(s) } label: {
-                            Text(s).font(.formaBody).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14).frame(minHeight: 44)
-                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.07)))
+                            HStack(spacing: Space.s3) {
+                                Text(s).font(.formaBody).frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Theme.textQuaternary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(.horizontal, Space.s4).frame(minHeight: 46)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.75))
                 .padding(.horizontal, Space.page)
             }
             HStack(spacing: Space.s2) {

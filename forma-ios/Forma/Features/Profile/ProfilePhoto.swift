@@ -24,12 +24,17 @@ struct ProfileAvatar: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: size * 0.7))
+                // Ohne Bild: ruhiger Graphit-Kreis mit Silhouette statt leerem Umriss.
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.46, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: size, height: size)
+                    .background(Circle().fill(Theme.cardRaised))
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
         .accessibilityHidden(true)
     }
 }
