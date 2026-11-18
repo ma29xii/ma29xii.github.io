@@ -12,6 +12,7 @@ struct CoachView: View {
     @State private var adjustment: TrainingAdjustment? = TrainingAdjustment.today
     @State private var dismissed = TrainingAdjustment.dismissedToday
     @FocusState private var inputFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
     @AppStorage(CoachProviders.consentKey) private var externalConsent = false
     @State private var pendingConsentText: String?
@@ -76,7 +77,9 @@ struct CoachView: View {
                     .padding(.bottom, Space.s5)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: messages.count) { _, _ in withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: messages.count) { _, _ in
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo("end", anchor: .bottom) }
+                }
             }
             .safeAreaInset(edge: .bottom) { composer }
             .formaScreen()
@@ -258,7 +261,8 @@ struct CoachView: View {
         input = ""
         let ctx = context
         let external = online
-        messages.append(ChatMessage(role: .user, text: text, localOnly: !external))
+        let question = ChatMessage(role: .user, text: text, localOnly: !external)
+        messages.append(question)
         if external {
             thinking = true
             let history = messages
@@ -266,11 +270,18 @@ struct CoachView: View {
             claudeTask = Task {
                 do {
                     let reply = try await CoachProviders.reply(context: summary, history: history)
-                    guard !Task.isCancelled, externalConsent else { thinking = false; return }
+                    guard !Task.isCancelled, externalConsent else {
+                        messages.markLocalOnly(question.id)
+                        thinking = false
+                        return
+                    }
                     messages.append(ChatMessage(role: .coach, text: reply))
                 } catch is CancellationError {
+                    // Abgebrochene Frage nie später im Verlauf mitsenden (Gegenprüfung 01, Punkt 5).
+                    messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: "Abgebrochen. Nichts weiter wurde gesendet.", localOnly: true))
                 } catch {
+                    messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Der Online-Coach ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
                 }
                 thinking = false
@@ -278,6 +289,14 @@ struct CoachView: View {
         } else {
             messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx), localOnly: true))
         }
+    }
+}
+
+extension Array where Element == ChatMessage {
+    /// Markiert eine Nachricht als nur lokal, damit sie in keiner späteren Online-Anfrage auftaucht.
+    mutating func markLocalOnly(_ id: ChatMessage.ID) {
+        guard let index = firstIndex(where: { $0.id == id }) else { return }
+        self[index].localOnly = true
     }
 }
 

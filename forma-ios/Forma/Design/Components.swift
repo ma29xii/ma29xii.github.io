@@ -20,27 +20,30 @@ struct Plate<Content: View>: View {
     }
 }
 
-/// Widget auf „Heute“: Karte mit kleiner Kopfzeile (Symbol, Titel, optional rechts ein Hinweis).
+/// Karte mit kleiner Kopfzeile (Symbol, Titel, optional rechts ein Hinweis).
+/// Bei Bedienungshilfe-Textgrößen bricht der Titel um und der Hinweis rutscht darunter.
 struct WidgetCard<Content: View>: View {
     let title: String
     let systemImage: String
     var accessory: String? = nil
     var accent: Color = Theme.textSecondary
     @ViewBuilder var content: Content
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Plate {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(accent)
-                Text(title)
-                    .formaLabelStyle()
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                Spacer(minLength: Space.s2)
-                if let accessory {
-                    Text(accessory).font(.formaCaption).foregroundStyle(Theme.textTertiary)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: Space.s1) {
+                        titleLabel
+                        if let accessory { accessoryText(accessory) }
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                        titleLabel.layoutPriority(1)
+                        Spacer(minLength: 0)
+                        if let accessory { accessoryText(accessory) }
+                    }
                 }
             }
             .padding(.horizontal, Space.s4)
@@ -48,6 +51,25 @@ struct WidgetCard<Content: View>: View {
             .padding(.bottom, 2)
             content
         }
+    }
+
+    private var titleLabel: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accent)
+                .accessibilityHidden(true)
+            Text(title)
+                .formaLabelStyle()
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func accessoryText(_ text: String) -> some View {
+        Text(text)
+            .font(.formaCaption)
+            .foregroundStyle(Theme.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

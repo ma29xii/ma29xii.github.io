@@ -140,11 +140,20 @@ extension View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    /// Zahlen rollen beim Wechsel statt zu springen (ohne Bewegung bei „Bewegung reduzieren“ durch das System).
+    /// Zahlen rollen beim Wechsel statt zu springen; bei „Bewegung reduzieren“ sofort der neue Wert.
     func formaNumberTransition(_ value: Double) -> some View {
-        self
-            .contentTransition(.numericText(value: value))
-            .animation(.snappy, value: value)
+        modifier(NumberTransition(value: value))
+    }
+}
+
+private struct NumberTransition: ViewModifier {
+    let value: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .identity : .numericText(value: value))
+            .animation(reduceMotion ? nil : .snappy, value: value)
     }
 }
 
