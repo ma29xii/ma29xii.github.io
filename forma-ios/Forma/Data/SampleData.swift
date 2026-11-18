@@ -10,7 +10,7 @@ enum SampleData {
             let t = Double(offset)
             let wave = sin(t * 0.9) * 0.5 + sin(t * 0.37 + 1.3) * 0.5
             var day = DayMetrics(date: date)
-            day.hrv = (56 + wave * 6 + (index == 0 ? 6 : 0)).rounded()
+            day.hrv = (56 + wave * 6 + (index == 0 ? 3 : 0)).rounded()
             day.restingHR = (53 - wave * 2 - (index == 0 ? 1 : 0)).rounded()
             day.respiratoryRate = ((14.3 + sin(t * 0.5) * 0.3) * 10).rounded() / 10
             day.spo2 = (96.5 + sin(t * 0.7) * 0.8).rounded()

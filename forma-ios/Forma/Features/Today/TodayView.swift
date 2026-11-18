@@ -41,13 +41,17 @@ struct TodayView: View {
             } action: { _, isPast in
                 withAnimation(.snappy(duration: 0.25)) { showCompactRings = isPast }
             }
-            .overlay(alignment: .top) {
-                if showCompactRings { compactRings.transition(.move(edge: .top).combined(with: .opacity)) }
-            }
             .refreshable { await hub.refresh() }
             .formaScreen()
             .navigationTitle("Heute")
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if showCompactRings {
+                        compactRings.transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    } else {
+                        Text("Heute").font(.system(size: 17, weight: .semibold)).opacity(0)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { app.showProfile = true } label: {
                         Image(systemName: "person.crop.circle")
@@ -104,10 +108,9 @@ struct TodayView: View {
         let s = hub.ringScores
         return RingTrio(strain: s.strain, recovery: s.recovery, sleep: s.sleep, target: s.target,
                         dimmedRecoverySleep: hub.waitingForFitbit, compact: true) { kind in path.append(.ring(kind)) }
-            .padding(.horizontal, Space.s5)
-            .padding(.vertical, Space.s2)
-            .glassEffect(.regular, in: .capsule)
-            .padding(.top, Space.s2)
+            .padding(.horizontal, Space.s4)
+            .padding(.vertical, 4)
+            .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     private var coachContext: CoachEngine.Context {

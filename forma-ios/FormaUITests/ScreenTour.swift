@@ -33,6 +33,8 @@ final class ScreenTour: XCTestCase {
     }
 
     private func tab(_ name: String) {
+        for _ in 0..<4 { app.swipeDown() }
+        sleep(1)
         let b = app.tabBars.buttons[name]
         if b.waitForExistence(timeout: 3) { b.tap() } else { _ = tapButton(beginningWith: name) }
         sleep(1)

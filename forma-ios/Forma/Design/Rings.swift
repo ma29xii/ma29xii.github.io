@@ -84,16 +84,17 @@ struct RingTrio: View {
     }
 
     var body: some View {
-        HStack(alignment: compact ? .center : .bottom, spacing: compact ? Space.s5 : 0) {
+        HStack(alignment: compact ? .center : .bottom, spacing: compact ? Space.s4 : 0) {
             ForEach(RingKind.allCases) { kind in
                 let big = kind == .recovery && !compact
                 let dim = dimmedRecoverySleep && kind != .strain
                 Button { onTap(kind) } label: {
-                    VStack(spacing: compact ? 4 : Space.s2) {
+                    let layout = compact ? AnyLayout(HStackLayout(spacing: 6)) : AnyLayout(VStackLayout(spacing: Space.s2))
+                    layout {
                         RingView(
                             value: shown[kind] ?? Double(current(kind)),
                             color: color(kind),
-                            size: compact ? 30 : (big ? 120 : 88),
+                            size: compact ? 22 : (big ? 120 : 88),
                             lineWidth: compact ? 3 : (big ? 5.5 : 5),
                             target: kind == .strain && !compact ? Double(target.lowerBound)...Double(target.upperBound) : nil,
                             dimmed: dim,

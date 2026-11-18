@@ -27,11 +27,11 @@ enum ScoreEngine {
 
     /// Erholung: HRV und Ruhepuls gegen deinen 30-Tage-Normalwert, dazu Schlaf und Atemfrequenz.
     static func recovery(today: DayMetrics, history: [DayMetrics], sleepScore: Int) -> Int {
-        var score = 55.0
-        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { score += 16 * clampZ(b.z(hrv)) }
-        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { score -= 11 * clampZ(b.z(rhr)) }
-        if let resp = today.respiratoryRate, let b = baseline(history.compactMap(\.respiratoryRate)) { score -= 5 * clampZ(b.z(resp)) }
-        score += 0.3 * Double(sleepScore - 70)
+        var score = 58.0
+        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { score += 10 * clampZ(b.z(hrv)) }
+        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { score -= 7 * clampZ(b.z(rhr)) }
+        if let resp = today.respiratoryRate, let b = baseline(history.compactMap(\.respiratoryRate)) { score -= 4 * clampZ(b.z(resp)) }
+        score += 0.25 * Double(sleepScore - 70)
         return Int(score.rounded()).clamped(1, 99)
     }
 
@@ -69,15 +69,15 @@ enum ScoreEngine {
         let hour = Double(Calendar.forma.component(.hour, from: now))
         let dayFatigue = max(0, hour - 8) * 1.4
         let energy = Int((Double(rec) * 0.65 + Double(sleepValue) * 0.35 - Double(strainValue) * 0.3 - dayFatigue).rounded()).clamped(3, 100)
-        var stress = 1.0
-        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { stress += 0.5 * clampZ(b.z(rhr)) }
-        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { stress -= 0.4 * clampZ(b.z(hrv)) }
+        var stress = 1.2 + Double(strainValue) / 120
+        if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { stress += 0.3 * clampZ(b.z(rhr)) }
+        if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { stress -= 0.2 * clampZ(b.z(hrv)) }
         return DayScores(recovery: rec, sleep: sleepValue, strain: strainValue, target: target(recovery: rec),
                          energy: energy, stress: min(3, max(0, stress)), sleepNeed: need, sleepDebt: debt)
     }
 
     private static func clamp(_ x: Double) -> Double { min(1, max(0, x)) }
-    private static func clampZ(_ z: Double) -> Double { min(2.5, max(-2.5, z)) }
+    private static func clampZ(_ z: Double) -> Double { min(2, max(-2, z)) }
 }
 
 extension Int {
