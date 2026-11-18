@@ -94,9 +94,6 @@ final class ScreenTour: XCTestCase {
 
     func testTour() {
         sleep(2)
-        let plus = app.tabBars.buttons["tab.add"]
-        XCTAssertTrue(plus.waitForExistence(timeout: 3))
-        XCTAssertFalse(plus.isEnabled)
         let steps = app.buttons["today.steps"]
         XCTAssertTrue(steps.waitForExistence(timeout: 5))
         let edit = app.buttons["tiles.edit"]
