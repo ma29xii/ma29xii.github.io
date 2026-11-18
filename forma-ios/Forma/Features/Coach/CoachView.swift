@@ -16,7 +16,7 @@ struct CoachView: View {
     @AppStorage("forma.claudeConsent") private var claudeConsent = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
-    private var hasKey: Bool { !(Keychain.get("anthropic.key") ?? "").isEmpty }
+    private var hasKey: Bool { !hub.isSample && !(Keychain.get("anthropic.key") ?? "").isEmpty }
 
     private var context: CoachEngine.Context {
         let planned = routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
@@ -75,7 +75,16 @@ struct CoachView: View {
                         .accessibilityLabel("Profil und Einstellungen")
                 }
             }
-            .onAppear(perform: consumePrompt)
+            .onAppear {
+                if hub.isSample && messages.isEmpty {
+                    let example = "Wann soll ich ins Bett?"
+                    messages = [
+                        ChatMessage(role: .user, text: example, localOnly: true),
+                        ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: example, context), localOnly: true)
+                    ]
+                }
+                consumePrompt()
+            }
             // Widerruf bricht eine laufende Anfrage sofort ab (Codex R-02-15).
             .onChange(of: claudeConsent) { _, allowed in
                 if !allowed { claudeTask?.cancel(); claudeTask = nil; thinking = false }
@@ -103,7 +112,7 @@ struct CoachView: View {
     // MARK: Vorschlag (nur mit Bestätigung)
 
     @ViewBuilder private var suggestionCard: some View {
-        if let suggested = CoachEngine.suggestion(context), !dismissed {
+        if !hub.isSample, let suggested = CoachEngine.suggestion(context), !dismissed {
             Plate {
                 VStack(alignment: .leading, spacing: Space.s3) {
                     Label("Vorschlag für heute", systemImage: "sparkles")
@@ -216,7 +225,7 @@ struct CoachView: View {
         }
         input = ""
         let ctx = context
-        let external = claudeConsent && !(Keychain.get("anthropic.key") ?? "").isEmpty
+        let external = claudeConsent && hasKey
         messages.append(ChatMessage(role: .user, text: text, localOnly: !external))
         if external, let key = Keychain.get("anthropic.key") {
             thinking = true

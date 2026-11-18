@@ -19,7 +19,7 @@ final class DataHub {
         if activeSource == .health, let last = recent.last, last.date != Date.now.startOfDay {
             recent = SyncStore.normalized(recent, keepDays: 30)
         }
-        guard !formaWorkouts.isEmpty else { return recent }
+        guard !isSample, !formaWorkouts.isEmpty else { return recent }
         for i in recent.indices {
             let day = recent[i].date
             for w in formaWorkouts where w.start.startOfDay == day {
@@ -102,6 +102,7 @@ final class DataHub {
 
     /// Manuelle Angaben aus dem Profil haben Vorrang, dann Apple Health, bei Beispieldaten eine Annahme.
     var person: PersonInfo {
+        if isSample { return SampleData.person() }
         _ = profileRevision
         let defaults = UserDefaults.standard
         let year = defaults.integer(forKey: "forma.birthYear")
@@ -112,10 +113,6 @@ final class DataHub {
             return PersonInfo(birthDate: birth, sex: sex, origin: .manual)
         }
         if let birth = healthPerson.birthDate { return PersonInfo(birthDate: birth, sex: sex, origin: .health) }
-        if isSample {
-            return PersonInfo(birthDate: Date.now.addingTimeInterval(-30 * 365.2425 * 86_400),
-                              sex: sex == .unknown ? .male : sex, origin: .assumed)
-        }
         return PersonInfo(birthDate: nil, sex: sex, origin: .missing)
     }
 

@@ -93,6 +93,9 @@ struct TodayView: View {
                 Label(status, systemImage: "heart")
                     .font(.formaCaption)
                     .foregroundStyle(Theme.textSecondary)
+                Button("Beispieldaten anzeigen") { hub.preferredSource = .sample }
+                    .font(.formaCaptionStrong)
+                    .frame(minHeight: 44)
             } else if let updated = hub.lastUpdate {
                 Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))" : "Abgerufen am \(Format.shortDate(updated))")
                     .font(.formaCaption)

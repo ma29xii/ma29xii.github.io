@@ -3,12 +3,12 @@ import SwiftData
 import Charts
 
 enum HealthTile: String, TileKind {
-    case hrv, restingHR, respiratoryRate, spo2, vo2max, sleepDuration, steps, activeEnergy, bodyAge
+    case hrv, restingHR, respiratoryRate, spo2, vo2max, sleepDuration, steps, activeEnergy
 
     var id: String { rawValue }
     var metric: MetricKind? { MetricKind(rawValue: rawValue) }
-    var title: String { metric?.title ?? "Health Age" }
-    var systemImage: String { metric == nil ? "hourglass" : "waveform.path.ecg" }
+    var title: String { metric?.title ?? rawValue }
+    var systemImage: String { "waveform.path.ecg" }
     var summary: String { title }
 
     static func storedKinds(for id: String) -> [Self] {
@@ -34,6 +34,18 @@ struct HealthView: View {
                     } else if let status = hub.todayDataNotice {
                         Text(status).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                     }
+                    NavigationLink {
+                        BodyAgeDetailView()
+                    } label: {
+                        HealthAgeHero(outcome: bodyAgeOutcome(hub: hub, sessions: sessions))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("health.age")
+
+                    Text("Biomarker")
+                        .font(.formaSection)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, Space.s3)
                     InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
                         AnyView(tile(kind))
                     }
@@ -43,12 +55,12 @@ struct HealthView: View {
             }
             .refreshable { await hub.refresh() }
             .formaScreen()
-            .navigationTitle("Gesundheit")
+            .navigationTitle("Health Age")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
             .navigationDestination(for: MetricKind.self) { MetricDetailView(kind: $0) }
-            .navigationDestination(for: HealthTile.self) { _ in BodyAgeDetailView() }
         }
     }
 
@@ -59,12 +71,6 @@ struct HealthView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("health.metric." + metric.rawValue)
-        } else {
-            NavigationLink(value: kind) {
-                BodyAgeSummaryCard(outcome: bodyAgeOutcome(hub: hub, sessions: sessions))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("health.age")
         }
     }
 }

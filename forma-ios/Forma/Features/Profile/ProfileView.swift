@@ -190,38 +190,49 @@ private struct BodyProfileView: View {
     var body: some View {
         @Bindable var app = app
         Form {
-            Section {
-                Picker("Geburtsjahr", selection: $birthYear) {
-                    Text(hub.person.origin == .health ? "Aus Apple Health" : "Nicht angegeben").tag(0)
-                    let latestYear = Calendar.forma.component(.year, from: .now)
-                    ForEach((1901...latestYear).reversed(), id: \.self) { year in
-                        Text(String(year)).tag(year)
+            if hub.isSample {
+                Section {
+                    SampleDataBadge()
+                    if let birthday = hub.person.birthDate {
+                        LabeledContent("Geburtsjahr", value: String(Calendar.forma.component(.year, from: birthday)))
+                    }
+                    LabeledContent("Geschlecht", value: hub.person.sex.title)
+                    LabeledContent("Gewicht", value: "\(Format.weight(SampleData.weightKg, unit: app.weightUnit)) \(app.weightUnit.rawValue)")
+                }
+            } else {
+                Section {
+                    Picker("Geburtsjahr", selection: $birthYear) {
+                        Text(hub.person.origin == .health ? "Aus Apple Health" : "Nicht angegeben").tag(0)
+                        let latestYear = Calendar.forma.component(.year, from: .now)
+                        ForEach((1901...latestYear).reversed(), id: \.self) { year in
+                            Text(String(year)).tag(year)
+                        }
+                    }
+                    Picker("Geschlecht", selection: $sexRaw) {
+                        ForEach(BiologicalSex.allCases) { Text($0.title).tag($0.rawValue) }
                     }
                 }
-                Picker("Geschlecht", selection: $sexRaw) {
-                    ForEach(BiologicalSex.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-            }
 
-            Section("Gewicht") {
-                Picker("Einheit", selection: $app.weightUnit) {
-                    Text("Kilogramm").tag(WeightUnit.kg)
-                    Text("Pfund").tag(WeightUnit.lb)
-                }
-                HStack {
-                    Text("Gewicht")
-                    TextField("Nicht angegeben", text: $weightText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .accessibilityLabel("Gewicht")
-                    Text(app.weightUnit.rawValue).foregroundStyle(Theme.textSecondary)
-                }
-                if weightText != displayWeight(weightKg, unit: app.weightUnit) {
-                    Button("Gewicht speichern") { saveWeight() }
-                }
-                if weightError {
-                    Text("Gib ein Gewicht zwischen 1 und 500 kg ein oder lass das Feld leer.")
-                        .font(.formaCaption).foregroundStyle(Theme.warning)
+                Section("Gewicht") {
+                    Picker("Einheit", selection: $app.weightUnit) {
+                        Text("Kilogramm").tag(WeightUnit.kg)
+                        Text("Pfund").tag(WeightUnit.lb)
+                    }
+                    HStack {
+                        Text("Gewicht")
+                        TextField("Nicht angegeben", text: $weightText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityLabel("Gewicht")
+                        Text(app.weightUnit.rawValue).foregroundStyle(Theme.textSecondary)
+                    }
+                    if weightText != displayWeight(weightKg, unit: app.weightUnit) {
+                        Button("Gewicht speichern") { saveWeight() }
+                    }
+                    if weightError {
+                        Text("Gib ein Gewicht zwischen 1 und 500 kg ein oder lass das Feld leer.")
+                            .font(.formaCaption).foregroundStyle(Theme.warning)
+                    }
                 }
             }
         }

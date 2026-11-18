@@ -41,7 +41,7 @@ struct RoutineEditorView: View {
                 Button("Training starten") {
                     routine.lastUsed = .now
                     try? context.save()
-                    app.liveWorkout = LiveWorkout.from(routine, history: sessions, adjustment: TrainingAdjustment.today)
+                    app.liveWorkout = LiveWorkout.from(routine, history: sessions, adjustment: app.workoutAdjustment)
                 }
                 .disabled(routine.items.isEmpty)
             }

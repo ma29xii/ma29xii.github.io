@@ -203,7 +203,7 @@ struct LiveWorkoutView: View {
                             .lineLimit(2)
                     }
                     // Freiwillig und erst hier, mit Kontext – nicht beim Trainingsstart (Codex R-02-26/A-33).
-                    if notificationStatus == .notDetermined {
+                    if !workout.isDemo && notificationStatus == .notDetermined {
                         Button("Bei Pausenende benachrichtigen") {
                             Task {
                                 _ = await CoachNotifier.requestPermission()

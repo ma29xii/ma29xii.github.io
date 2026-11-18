@@ -53,6 +53,7 @@ struct TrainingView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if app.isDemo { SampleDataBadge() }
                     TileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training", screenTitle: "Training", isEditing: $editingTiles) { tile in
                         AnyView(view(for: tile))
                     }
@@ -220,7 +221,7 @@ struct TrainingView: View {
     private func start(_ routine: Routine) {
         routine.lastUsed = .now
         try? context.save()
-        app.liveWorkout = LiveWorkout.from(routine, history: sessions, adjustment: TrainingAdjustment.today)
+        app.liveWorkout = LiveWorkout.from(routine, history: sessions, adjustment: app.workoutAdjustment)
     }
 }
 

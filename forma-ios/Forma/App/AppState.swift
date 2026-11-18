@@ -4,13 +4,14 @@ import SwiftUI
 import UserNotifications
 
 enum AppTab: Hashable {
-    case today, training, health, coach
+    case today, training, health, coach, add
 }
 
 /// Globale Bedienzustände (Tab, Coach-Kontext, laufendes Training).
 @MainActor
 @Observable
 final class AppState {
+    let isDemo: Bool
     var selectedTab: AppTab = .today
     var coachPrompt: String?
     /// Thema der ersten Coach-Antwort (z. B. „schlaf“), damit sie zum Einstieg passt.
@@ -18,9 +19,10 @@ final class AppState {
     var liveWorkout: LiveWorkout? {
         didSet {
             if let liveWorkout {
+                liveWorkout.isDemo = isDemo
                 liveWorkout.persist()
                 // Keine Mitteilungs-Abfrage beim Start: Sie unterbrach den ersten Satz (Codex R-02-26).
-            } else {
+            } else if !isDemo {
                 LiveWorkout.clearSaved()
                 RestNotifier.cancel()
             }
@@ -34,9 +36,12 @@ final class AppState {
         didSet { UserDefaults.standard.set(weightUnit.rawValue, forKey: "forma.weightUnit") }
     }
 
-    init() {
+    init(isDemo: Bool = false) {
+        self.isDemo = isDemo
         weightUnit = WeightUnit(rawValue: UserDefaults.standard.string(forKey: "forma.weightUnit") ?? "") ?? .kg
     }
+
+    var workoutAdjustment: TrainingAdjustment? { isDemo ? nil : TrainingAdjustment.today }
 
     func openCoach(with prompt: String, topic: String = "erholung") {
         coachTopic = topic
@@ -154,6 +159,7 @@ enum RestNotifier {
 @MainActor
 @Observable
 final class LiveWorkout: Identifiable {
+    var isDemo = false
     let id = UUID()
     var title: String
     let start: Date
@@ -196,6 +202,7 @@ final class LiveWorkout: Identifiable {
     private static let storageKey = "forma.liveWorkout"
 
     func persist() {
+        guard !isDemo else { return }
         let snap = Snapshot(title: title, start: start, exercises: exercises, exerciseIndex: exerciseIndex, setIndex: setIndex,
                             restEndsAt: restEndsAt, restTotal: restTotal, currentRIR: currentRIR, adjustment: adjustment,
                             draftID: draftID, version: 2)
@@ -357,8 +364,8 @@ final class LiveWorkout: Identifiable {
         selectFirstOpen(keepRest: true)
         if allDone {
             restEndsAt = nil
-            RestNotifier.cancel()
-        } else if let end = restEndsAt {
+            if !isDemo { RestNotifier.cancel() }
+        } else if !isDemo, let end = restEndsAt {
             RestNotifier.schedule(at: end, next: currentExercise?.name)
         }
         persist()
@@ -368,13 +375,13 @@ final class LiveWorkout: Identifiable {
         let base = max(Date.now, restEndsAt ?? .now)
         restEndsAt = base.addingTimeInterval(TimeInterval(seconds))
         restTotal += seconds
-        if let end = restEndsAt { RestNotifier.schedule(at: end, next: currentExercise?.name) }
+        if !isDemo, let end = restEndsAt { RestNotifier.schedule(at: end, next: currentExercise?.name) }
         persist()
     }
 
     func skipRest() {
         restEndsAt = nil
-        RestNotifier.cancel()
+        if !isDemo { RestNotifier.cancel() }
         persist()
     }
 

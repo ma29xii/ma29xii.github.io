@@ -5,26 +5,42 @@ import BackgroundTasks
 @main
 struct FormaApp: App {
     nonisolated static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
+    private static let models: [any PersistentModel.Type] = [
+        Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self
+    ]
     @State private var hub = DataHub()
     @State private var app = AppState()
 
     var body: some Scene {
         let backgroundHub = hub
         WindowGroup {
-            RootView()
-                .environment(hub)
-                .environment(app)
-                .preferredColorScheme(.dark)
-                .tint(Theme.selection)
+            Group {
+                if hub.isSample {
+                    SampleRootView()
+                        .modelContainer(for: Self.models, inMemory: true)
+                } else {
+                    RootView().environment(app)
+                }
+            }
+            .environment(hub)
+            .preferredColorScheme(.dark)
+            .tint(Theme.selection)
         }
         // JournalAnswer bleibt im Schema, damit vorhandene Trainingsspeicher beim Update geöffnet werden.
-        .modelContainer(for: [Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self],
-                        inMemory: FormaApp.isUITest)
+        .modelContainer(for: Self.models, inMemory: FormaApp.isUITest)
         // iOS weckt Forma regelmäßig im Hintergrund (zusätzlich zu Apple-Health-Benachrichtigungen).
         .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
             await backgroundHub.backgroundRefresh()
             await BackgroundRefresh.schedule()
         }
+    }
+}
+
+private struct SampleRootView: View {
+    @State private var app = AppState(isDemo: true)
+
+    var body: some View {
+        RootView().environment(app)
     }
 }
 
@@ -52,8 +68,13 @@ struct RootView: View {
             Tab("Coach", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.coach) {
                 CoachView()
             }
+            Tab("Plus", systemImage: "plus", value: AppTab.add) {
+                Color.clear
+            }
+            .disabled(true)
+            .accessibilityIdentifier("tab.add")
         }
-        .tabBarMinimizeBehavior(.never) // vier gleichrangige Tabs immer erreichbar (Codex R-01-12)
+        .tabBarMinimizeBehavior(.never)
         .fullScreenCover(item: $app.liveWorkout) { workout in
             LiveWorkoutView(workout: workout)
         }
@@ -68,8 +89,12 @@ struct RootView: View {
         }
         .task {
             TrainingSeed.seedIfNeeded(context)
+            if app.isDemo {
+                SampleData.seedWorkouts(hub.longDays, in: context)
+            }
+            app.profilePhoto = ProfilePhotoStore.load()
             // Training, das iOS im Hintergrund beendet hat, wiederherstellen.
-            if !FormaApp.isUITest, app.liveWorkout == nil,
+            if !app.isDemo, !FormaApp.isUITest, app.liveWorkout == nil,
                let restored = LiveWorkout.restore(alreadySaved: { id in
                    ((try? context.fetchCount(FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.draftID == id }))) ?? 0) > 0
                }) {
@@ -79,13 +104,14 @@ struct RootView: View {
             await hub.refresh()
         }
         .onChange(of: sessions.count, initial: true) { _, _ in
+            guard !app.isDemo else { return }
             let since = Date.now.startOfDay.adding(days: -30)
             hub.setFormaWorkouts(sessions.filter { $0.start >= since }.map {
                 WorkoutSummary(name: $0.title, start: $0.start, duration: max(0, $0.duration), energy: nil, isStrength: true)
             })
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { BackgroundRefresh.schedule() }
+            if phase == .background && !app.isDemo { BackgroundRefresh.schedule() }
             if phase == .active { Task { await hub.refresh() } }
         }
     }

@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import Forma
 
 /// Angriffs- und Logiktests: kaputte Eingaben dürfen nie abstürzen oder Unsinn liefern.
@@ -166,6 +167,20 @@ final class ScoreTests: XCTestCase {
 }
 
 final class BodyAgeTests: XCTestCase {
+    func testExampleProfileShowsHealthAgeAndTrend() {
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let days = SampleData.days(endingAt: date)
+        let strength = BodyAge.strengthMinutes(days: days, formaSessions: [])
+        let outcome = BodyAge.evaluate(days: days, person: SampleData.person(at: date), strength: strength, now: date)
+
+        guard case .ready(let result) = outcome else {
+            return XCTFail("Beispieldaten müssen Health Age zeigen")
+        }
+        XCTAssertEqual(result.daysWithData, 180)
+        XCTAssertEqual(result.factors.count, 5)
+        XCTAssertNotNil(result.trend)
+    }
+
     private func person(age: Double, sex: BiologicalSex = .male) -> PersonInfo {
         PersonInfo(birthDate: Date.now.addingTimeInterval(-age * 365.2425 * 86_400), sex: sex, origin: .manual)
     }
@@ -263,26 +278,52 @@ final class TileArrangementTests: XCTestCase {
     }
 
     func testHealthLayoutExpandsOldGroups() {
-        let a = TileArrangement<HealthTile>(storage: "fitness,heart,sleepActivity,bodyAge|heart")
-        XCTAssertEqual(a.visible, [.vo2max, .sleepDuration, .steps, .activeEnergy, .bodyAge])
+        let a = TileArrangement<HealthTile>(storage: "fitness,heart,sleepActivity,bodyAge|heart,bodyAge")
+        XCTAssertEqual(a.visible, [.vo2max, .sleepDuration, .steps, .activeEnergy])
         XCTAssertEqual(a.hiddenInOrder, [.hrv, .restingHR, .respiratoryRate, .spo2])
     }
 
     func testMoveBeforeAndShowHide() {
         var a = TileArrangement<HealthTile>(storage: "")
-        a.move(.bodyAge, before: .hrv)
-        XCTAssertEqual(a.visible.first, .bodyAge)
+        a.move(.steps, before: .hrv)
+        XCTAssertEqual(a.visible.first, .steps)
         a.hide(.vo2max)
         XCTAssertFalse(a.visible.contains(.vo2max))
         a.show(.vo2max)
         XCTAssertEqual(a.visible.last, .vo2max)
-        a.shift(.bodyAge, by: -1) // schon oben: nichts passiert
-        XCTAssertEqual(a.visible.first, .bodyAge)
+        a.shift(.steps, by: -1)
+        XCTAssertEqual(a.visible.first, .steps)
     }
 }
 
 @MainActor
 final class LiveWorkoutTests: XCTestCase {
+    func testExampleTrainingHistoryContainsSetsAndSeedsOnce() throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WorkoutSession.self, SetRecord.self, configurations: configuration)
+        let context = container.mainContext
+        let days = SampleData.days()
+
+        SampleData.seedWorkouts(days, in: context)
+        let workouts = try context.fetch(FetchDescriptor<WorkoutSession>())
+        XCTAssertGreaterThan(workouts.count, 10)
+        XCTAssertTrue(workouts.allSatisfy { !$0.workSets.isEmpty && $0.volume > 0 })
+
+        SampleData.seedWorkouts(days, in: context)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WorkoutSession>()), workouts.count)
+    }
+
+    func testDemoWorkoutLeavesRealDraftIntact() {
+        let real = workout()
+        real.persist()
+        defer { LiveWorkout.clearSaved() }
+        let demo = AppState(isDemo: true)
+        demo.liveWorkout = LiveWorkout.empty()
+        demo.liveWorkout = nil
+
+        XCTAssertEqual(LiveWorkout.restore()?.draftID, real.draftID)
+    }
+
     private func workout() -> LiveWorkout {
         LiveWorkout(title: "Test", exercises: [
             LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 90,

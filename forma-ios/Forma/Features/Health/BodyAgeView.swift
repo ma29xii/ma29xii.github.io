@@ -34,28 +34,41 @@ enum BodyAgeText {
 }
 
 
-struct BodyAgeSummaryCard: View {
+struct HealthAgeHero: View {
     let outcome: BodyAge.Outcome
 
     var body: some View {
-        WidgetCard(title: "Health Age", systemImage: "hourglass") {
-            HStack(spacing: Space.s3) {
-                VStack(alignment: .leading, spacing: Space.s1) {
-                    if case .ready(let result) = outcome {
-                        Text("\(BodyAgeText.years(result.bodyAge)) Jahre")
-                            .font(.formaBigNumber)
-                            .foregroundStyle(BodyAgeText.color(result.difference))
+        Plate {
+            VStack(spacing: Space.s2) {
+                if case .ready(let result) = outcome {
+                    AgeArc(age: result.age, estimate: result.bodyAge)
+                    Text(BodyAgeText.difference(result))
+                        .font(.formaHeadline)
+                        .multilineTextAlignment(.center)
+                    Text("Geschätztes Alter")
+                        .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    if let trend = result.trend {
+                        Label("30-Tage-Trend · \(BodyAgeText.signedYears(trend))", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.formaCaptionStrong)
+                            .foregroundStyle(Theme.textSecondary)
+                            .accessibilityLabel("Trend, \(BodyAgeText.signedYears(trend)) gegenüber dem vorherigen 30-Tage-Zeitraum")
                     }
+                } else {
+                    Text("–").font(.formaHero).foregroundStyle(Theme.textSecondary)
                     Text(status)
-                        .font(.formaCaption)
+                        .font(.formaRowTitle)
                         .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                Spacer(minLength: Space.s2)
-                Image(systemName: "chevron.right")
-                    .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                    .accessibilityHidden(true)
+                Label("Details", systemImage: "chevron.right")
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.top, Space.s1)
             }
-            .padding(Space.s4)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Space.s4)
+            .padding(.bottom, Space.s5)
+            .padding(.top, Space.s2)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -105,7 +118,7 @@ struct BodyAgeDetailView: View {
             .padding(.vertical, Space.s4)
         }
         .formaScreen()
-        .navigationTitle("Health Age")
+        .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
     }
 

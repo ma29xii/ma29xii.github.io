@@ -94,6 +94,9 @@ final class ScreenTour: XCTestCase {
 
     func testTour() {
         sleep(2)
+        let plus = app.tabBars.buttons["tab.add"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 3))
+        XCTAssertFalse(plus.isEnabled)
         let steps = app.buttons["today.tile.day"]
         XCTAssertTrue(steps.waitForExistence(timeout: 5))
         let edit = app.buttons["tiles.edit"]
@@ -171,9 +174,11 @@ final class ScreenTour: XCTestCase {
         }
 
         tab("Health")
+        XCTAssertTrue(app.navigationBars["Health Age"].exists)
+        XCTAssertTrue(app.buttons["health.age"].isHittable)
         shot("14 Health")
+        captureDetail("health.age", title: "Details", screenshot: "14b Health Age")
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
-        captureDetail("health.age", title: "Health Age", screenshot: "14b Health Age")
         if reveal(edit) {
             edit.tap()
             XCTAssertFalse(app.sheets.firstMatch.exists)
