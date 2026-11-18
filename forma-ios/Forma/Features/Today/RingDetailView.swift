@@ -11,7 +11,7 @@ struct RingDetailView: View {
         let value = snapshot.value(for: kind)
         let tint = DashboardRing.tint(kind: kind, value: value)
 
-        VStack(alignment: .leading, spacing: Space.s4) {
+        VStack(alignment: .leading, spacing: Space.gap) {
             VStack(spacing: Space.s2) {
                 DashboardRing(kind: kind, value: value, size: 188, expanded: true)
                     .accessibilityIdentifier("ring.detail." + kind.rawValue)
@@ -39,9 +39,11 @@ struct RingDetailView: View {
             DashboardCard {
                 Text(interpretation(value))
                     .font(.formaBody)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Space.s4)
             }
+            .accessibilityIdentifier("ring.detail.summary")
             if kind == .sleep, let night = day.sleep, night.asleep > 0 {
                 sleepPhases(night)
             }
@@ -119,8 +121,9 @@ struct RingDetailView: View {
 
     private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
 
-    private func durationClock(_ seconds: TimeInterval) -> String {
-        let minutes = Int((seconds / 60).rounded())
+    /// „6:08“ für Kapseln (Stunden:Minuten).
+    static func clock(_ seconds: TimeInterval) -> String {
+        let minutes = max(0, Int((seconds / 60).rounded()))
         return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
     }
 
@@ -129,12 +132,12 @@ struct RingDetailView: View {
             HStack(spacing: Space.s2) {
                 sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
                     .fixedSize(horizontal: true, vertical: false)
-                sleepPill("Schlafbedarf · Schätzung", value: need, tint: Theme.younger)
+                sleepPill("Schlafbedarf", value: need, tint: Theme.younger)
                     .fixedSize(horizontal: true, vertical: false)
             }
             VStack(alignment: .leading, spacing: Space.s2) {
                 sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
-                sleepPill("Schlafbedarf · Schätzung", value: need, tint: Theme.younger)
+                sleepPill("Schlafbedarf", value: need, tint: Theme.younger)
             }
         }
         .frame(maxWidth: .infinity)
@@ -142,8 +145,8 @@ struct RingDetailView: View {
 
     private func sleepPill(_ title: String, value: TimeInterval, tint: Color) -> some View {
         VStack(spacing: Space.s1) {
-            Text(durationClock(value)).font(.formaBigNumber).foregroundStyle(tint)
-            Text(title).font(.formaMicro).textCase(.uppercase).tracking(0.5)
+            Text(Self.clock(value)).font(.formaBigNumber).foregroundStyle(tint)
+            Text(title).font(.formaMicro).textCase(.uppercase).tracking(Tracking.micro)
         }
         .foregroundStyle(Theme.textSecondary)
         .multilineTextAlignment(.center)

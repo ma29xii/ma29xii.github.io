@@ -50,6 +50,7 @@ struct RingTrendChart: View {
         }
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var range = Range.week
     @State private var page = 0
     @State private var selection: Date?
@@ -72,6 +73,8 @@ struct RingTrendChart: View {
                             Text("Durchschnitt").font(.formaCaption).foregroundStyle(Theme.textSecondary)
                             Text(average.map(valueText) ?? "–")
                                 .font(.formaBigNumber)
+                                .contentTransition(reduceMotion ? .opacity : .numericText(value: average ?? 0))
+                                .animation(reduceMotion ? nil : .snappy, value: average)
                                 .accessibilityIdentifier("trend.average")
                         }
                         Spacer(minLength: Space.s2)
@@ -99,13 +102,15 @@ struct RingTrendChart: View {
                             .foregroundStyle(Theme.textSecondary)
                     }
                     if !points.isEmpty {
-                        chart(points, start: start, end: end, selected: selected)
+                        chart(points, start: start, end: end, selected: selected, average: average)
+                            .animation(reduceMotion ? nil : .smooth, value: range)
                     }
                 }
                 .padding(Space.s4)
             }
         }
         .accessibilityIdentifier("ring.trend")
+        .sensoryFeedback(.selection, trigger: selection?.startOfDay)
         .onChange(of: range) { _, _ in resetPage() }
         .onChange(of: anchor) { _, _ in resetPage() }
     }
@@ -119,7 +124,7 @@ struct RingTrendChart: View {
         Format.number(value) + (kind == .strain ? "" : " %")
     }
 
-    private func chart(_ points: [HealthChartPoint], start: Date, end: Date, selected: Date?) -> some View {
+    private func chart(_ points: [HealthChartPoint], start: Date, end: Date, selected: Date?, average: Double?) -> some View {
         let entries = segments(points)
         return Chart {
             ForEach(entries, id: \.point.date) { entry in
@@ -129,9 +134,10 @@ struct RingTrendChart: View {
                          series: .value("Abschnitt", entry.segment))
                     .foregroundStyle(color)
                     .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                // Punkte nur in der Woche und am gewählten Tag, sonst wird die Linie unruhig.
                 PointMark(x: .value("Tag", center), y: .value(kind.title, point.value))
-                    .symbolSize(range == .halfYear ? 9 : 25)
-                    .foregroundStyle(color)
+                    .symbolSize(point.date == selected ? 70 : (range == .week ? 25 : 0))
+                    .foregroundStyle(point.date == selected ? Theme.textPrimary : color)
                     .annotation(position: .top, spacing: 3) {
                         if range == .week && selected == nil {
                             Text(Format.number(point.value))
@@ -139,6 +145,11 @@ struct RingTrendChart: View {
                                 .foregroundStyle(Theme.textPrimary)
                         }
                     }
+            }
+            if let average {
+                RuleMark(y: .value("Durchschnitt", average))
+                    .foregroundStyle(Theme.textQuaternary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 4]))
             }
             if let selected {
                 let center = selected.addingTimeInterval(selected.adding(days: 1).timeIntervalSince(selected) / 2)
@@ -157,13 +168,14 @@ struct RingTrendChart: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .trailing, values: [0, 25, 50, 75, 100]) { _ in
+            AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
                 AxisGridLine().foregroundStyle(Theme.hairline)
                 AxisValueLabel().foregroundStyle(Theme.textSecondary)
             }
         }
         .frame(height: 180)
         .accessibilityLabel("\(kind.title)-Trend, \(range.caption)")
+        .accessibilityValue(average.map { "Durchschnitt \(valueText($0)), \(points.count) Tage mit Messung" } ?? "Keine Messung")
     }
 
     private func segments(_ points: [HealthChartPoint]) -> [(point: HealthChartPoint, segment: Int)] {
