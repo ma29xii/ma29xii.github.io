@@ -1,7 +1,6 @@
 import Foundation
 
-/// Lokale, nachvollziehbare Berechnung der drei Ringe (0–100).
-/// Bewusst einfach gehalten und in der App erklärt („So wird gerechnet“).
+/// Lokale Berechnung der drei Ringe (0–100).
 enum ScoreEngine {
     struct Baseline: Sendable {
         var mean: Double
@@ -35,7 +34,7 @@ enum ScoreEngine {
         if let hrv = today.hrv, let b = baseline(history.compactMap(\.hrv)) { score += 10 * clampZ(b.z(hrv)) }
         if let rhr = today.restingHR, let b = baseline(history.compactMap(\.restingHR)) { score -= 7 * clampZ(b.z(rhr)) }
         if let resp = today.respiratoryRate, let b = baseline(history.compactMap(\.respiratoryRate)) { score -= 4 * clampZ(b.z(resp)) }
-        score += 0.25 * Double(sleepScore - 70)
+        if sleepScore > 0 { score += 0.25 * Double(sleepScore - 70) }
         return Int(score.rounded()).clamped(1, 99)
     }
 

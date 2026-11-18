@@ -53,7 +53,6 @@ final class DataHub {
     /// Kam während eines Abrufs ein neuer Anstoß, wird danach noch einmal geladen (nichts geht verloren).
     private var refreshPending = false
     private var inFlight: Task<RefreshResult, Never>?
-    private var lastResult: RefreshResult = .unchanged
     /// Zählt Quellenwechsel; Abrufe einer überholten Quelle werden verworfen (Codex R-02-14).
     private var generation = 0
     /// Wartet ein Abruf auf das Entsperren des iPhones?
@@ -339,17 +338,22 @@ final class DataHub {
             refreshPending = true
             return await running.value
         }
-        repeat {
-            refreshPending = false
-            let task = Task { @MainActor in await self.performRefresh() }
-            inFlight = task
-            isLoading = true
-            lastResult = await task.value
-            inFlight = nil
-        } while refreshPending
-        isLoading = false
-        hasLoaded = true
-        return lastResult
+        let task = Task { @MainActor [self] in
+            defer {
+                inFlight = nil
+                isLoading = false
+                hasLoaded = true
+            }
+            var result: RefreshResult
+            repeat {
+                refreshPending = false
+                result = await performRefresh()
+            } while refreshPending
+            return result
+        }
+        inFlight = task
+        isLoading = true
+        return await task.value
     }
 
     private func performRefresh() async -> RefreshResult {

@@ -125,6 +125,21 @@ final class ScoreTests: XCTestCase {
         XCTAssertTrue((0...3).contains(s.stress))
     }
 
+    func testMissingSleepDoesNotLowerRecovery() {
+        let date = Date.now.startOfDay
+        let history = (1...4).map { DayMetrics(date: date.adding(days: -$0), hrv: 50) }
+        var today = DayMetrics(date: date, hrv: 50)
+        let withoutSleep = ScoreEngine.scores(today: today, history: history)
+        XCTAssertEqual(withoutSleep.sleep, 0)
+        XCTAssertEqual(withoutSleep.recovery, 58)
+
+        let start = date.adding(minutes: 60)
+        let end = date.adding(minutes: 120)
+        today.sleep = SleepNight(start: start, end: end,
+                                 segments: [.init(stage: .unspecified, start: start, end: end)])
+        XCTAssertLessThan(ScoreEngine.scores(today: today, history: history).recovery, withoutSleep.recovery)
+    }
+
     func testScoresStayInRangeWithExtremeValues() {
         var today = DayMetrics(date: Date.now.startOfDay)
         today.hrv = 400; today.restingHR = 25; today.activeEnergy = 12_000

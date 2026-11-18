@@ -49,6 +49,8 @@ actor HealthService {
         ]
         var failed: [String] = []
         for (type, frequency, title) in types where !observing.contains(type.identifier) {
+            // Auch während der asynchronen Registrierung darf kein zweiter Beobachter starten.
+            observing.insert(type.identifier)
             let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completion, error in
                 nonisolated(unsafe) let done = completion
                 guard error == nil else { done(); return }
@@ -60,9 +62,9 @@ actor HealthService {
             store.execute(query)
             do {
                 try await store.enableBackgroundDelivery(for: type, frequency: frequency)
-                observing.insert(type.identifier)
             } catch {
                 store.stop(query)
+                observing.remove(type.identifier)
                 failed.append(title)
             }
         }
