@@ -62,22 +62,14 @@ enum MetricSeries: String, CaseIterable, Codable, Sendable {
 
 struct SleepNight: Equatable, Sendable, Codable {
     enum Stage: String, Sendable, CaseIterable, Codable {
-        case awake, rem, core, deep
+        case awake, rem, core, deep, unspecified
         var title: String {
             switch self {
             case .awake: "Wach"
             case .rem: "REM"
             case .core: "Kern"
             case .deep: "Tief"
-            }
-        }
-        /// 0 = oben (wach), 3 = unten (tief)
-        var level: Int {
-            switch self {
-            case .awake: 0
-            case .rem: 1
-            case .core: 2
-            case .deep: 3
+            case .unspecified: "Ohne Phasenangabe"
             }
         }
     }
@@ -101,6 +93,10 @@ struct SleepNight: Equatable, Sendable, Codable {
     var efficiency: Double { inBed > 0 ? min(1, asleep / inBed) : 0 }
     /// Hat die Nacht echte Phasen (Tief/REM)? Sonst ist nur „geschlafen“ bekannt.
     var hasStages: Bool { segments.contains { $0.stage == .deep || $0.stage == .rem } }
+
+    var recordedStages: [Stage] {
+        Stage.allCases.filter { stage in segments.contains { $0.stage == stage } }
+    }
 
     static func unionLength(_ segments: [Segment]) -> TimeInterval {
         let sorted = segments.sorted { $0.start < $1.start }

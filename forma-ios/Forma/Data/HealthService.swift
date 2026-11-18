@@ -201,7 +201,8 @@ actor HealthService {
             case .awake: stage = .awake
             case .asleepREM: stage = .rem
             case .asleepDeep: stage = .deep
-            case .asleepCore, .asleepUnspecified: stage = .core
+            case .asleepCore: stage = .core
+            case .asleepUnspecified: stage = .unspecified
             default: continue // „Im Bett“ wird nicht als Phase gezählt
             }
             guard sample.endDate > sample.startDate else { continue }

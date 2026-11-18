@@ -130,9 +130,9 @@ struct RingDetailView: View {
                             .padding(Space.s4)
                         RowDivider()
                         if night.hasStages {
-                            ForEach(SleepNight.Stage.allCases, id: \.self) { stage in
+                            ForEach(night.recordedStages, id: \.self) { stage in
                                 MetricRow(title: stage.title, value: Format.duration(night.total(stage)))
-                                if stage != .deep { RowDivider() }
+                                if stage != night.recordedStages.last { RowDivider() }
                             }
                         } else {
                             MetricRow(title: "Schlafphasen", value: "Nicht erfasst")
@@ -155,7 +155,7 @@ struct RingDetailView: View {
 
     private var history: [HealthChartPoint] {
         let recent = hub.days
-        let all = Array(hub.longDays.dropLast(min(recent.count, hub.longDays.count))) + recent
+        let all = (recent.first.map { first in hub.longDays.filter { $0.date < first.date } } ?? []) + recent
         return all.indices.suffix(30).compactMap { index in
             let day = all[index]
             let value: Double?
@@ -181,12 +181,12 @@ private struct SleepTimeline: View {
     @ScaledMetric(relativeTo: .caption) private var laneHeight = 26.0
 
     var body: some View {
-        let stages: [SleepNight.Stage] = night.hasStages ? SleepNight.Stage.allCases : [.awake, .core]
+        let stages: [SleepNight.Stage] = night.hasStages ? night.recordedStages : [.awake, .unspecified]
         VStack(spacing: Space.s2) {
             HStack(spacing: Space.s2) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(stages, id: \.self) { stage in
-                        Text(!night.hasStages && stage == .core ? "Schlaf" : stage.title)
+                        Text(stage == .unspecified ? "Schlaf" : stage.title)
                             .font(.formaCaption)
                             .foregroundStyle(Theme.textSecondary)
                             .frame(maxHeight: .infinity)
@@ -198,7 +198,8 @@ private struct SleepTimeline: View {
                         let y = lane * CGFloat(index)
                         context.fill(Path(CGRect(x: 0, y: y + lane / 2, width: size.width, height: 1)),
                                      with: .color(Theme.hairline))
-                        for segment in night.segments where segment.stage == stage {
+                        for segment in night.segments where segment.stage == stage
+                            || (!night.hasStages && stage == .unspecified && segment.stage != .awake) {
                             let lo = max(0, segment.start.timeIntervalSince(night.start))
                             let hi = min(night.inBed, segment.end.timeIntervalSince(night.start))
                             guard night.inBed > 0, hi > lo else { continue }

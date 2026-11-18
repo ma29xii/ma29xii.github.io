@@ -369,6 +369,16 @@ final class ReviewRegressionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(score, 85)
     }
 
+    func testUnspecifiedSleepContributesToDurationButNotCore() {
+        let known = seg(.core, 0, 60)
+        let unspecified = seg(.unspecified, 60, 420)
+        let night = SleepNight(start: known.start, end: unspecified.end, segments: [known, unspecified])
+
+        XCTAssertEqual(night.asleep, 420 * 60, accuracy: 0.001)
+        XCTAssertEqual(night.total(.core), 60 * 60, accuracy: 0.001)
+        XCTAssertEqual(night.total(.unspecified), 360 * 60, accuracy: 0.001)
+    }
+
     private func context(strain: Int, target: ClosedRange<Int>, trained: Bool, hrvDelta: Double?) -> CoachEngine.Context {
         let scores = DayScores(recovery: 70, sleep: 80, strain: strain, target: target, energy: 60, stress: 1.2, sleepNeed: 8 * 3600, sleepDebt: 0)
         return CoachEngine.Context(scores: scores, today: DayMetrics(date: Date.now.startOfDay), hrvDelta: hrvDelta, rhrDelta: nil,

@@ -16,6 +16,9 @@ final class DataHub {
     /// Die letzten 30 Tage für Ringe und Trends, inklusive Forma-Krafttrainings (zählen in die Belastung).
     var days: [DayMetrics] {
         var recent = Array(longDays.suffix(30))
+        if activeSource == .health, let last = recent.last, last.date != Date.now.startOfDay {
+            recent = SyncStore.normalized(recent, keepDays: 30)
+        }
         guard !formaWorkouts.isEmpty else { return recent }
         for i in recent.indices {
             let day = recent[i].date
