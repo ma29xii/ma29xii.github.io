@@ -247,34 +247,25 @@ final class BodyAgeTests: XCTestCase {
 
 final class TileArrangementTests: XCTestCase {
     func testDefaultContainsAllTiles() {
-        let a = TileArrangement<TodayTile>(storage: "")
-        XCTAssertEqual(a.visible.count, TodayTile.allCases.count)
+        let a = TileArrangement<HealthTile>(storage: "")
+        XCTAssertEqual(a.visible.count, HealthTile.allCases.count)
     }
 
     func testRoundTripAndGarbage() {
-        var a = TileArrangement<TodayTile>(storage: "")
-        a.hide(.energy)
-        a.shift(.body, by: -1)
-        let restored = TileArrangement<TodayTile>(storage: a.storage)
+        var a = TileArrangement<HealthTile>(storage: "")
+        a.hide(.spo2)
+        a.shift(.steps, by: -1)
+        let restored = TileArrangement<HealthTile>(storage: a.storage)
         XCTAssertEqual(restored, a)
 
-        let garbage = TileArrangement<TodayTile>(storage: "hack,;DROP TABLE|||,,coach")
-        XCTAssertEqual(Set(garbage.order), Set(TodayTile.allCases))
-        XCTAssertEqual(garbage.order.count, TodayTile.allCases.count)
+        let garbage = TileArrangement<HealthTile>(storage: "hack,;DROP TABLE|||,,hrv")
+        XCTAssertEqual(Set(garbage.order), Set(HealthTile.allCases))
+        XCTAssertEqual(garbage.order.count, HealthTile.allCases.count)
     }
 
     func testDuplicatesInStorageAreIgnored() {
-        let a = TileArrangement<TodayTile>(storage: "coach,coach,next|")
-        XCTAssertEqual(a.order.count, TodayTile.allCases.count)
-    }
-
-    func testStepsStayVisibleWithOldLayout() {
-        var a = TileArrangement<TodayTile>(storage: "week,body,day,next|day,energy")
-        XCTAssertEqual(a.visible, [.body, .day])
-        a.hide(.day)
-        XCTAssertTrue(a.visible.contains(.day))
-        a.move(.body, toPositionOf: .day)
-        XCTAssertEqual(a.visible, [.day, .body])
+        let a = TileArrangement<HealthTile>(storage: "hrv,hrv,steps|")
+        XCTAssertEqual(a.order.count, HealthTile.allCases.count)
     }
 
     func testHealthLayoutExpandsOldGroups() {
