@@ -8,125 +8,58 @@ struct ProfileView: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @AppStorage("forma.claudeConsent") private var claudeConsent = false
+    @AppStorage("forma.birthYear") private var birthYear = 0
+    @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
+    @AppStorage("forma.bodyWeightKg") private var weightKg = 0.0
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoError: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var confirmDeleteCopy = false
+    @State private var confirmDisconnect = false
 
     var body: some View {
-        @Bindable var hub = hub
         NavigationStack {
             Form {
-                Section {
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        HStack(spacing: Space.s3) {
-                            ProfileAvatar(image: app.profilePhoto, size: 48)
-                            Text(app.profilePhoto == nil ? "Profilbild wählen" : "Profilbild ändern")
-                        }
-                        .frame(minHeight: 48)
-                    }
-                    if app.profilePhoto != nil {
-                        Button("Profilbild entfernen", role: .destructive) {
-                            selectedPhoto = nil
-                            do {
-                                try ProfilePhotoStore.remove()
-                                app.profilePhoto = nil
-                                photoError = nil
-                            } catch {
-                                photoError = "Das Profilbild konnte nicht entfernt werden."
-                            }
-                        }
-                    }
-                    if let photoError {
-                        Text(photoError).font(.formaCaption).foregroundStyle(Theme.warning)
-                    }
-                    NavigationLink("Body") { BodyProfileView() }
-                }
+                photoSection
 
                 Section {
-                    Picker("Quelle", selection: $hub.preferredSource) {
-                        ForEach([DataSourceKind.automatic, .health, .sample]) { Text($0.title).tag($0) }
+                    NavigationLink { BodyProfileView() } label: {
+                        SettingsRow(title: "Body", systemImage: "figure.stand", detail: bodySummary)
                     }
-                    LabeledContent("Apple Health", value: hub.healthStatus)
-                        .accessibilityIdentifier("profile.health.status")
-                    Button {
-                        Task { await hub.requestHealthAccess() }
-                    } label: {
-                        Label("Erneut verbinden", systemImage: "heart")
-                    }
-                    .disabled(!hub.health.isAvailable || hub.requestingHealthAccess)
-
-                    NavigationLink {
-                        GoogleHealthSharingView()
-                    } label: {
-                        LabeledContent("Google Health", value: "Über Apple Health")
-                    }
-                    .accessibilityIdentifier("profile.googleHealth")
-                } header: {
-                    Text("Datenquellen")
-                } footer: {
-                    Text("Lesefreigaben prüfst du in Apple Health unter Profilbild → Apps → Health.")
+                    .accessibilityIdentifier("Body")
                 }
+                .listRowBackground(Theme.card)
 
-                if hub.fitbit.isConnected {
-                    Section("Fitbit") {
-                        Button("Alte Fitbit-Verbindung entfernen", role: .destructive) {
-                            hub.fitbit.disconnect()
-                        }
-                    }
-                }
+                sourceSection
 
-                if hub.activeSource == .health {
-                    Section("Synchronisierung") {
-                        LabeledContent("Letzter erfolgreicher Import", value: stamp(hub.lastUpdate))
-                        LabeledContent("Letzter Abruf im Hintergrund", value: stamp(hub.lastBackgroundSync))
-                        LabeledContent("Letzter Versuch im Hintergrund", value: stamp(hub.lastBackgroundAttempt))
-                        if let note = hub.syncNote ?? hub.observerNote {
-                            Text(note).font(.formaCaption).foregroundStyle(Theme.warning)
-                        }
-                        Button {
-                            Task { await hub.syncAndNotify(background: false) }
-                        } label: {
-                            HStack {
-                                Label("Jetzt synchronisieren", systemImage: "arrow.triangle.2.circlepath")
-                                if hub.isLoading { Spacer(); ProgressView() }
-                            }
-                        }
-                        .disabled(hub.isLoading || hub.requestingHealthAccess)
-                    }
-                }
-
-                Section("Mitteilungen") {
+                Section {
                     if notificationStatus == .notDetermined {
-                        Button("Mitteilungen erlauben") {
+                        Button {
                             Task {
                                 _ = await CoachNotifier.requestPermission()
                                 notificationStatus = await CoachNotifier.authorizationStatus()
-                                if hub.activeSource == .health { CoachNotifier.afterSync(hub) }
                             }
+                        } label: {
+                            SettingsRow(title: "Mitteilungen erlauben", systemImage: "bell")
                         }
                     } else {
-                        Button("iOS-Einstellungen öffnen") {
+                        Button {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                        } label: {
+                            SettingsRow(title: "Mitteilungen", systemImage: "bell",
+                                        detail: ProfileText.notifications(notificationStatus), external: true)
                         }
                     }
+                } header: {
+                    Text("Mitteilungen").formaLabelStyle()
                 }
-
-                Section("Datenschutz") {
-                    if claudeConsent {
-                        Button("Externe Datenfreigabe widerrufen", role: .destructive) { claudeConsent = false }
-                    }
-                    Button("Lokale Kopie der Apple-Health-Daten löschen", role: .destructive) { confirmDeleteCopy = true }
-                }
-                .confirmationDialog("Lokale Kopie löschen?", isPresented: $confirmDeleteCopy, titleVisibility: .visible) {
-                    Button("Löschen", role: .destructive) { hub.deleteLocalHealthCopy() }
-                } message: {
-                    Text("Beim nächsten Abruf lädt Health die Werte neu aus Apple Health.")
-                }
+                .listRowBackground(Theme.card)
 
                 Section {
-                    LabeledContent("Version", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0")
+                } footer: {
+                    Text("Health \(ProfileText.version)")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .formaScreen()
@@ -134,6 +67,11 @@ struct ProfileView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }
+            }
+            .confirmationDialog("Google Health trennen?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
+                Button("Trennen", role: .destructive) { hub.disconnectGoogle() }
+            } message: {
+                Text("Health liest dann keine neuen Werte mehr. Du kannst jederzeit wieder verbinden.")
             }
             .task { notificationStatus = await CoachNotifier.authorizationStatus() }
             .task(id: selectedPhoto) {
@@ -156,25 +94,249 @@ struct ProfileView: View {
         }
     }
 
-    private func stamp(_ date: Date?) -> String {
-        date.map { "\(Format.shortDate($0)), \(Format.clock($0))" } ?? "Noch keiner"
+    private var bodySummary: String? {
+        ProfileText.bodySummary(birthYear: birthYear, sex: BiologicalSex(rawValue: sexRaw) ?? .unknown,
+                                weightKg: weightKg, unit: app.weightUnit)
+    }
+
+    // MARK: Profilbild
+
+    private var photoSection: some View {
+        Section {
+            VStack(spacing: Space.s2) {
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    ProfileAvatar(image: app.profilePhoto, size: 88)
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.onSelection)
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(Theme.selection))
+                                .overlay(Circle().strokeBorder(Theme.background, lineWidth: 2))
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(app.profilePhoto == nil ? "Profilbild wählen" : "Profilbild ändern")
+                if app.profilePhoto != nil {
+                    Button("Bild entfernen", role: .destructive) { removePhoto() }
+                        .font(.formaCaption)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(minHeight: 44)
+                } else {
+                    Text("Tippe, um ein Bild zu wählen")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(minHeight: 44)
+                }
+                if let photoError {
+                    Text(photoError).font(.formaCaption).foregroundStyle(Theme.warning)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, Space.s2)
+        }
+        .listRowBackground(Color.clear)
+    }
+
+    private func removePhoto() {
+        selectedPhoto = nil
+        do {
+            try ProfilePhotoStore.remove()
+            app.profilePhoto = nil
+            photoError = nil
+        } catch {
+            photoError = "Das Profilbild konnte nicht entfernt werden."
+        }
+    }
+
+    // MARK: Datenquelle
+
+    private var sourceSection: some View {
+        let status = GoogleStatus(hub.google)
+        return Section {
+            HStack(spacing: Space.s3) {
+                Image(systemName: "heart.text.square.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.cardRaised))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Google Health").font(.formaRowTitle)
+                    HStack(spacing: 6) {
+                        Circle().fill(status.tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
+                        Text(status.title).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                Spacer(minLength: Space.s2)
+                if status.isBusy || hub.isLoading { ProgressView() }
+            }
+            .frame(minHeight: 52)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("profile.google.status")
+
+            if let note = hub.syncNote, status.tone != .problem {
+                Text(note).font(.formaCaption).foregroundStyle(Theme.warning)
+            }
+
+            if let detail = status.detail {
+                Text(detail)
+                    .font(.formaCaption)
+                    .foregroundStyle(status.tone == .problem ? Theme.warning : Theme.textSecondary)
+            }
+
+            switch hub.google {
+            case .connected:
+                Button {
+                    Task { await hub.syncAndNotify(background: false) }
+                } label: {
+                    Label("Jetzt aktualisieren", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(hub.isLoading)
+                Button("Google Health trennen", role: .destructive) { confirmDisconnect = true }
+            case .disconnected, .failed:
+                Button {
+                    Task { await connect() }
+                } label: {
+                    Label("Mit Google Health verbinden", systemImage: "link")
+                }
+            case .connecting, .notConfigured:
+                EmptyView()
+            }
+
+            Toggle(isOn: Binding(
+                get: { hub.isSample },
+                set: { hub.preferredSource = $0 ? .sample : .google }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Beispieldaten zeigen")
+                    Text("Zum Ausprobieren, ohne eigene Werte").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .accessibilityIdentifier("profile.sample")
+        } header: {
+            Text("Datenquelle").formaLabelStyle()
+        } footer: {
+            Text("Wenn Google die Werte deiner Apple Watch bereitstellt, erscheinen sie hier.")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    private func connect() async {
+        await hub.connectGoogle()
+        if case .connected = hub.google, hub.isSample { hub.preferredSource = .google }
     }
 }
 
-private struct GoogleHealthSharingView: View {
-    var body: some View {
-        Form {
-            Section("Fitbit-Daten teilen") {
-                Text("Öffne Google Health und tippe auf dein Profilbild → Partner-Apps → Apple Health.")
-                Text("Erlaube das Teilen von Schritten und Schlaf. Sobald diese Werte in Apple Health erscheinen, kann Health sie beim nächsten Abruf lesen.")
-            }
-            Section("Schrittquellen") {
-                Text("In Apple Health kannst du unter Schritte → Datenquellen & -zugriff die Reihenfolge deiner Tracker ändern.")
+/// Status der Google-Verbindung in Worten (testbar ohne Oberfläche).
+struct GoogleStatus: Equatable {
+    enum Tone: Equatable {
+        case off, busy, good, problem
+        var color: Color {
+            switch self {
+            case .off: Theme.textQuaternary
+            case .busy: Theme.warning
+            case .good: Theme.recoveryHigh
+            case .problem: Theme.warning
             }
         }
-        .formaScreen()
-        .navigationTitle("Google Health")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    let title: String
+    var detail: String? = nil
+    let tone: Tone
+    var isBusy: Bool { tone == .busy }
+
+    init(_ connection: GoogleConnection, now: Date = .now) {
+        switch connection {
+        case .notConfigured:
+            title = "Nicht eingerichtet"
+            detail = "In diesem Build fehlt die Google-Anmeldung. Die Anleitung steht im README."
+            tone = .off
+        case .disconnected:
+            title = "Nicht verbunden"
+            tone = .off
+        case .connecting:
+            title = "Verbinde …"
+            tone = .busy
+        case .connected(let lastSync):
+            title = lastSync.map { "Verbunden · \(ProfileText.stamp($0, now: now))" } ?? "Verbunden"
+            tone = .good
+        case .failed(let message):
+            title = "Verbindung unterbrochen"
+            detail = message
+            tone = .problem
+        }
+    }
+}
+
+/// Kurztexte für die Einstellungen (testbar ohne Oberfläche).
+enum ProfileText {
+    static var version: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.0"
+    }
+
+    static func bodySummary(birthYear: Int, sex: BiologicalSex, weightKg: Double, unit: WeightUnit) -> String? {
+        var parts: [String] = []
+        if birthYear > 0 { parts.append(String(birthYear)) }
+        if sex != .unknown { parts.append(sex.title) }
+        if weightKg.isFinite, weightKg > 0 { parts.append("\(Format.weight(weightKg, unit: unit)) \(unit.rawValue)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// „heute, 08:15“, „gestern, 22:40“ oder „17.11., 08:15“.
+    static func stamp(_ date: Date, now: Date = .now) -> String {
+        let calendar = Calendar.forma
+        let day: String
+        if calendar.isDate(date, inSameDayAs: now) {
+            day = "heute"
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                  calendar.isDate(date, inSameDayAs: yesterday) {
+            day = "gestern"
+        } else {
+            day = Format.shortDate(date)
+        }
+        return "\(day), \(Format.clock(date))"
+    }
+
+    static func notifications(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .authorized, .provisional, .ephemeral: "An"
+        case .denied: "Aus"
+        default: "Nicht gefragt"
+        }
+    }
+}
+
+/// Zeile in den Einstellungen: Symbol im Graphit-Feld, Titel, Wert rechts.
+private struct SettingsRow: View {
+    let title: String
+    let systemImage: String
+    var detail: String? = nil
+    var external = false
+
+    var body: some View {
+        HStack(spacing: Space.s3) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.cardRaised))
+                .accessibilityHidden(true)
+            Text(title).foregroundStyle(Theme.textPrimary)
+            Spacer(minLength: Space.s2)
+            if let detail {
+                Text(detail).font(.formaBody).foregroundStyle(Theme.textSecondary).lineLimit(1)
+            }
+            if external {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textQuaternary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 44)
     }
 }
 
@@ -198,11 +360,14 @@ private struct BodyProfileView: View {
                     }
                     LabeledContent("Geschlecht", value: hub.person.sex.title)
                     LabeledContent("Gewicht", value: "\(Format.weight(SampleData.weightKg, unit: app.weightUnit)) \(app.weightUnit.rawValue)")
+                } footer: {
+                    Text("Mit Beispieldaten zeigt Health eine Beispielperson. Deine Angaben gelten, sobald du die Beispieldaten ausschaltest.")
                 }
+                .listRowBackground(Theme.card)
             } else {
                 Section {
                     Picker("Geburtsjahr", selection: $birthYear) {
-                        Text(hub.person.origin == .health ? "Aus Apple Health" : "Nicht angegeben").tag(0)
+                        Text("Nicht angegeben").tag(0)
                         let latestYear = Calendar.forma.component(.year, from: .now)
                         ForEach((1901...latestYear).reversed(), id: \.self) { year in
                             Text(String(year)).tag(year)
@@ -210,13 +375,6 @@ private struct BodyProfileView: View {
                     }
                     Picker("Geschlecht", selection: $sexRaw) {
                         ForEach(BiologicalSex.allCases) { Text($0.title).tag($0.rawValue) }
-                    }
-                }
-
-                Section("Gewicht") {
-                    Picker("Einheit", selection: $app.weightUnit) {
-                        Text("Kilogramm").tag(WeightUnit.kg)
-                        Text("Pfund").tag(WeightUnit.lb)
                     }
                     HStack {
                         Text("Gewicht")
@@ -233,8 +391,23 @@ private struct BodyProfileView: View {
                         Text("Gib ein Gewicht zwischen 1 und 500 kg ein oder lass das Feld leer.")
                             .font(.formaCaption).foregroundStyle(Theme.warning)
                     }
+                } header: {
+                    Text("Über dich").formaLabelStyle()
+                } footer: {
+                    Text("Für Health Age und Schlafbedarf.")
                 }
+                .listRowBackground(Theme.card)
             }
+
+            Section {
+                Picker("Gewicht", selection: $app.weightUnit) {
+                    Text("Kilogramm").tag(WeightUnit.kg)
+                    Text("Pfund").tag(WeightUnit.lb)
+                }
+            } header: {
+                Text("Einheiten").formaLabelStyle()
+            }
+            .listRowBackground(Theme.card)
         }
         .formaScreen()
         .navigationTitle("Body")

@@ -33,10 +33,11 @@ struct FormaApp: App {
         }
         // JournalAnswer bleibt im Schema, damit vorhandene Trainingsspeicher beim Update geöffnet werden.
         .modelContainer(for: Self.models, inMemory: FormaApp.isUITest)
-        // iOS weckt Forma regelmäßig im Hintergrund (zusätzlich zu Apple-Health-Benachrichtigungen).
+        // iOS weckt Health im Hintergrund. Den nächsten Termin zuerst planen, damit er auch steht,
+        // wenn iOS den Abruf vorzeitig beendet.
         .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
-            await backgroundHub.backgroundRefresh()
             await BackgroundRefresh.schedule()
+            await backgroundHub.backgroundRefresh()
         }
     }
 }
@@ -102,7 +103,7 @@ struct RootView: View {
                 app.liveWorkout = restored
             }
             if !onboarded && !FormaApp.isUITest { showOnboarding = true }
-            await hub.refresh()
+            await hub.syncAndNotify(background: false)
         }
         .onChange(of: sessions.count, initial: true) { _, _ in
             guard !app.isDemo else { return }
@@ -113,14 +114,12 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && !app.isDemo { BackgroundRefresh.schedule() }
-            if phase == .active { Task { await hub.refresh() } }
+            if phase == .active { Task { await hub.syncAndNotify(background: false) } }
         }
     }
 }
 
-/// Planung des Hintergrundabrufs. iOS entscheidet selbst, wann genau (meist alle 1–4 Stunden,
-/// abhängig von Nutzung und Akku). Zusammen mit der Apple-Health-Zustellung ergibt das einen
-/// zuverlässigen Sync, ohne dass die App offen sein muss.
+/// Planung des Hintergrundabrufs. Wann genau, entscheidet iOS.
 @MainActor
 enum BackgroundRefresh {
     static let identifier = "com.ma29xii.forma.refresh"
