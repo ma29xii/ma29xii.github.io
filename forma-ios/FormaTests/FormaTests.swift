@@ -170,7 +170,7 @@ final class BodyAgeTests: XCTestCase {
     func testExampleProfileShowsHealthAgeAndTrend() {
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         let days = SampleData.days(endingAt: date)
-        let strength = BodyAge.strengthMinutes(days: days, formaSessions: [])
+        let strength = BodyAge.strengthMinutes(days: days, formaSessions: [], now: date)
         let outcome = BodyAge.evaluate(days: days, person: SampleData.person(at: date), strength: strength, now: date)
 
         guard case .ready(let result) = outcome else {
@@ -678,7 +678,7 @@ final class ReviewTwoTests: XCTestCase {
 
     // A-15: Anzeige-Differenz aus der ungerundeten Differenz.
     func testDifferenceFromUnroundedValues() {
-        let r = BodyAge.Result(age: 30.8, bodyAge: 30.8, recentBodyAge: nil, previousBodyAge: nil, factors: [], missing: [],
+        let r = BodyAge.Result(age: 30.8, bodyAge: 30.8, recent: nil, previous: nil, factors: [], missing: [],
                                daysWithData: 100, windowDays: 180, confidence: .medium)
         XCTAssertEqual(BodyAgeText.difference(r), "Etwa so alt wie du bist")
     }

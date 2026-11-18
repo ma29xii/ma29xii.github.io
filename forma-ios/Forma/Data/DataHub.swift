@@ -19,17 +19,28 @@ final class DataHub {
         if activeSource == .health, let last = recent.last, last.date != Date.now.startOfDay {
             recent = SyncStore.normalized(recent, keepDays: 30)
         }
-        guard !isSample, !formaWorkouts.isEmpty else { return recent }
-        for i in recent.indices {
-            let day = recent[i].date
-            for w in formaWorkouts where w.start.startOfDay == day {
+        return includingFormaWorkouts(recent)
+    }
+
+    /// Das Dashboard übernimmt die bereinigten jüngsten Tage und dieselbe Trainingsquelle für ältere Tage.
+    func dashboardHistory(recent: [DayMetrics]) -> [DayMetrics] {
+        guard let first = recent.first else { return [] }
+        return includingFormaWorkouts(longDays.filter { $0.date < first.date }) + recent
+    }
+
+    private func includingFormaWorkouts(_ days: [DayMetrics]) -> [DayMetrics] {
+        guard !isSample, !formaWorkouts.isEmpty else { return days }
+        let workoutsByDay = Dictionary(grouping: formaWorkouts) { $0.start.startOfDay }
+        var result = days
+        for i in result.indices {
+            for w in workoutsByDay[result[i].date] ?? [] {
                 let end = w.start.addingTimeInterval(w.duration)
                 // Nicht doppelt zählen, wenn dasselbe Training auch in Apple Health steht.
-                let overlaps = recent[i].workouts.contains { h in h.start < end && w.start < h.start.addingTimeInterval(h.duration) }
-                if !overlaps { recent[i].workouts.append(w) }
+                let overlaps = result[i].workouts.contains { h in h.start < end && w.start < h.start.addingTimeInterval(h.duration) }
+                if !overlaps { result[i].workouts.append(w) }
             }
         }
-        return recent
+        return result
     }
 
     /// Trainings aus Forma (SwiftData), gesetzt von der Oberfläche.
@@ -95,7 +106,7 @@ final class DataHub {
         // Lokale Trainings können den Tageswert füllen, belegen aber keinen Apple-Health-Abruf.
         if activeSource == .health, let day = longDays.last,
            day.date == Date.now.startOfDay, SyncStore.hasData(day) { return nil }
-        if waitingForFitbit { return "Recovery und Sleep vom Vortag" }
+        if waitingForFitbit { return "Noch kein Fitbit-Schlaf für heute" }
         if isLoading { return "Lade deine Daten …" }
         return healthStatus
     }

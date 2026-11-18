@@ -26,6 +26,12 @@ struct HealthView: View {
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
 
     var body: some View {
+        let age = bodyAgeOutcome(hub: hub, sessions: sessions)
+        let latest = hub.days
+        let today = Date.now.startOfDay
+        let day = latest.last.flatMap { $0.date == today ? $0 : nil } ?? DayMetrics(date: today)
+        let snapshot = DashboardDay(day: day,
+                                    history: hub.dashboardHistory(recent: latest))
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.s3) {
@@ -35,16 +41,18 @@ struct HealthView: View {
                         Text(status).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                     }
                     NavigationLink {
-                        BodyAgeDetailView()
+                        BodyAgeDetailView(outcome: age)
                     } label: {
-                        HealthAgeHero(outcome: bodyAgeOutcome(hub: hub, sessions: sessions))
+                        HealthAgeHero(outcome: age)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("health.age")
 
-                    Text("Biomarker")
-                        .font(.formaSection)
-                        .accessibilityAddTraits(.isHeader)
+                    HealthAgeSections(outcome: age)
+                        .padding(.top, Space.s3)
+                    HealthMonitor(snapshot: snapshot)
+                        .padding(.top, Space.s3)
+                    DashboardHeading(title: "Biomarker")
                         .padding(.top, Space.s3)
                     InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
                         AnyView(tile(kind))
@@ -54,9 +62,9 @@ struct HealthView: View {
                 .padding(.vertical, Space.s4)
             }
             .refreshable { await hub.refresh() }
-            .formaScreen()
-            .navigationTitle("Health Age")
-            .navigationBarTitleDisplayMode(.large)
+            .dashboardScreen()
+            .navigationTitle("Health")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
@@ -67,7 +75,7 @@ struct HealthView: View {
     @ViewBuilder private func tile(_ kind: HealthTile) -> some View {
         if let metric = kind.metric {
             NavigationLink(value: metric) {
-                Plate { MetricSummaryRow(kind: metric) }
+                DashboardCard { MetricSummaryRow(kind: metric) }
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("health.metric." + metric.rawValue)
@@ -225,7 +233,7 @@ struct MetricDetailView: View {
             }
             .padding(.horizontal, Space.page)
         }
-        .formaScreen()
+        .dashboardScreen()
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
     }

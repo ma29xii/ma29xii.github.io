@@ -14,12 +14,13 @@ struct DailyHistoryChart: View {
     let color: Color
     let valueText: (Double) -> String
     var maximum: Double? = nil
+    var anchor: Date? = nil
 
     @State private var range = 7
     @State private var selection: Date?
 
     var body: some View {
-        let end = Date.now.startOfDay
+        let end = anchor ?? Date.now.startOfDay
         let start = end.adding(days: 1 - range)
         let visible = points.filter { (start...end).contains($0.date) }
         let selectedDay = selection?.startOfDay

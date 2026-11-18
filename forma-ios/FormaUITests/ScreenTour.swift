@@ -55,7 +55,7 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
-    private func reveal(_ element: XCUIElement, swipes: Int = 5) -> Bool {
+    private func reveal(_ element: XCUIElement, swipes: Int = 10) -> Bool {
         for _ in 0..<swipes {
             if element.exists && element.isHittable { return true }
             app.swipeUp()
@@ -97,51 +97,70 @@ final class ScreenTour: XCTestCase {
         let plus = app.tabBars.buttons["tab.add"]
         XCTAssertTrue(plus.waitForExistence(timeout: 3))
         XCTAssertFalse(plus.isEnabled)
-        let steps = app.buttons["today.tile.day"]
+        let steps = app.buttons["today.steps"]
         XCTAssertTrue(steps.waitForExistence(timeout: 5))
         let edit = app.buttons["tiles.edit"]
-        XCTAssertFalse(app.navigationBars.buttons["Heute anpassen"].exists)
         shot("01 Today")
-        app.swipeUp()
-        shot("02 Today gescrollt")
 
-        if reveal(edit) {
-            shot("03 Today unten")
-            edit.tap()
-            XCTAssertTrue(app.buttons["Körper ausblenden"].exists)
-            XCTAssertFalse(app.buttons["Schritte ausblenden"].exists)
-            XCTAssertFalse(app.sheets.firstMatch.exists)
-            shot("03b Today bearbeiten")
-            finishEditing()
+        let nextDay = app.buttons["dashboard.right"]
+        let dayLabel = app.staticTexts["dashboard.date"]
+        XCTAssertTrue(dayLabel.exists)
+        let today = dayLabel.label
+        XCTAssertFalse(nextDay.isEnabled)
+        app.buttons["dashboard.left"].tap()
+        XCTAssertTrue(nextDay.isEnabled)
+        XCTAssertNotEqual(dayLabel.label, today)
+        shot("02 Today Vortag")
+        nextDay.tap()
+        XCTAssertEqual(dayLabel.label, today)
+
+        captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
+        captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
+        if reveal(app.staticTexts["today.stress.title"]) {
+            shot("08d Stress Monitor")
         } else {
-            XCTFail("Der Bearbeitungsmodus von Today fehlt")
+            XCTFail("Stress Monitor fehlt")
         }
-        let recovery = app.buttons["ring.recovery"]
-        for _ in 0..<5 {
-            if recovery.exists && recovery.isHittable { break }
-            app.swipeDown()
+        if reveal(app.staticTexts["today.activities.title"]) {
+            shot("03 Mein Tag")
+        } else {
+            XCTFail("Die Aktivitäten fehlen")
         }
-        sleep(1)
 
         for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
-            let ring = app.buttons["ring.\(kind)"]
-            guard ring.waitForExistence(timeout: 3) && ring.isHittable else {
-                XCTFail("Ring \(kind) fehlt")
-                continue
-            }
-            ring.tap()
-            let title = String(name.dropFirst(3))
-            if app.navigationBars[title].waitForExistence(timeout: 3) {
-                XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 3))
-                shot(name)
-                back()
+            if kind == "sleep" {
+                app.buttons["today.tab.overview"].tap()
+                let ring = app.buttons["ring.sleep"]
+                XCTAssertTrue(ring.waitForExistence(timeout: 3) && ring.isHittable)
+                ring.tap()
             } else {
-                XCTFail("Die Ring-Detailseite \(title) fehlt")
+                app.buttons["today.tab.\(kind)"].tap()
             }
+            XCTAssertTrue(app.descendants(matching: .any)["ring.detail.\(kind)"].firstMatch.waitForExistence(timeout: 3))
+            shot(name)
         }
-        captureDetail("today.tile.day", title: "Schritte", screenshot: "08b Schritte")
-        captureDetail("today.tile.energy", title: "Energie und Stress", screenshot: "08c Energie und Stress")
-        captureDetail("today.tile.body", title: "Körper", screenshot: "08d Körper")
+
+        let ranges = app.segmentedControls["trend.range"]
+        if reveal(ranges), ranges.buttons.count == 3 {
+            let previousWindow = app.buttons["trend.window.left"]
+            let nextWindow = app.buttons["trend.window.right"]
+            let window = app.staticTexts["trend.window.date"]
+            if reveal(previousWindow, swipes: 3) {
+                let latestWindow = window.label
+                previousWindow.tap()
+                XCTAssertTrue(nextWindow.isEnabled)
+                XCTAssertNotEqual(window.label, latestWindow)
+                nextWindow.tap()
+                XCTAssertEqual(window.label, latestWindow)
+            } else {
+                XCTFail("Der Zeitraum lässt sich nicht wechseln")
+            }
+            ranges.buttons.element(boundBy: 1).tap()
+            ranges.buttons.element(boundBy: 2).tap()
+            shot("08e Strain Trend")
+        } else {
+            XCTFail("Die Trend-Zeiträume fehlen")
+        }
 
         tab("Training")
         shot("09 Training")
@@ -174,10 +193,21 @@ final class ScreenTour: XCTestCase {
         }
 
         tab("Health")
-        XCTAssertTrue(app.navigationBars["Health Age"].exists)
+        XCTAssertTrue(app.navigationBars["Health"].exists)
         XCTAssertTrue(app.buttons["health.age"].isHittable)
         shot("14 Health")
-        captureDetail("health.age", title: "Details", screenshot: "14b Health Age")
+        captureDetail("health.age", title: "Datengrundlage", screenshot: "14b Health Age Datengrundlage")
+        if reveal(app.staticTexts["health.age.pace.title"]) {
+            shot("14d Alterungstempo")
+        } else {
+            XCTFail("Das Alterungstempo fehlt")
+        }
+        if reveal(app.staticTexts["health.age.trend.title"]) {
+            shot("14e Health Age Trend")
+        } else {
+            XCTFail("Der Health Age Trend fehlt")
+        }
+        captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
         if reveal(edit) {
             edit.tap()

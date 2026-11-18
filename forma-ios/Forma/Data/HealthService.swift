@@ -16,6 +16,7 @@ actor HealthService {
             HKQuantityType(.vo2Max),
             HKQuantityType(.respiratoryRate),
             HKQuantityType(.oxygenSaturation),
+            HKQuantityType(.appleSleepingWristTemperature),
             HKQuantityType(.heartRate),
             HKCategoryType(.sleepAnalysis),
             HKObjectType.workoutType(),
@@ -144,7 +145,11 @@ actor HealthService {
 
     /// Stunden sind nach absoluter Zeit sortiert. Auch eine doppelte Stunde bei der Zeitumstellung bleibt eindeutig.
     func loadHours(until end: Date = .now) async -> [HourlyMetrics] {
-        let start = end.startOfDay
+        await loadHours(from: end.startOfDay, until: end)
+    }
+
+    func loadHours(from start: Date, until end: Date) async -> [HourlyMetrics] {
+        guard start < end else { return [] }
         let hour = DateComponents(hour: 1)
         let steps = await quantityValues(.stepCount, unit: .count(), option: .cumulativeSum, from: start, until: end, interval: hour)
         let energy = await quantityValues(.activeEnergyBurned, unit: .kilocalorie(), option: .cumulativeSum, from: start, until: end, interval: hour)
@@ -158,6 +163,27 @@ actor HealthService {
             return HourlyMetrics(start: date, end: min(date.addingTimeInterval(3600), end), steps: clean.steps,
                                  activeEnergy: clean.activeEnergy, hrv: clean.hrv, restingHR: clean.restingHR)
         }
+    }
+
+    /// Eine Messung je Aufwachtag. Die Reihe wird nur im Health Monitor angezeigt.
+    func wristTemperatures(from start: Date, until end: Date) async -> [Date: Double] {
+        guard start < end else { return [:] }
+        let type = HKQuantityType(.appleSleepingWristTemperature)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictEndDate)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: type, predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)]
+        )
+        guard let samples = try? await descriptor.result(for: store) else { return [:] }
+        var result: [Date: Double] = [:]
+        for sample in samples where sample.endDate >= start && sample.endDate < end {
+            let day = sample.endDate.startOfDay
+            let temperature = sample.quantity.doubleValue(for: .degreeCelsius())
+            if result[day] == nil, (15...45).contains(temperature) {
+                result[day] = temperature
+            }
+        }
+        return result
     }
 
     private func quantityValues(_ id: HKQuantityTypeIdentifier, unit: HKUnit, option: HKStatisticsOptions,

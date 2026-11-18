@@ -1,223 +1,216 @@
 import SwiftUI
 
 struct RingDetailView: View {
-    @Environment(DataHub.self) private var hub
     let kind: RingKind
+    let snapshot: DashboardDay
+    let history: [DayMetrics]
+
+    private var day: DayMetrics { snapshot.day }
 
     var body: some View {
-        let value = displayedValue
-        let tint: Color = switch kind {
-        case .strain: Theme.strain
-        case .recovery: value.map(Theme.recovery) ?? Theme.textSecondary
-        case .sleep: Theme.sleep
-        }
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if hub.isSample { SampleDataBadge() }
-                hero(value: value, tint: tint)
-                    .padding(.top, hub.isSample ? Space.s3 : 0)
-                switch kind {
-                case .strain: strain
-                case .recovery: recovery
-                case .sleep: sleep
-                }
-                DailyHistoryChart(title: kind == .sleep ? "Schlafdauer" : "\(kind.title)-Verlauf",
-                                  points: history, color: tint, valueText: { value in
-                    kind == .sleep ? Format.duration(value * 3600) : Format.number(value)
-                }, maximum: kind == .sleep ? nil : 100)
+        let value = snapshot.value(for: kind)
+        let tint = DashboardRing.tint(kind: kind, value: value)
+
+        VStack(alignment: .leading, spacing: Space.s4) {
+            VStack(spacing: Space.s2) {
+                DashboardRing(kind: kind, value: value, size: 188, expanded: true)
+                    .accessibilityIdentifier("ring.detail." + kind.rawValue)
+                Text(value == nil ? "Keine Messung" : Format.dayTitle(day.date))
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
             }
-            .padding(.horizontal, Space.page)
-            .padding(.vertical, Space.s4)
-            .padding(.bottom, Space.s4)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Space.s3)
+
+            if kind == .sleep, let night = day.sleep, let need = snapshot.sleepNeed {
+                sleepSummary(night: night, need: need)
+            }
+            VStack(alignment: .leading, spacing: Space.s2) {
+                DashboardHeading(title: "Beiträge")
+                DashboardCard {
+                    switch kind {
+                    case .sleep: sleepContributions
+                    case .recovery: recoveryContributions
+                    case .strain: strainContributions
+                    }
+                }
+                ComparisonFooter()
+            }
+            DashboardCard {
+                Text(interpretation(value))
+                    .font(.formaBody)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Space.s4)
+            }
+            if kind == .sleep, let night = day.sleep, night.asleep > 0 {
+                sleepPhases(night)
+            }
+            RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
         }
-        .formaScreen(tint: value == nil ? nil : tint)
-        .navigationTitle(kind.title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var displayedValue: Int? {
-        let available = hub.availability
-        let scores = hub.ringScores
+    private var sleepContributions: some View {
+        let night = day.sleep.flatMap { $0.asleep > 0 ? $0 : nil }
+        let ratio = night.flatMap { night in snapshot.sleepNeed.map { night.asleep / $0 } }
+        return Group {
+            row("Stunden vs. Bedarf", icon: "moon", value: ratio,
+                baseline: sleepBaseline { night, prior in night.asleep / ScoreEngine.sleepNeedForLastNight(history: prior) },
+                format: percent)
+            RowDivider()
+            row("Regelmäßigkeit", icon: "clock", value: snapshot.sleepRegularity,
+                baseline: sleepBaseline { DashboardDay.sleepRegularity($0, history: $1) }, format: percent)
+            RowDivider()
+            row("Effizienz", icon: "bed.double", value: night?.efficiency,
+                baseline: sleepBaseline { night, _ in night.efficiency }, format: percent)
+            RowDivider()
+            row("Tief- und REM-Anteil", icon: "moon.stars", value: night.flatMap(DashboardDay.restorativeFraction),
+                baseline: sleepBaseline { night, _ in DashboardDay.restorativeFraction(night) }, format: percent)
+        }
+    }
+
+    private var recoveryContributions: some View {
+        let sleepAverage = DashboardTrends.mean(points: DashboardTrends.points(
+            kind: .sleep, days: history, domain: day.date.adding(days: -30)...day.date.adding(days: -1)))
+        return Group {
+            metric(.hrv, icon: "waveform.path.ecg")
+            RowDivider()
+            metric(.restingHR, icon: "heart")
+            RowDivider()
+            metric(.respiratoryRate, icon: "lungs")
+            RowDivider()
+            row("Schlafleistung", icon: "moon", value: snapshot.sleepScore.map(Double.init),
+                baseline: sleepAverage, format: { Format.number($0) + " %" })
+        }
+    }
+
+    private var strainContributions: some View {
+        Group {
+            row("Trainingszeit", icon: "stopwatch", value: DashboardDay.workoutTime(day),
+                baseline: snapshot.baseline { DashboardDay.workoutTime($0) }?.mean, format: Format.duration)
+            RowDivider()
+            row("Krafttraining", icon: "dumbbell", value: DashboardDay.workoutTime(day, strengthOnly: true),
+                baseline: snapshot.baseline { DashboardDay.workoutTime($0, strengthOnly: true) }?.mean, format: Format.duration)
+            RowDivider()
+            metric(.steps, icon: "figure.walk")
+            RowDivider()
+            metric(.activeEnergy, icon: "flame")
+        }
+    }
+
+    private func sleepBaseline(_ value: (SleepNight, [DayMetrics]) -> Double?) -> Double? {
+        let values = snapshot.history.compactMap { historical -> Double? in
+            guard let night = historical.sleep, night.asleep > 0 else { return nil }
+            let start = historical.date.adding(days: -30)
+            let prior = history.filter { $0.date >= start && $0.date < historical.date }
+            return value(night, prior)
+        }
+        return ScoreEngine.baseline(values)?.mean
+    }
+
+    private func metric(_ kind: MetricKind, icon: String) -> some View {
+        row(kind.title, icon: icon, value: kind.value(day),
+            baseline: snapshot.baseline(kind.value)?.mean, format: kind.measurement)
+    }
+
+    private func row(_ title: String, icon: String, value: Double?, baseline: Double?,
+                     format: @escaping (Double) -> String) -> some View {
+        ComparisonRow(title: title, icon: icon, value: value, baseline: baseline, format: format)
+    }
+
+    private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
+
+    private func durationClock(_ seconds: TimeInterval) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
+    }
+
+    private func sleepSummary(night: SleepNight, need: TimeInterval) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Space.s2) {
+                sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
+                    .fixedSize(horizontal: true, vertical: false)
+                sleepPill("Schlafbedarf · Schätzung", value: need, tint: Theme.younger)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: Space.s2) {
+                sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
+                sleepPill("Schlafbedarf · Schätzung", value: need, tint: Theme.younger)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func sleepPill(_ title: String, value: TimeInterval, tint: Color) -> some View {
+        VStack(spacing: Space.s1) {
+            Text(durationClock(value)).font(.formaBigNumber).foregroundStyle(tint)
+            Text(title).font(.formaMicro).textCase(.uppercase).tracking(0.5)
+        }
+        .foregroundStyle(Theme.textSecondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Space.s4)
+        .padding(.vertical, Space.s2)
+        .background(tint.opacity(0.10), in: Capsule())
+        .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 1) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(Format.duration(value))
+    }
+
+    private func interpretation(_ value: Int?) -> String {
+        guard let value else { return "Für diesen Tag fehlen die Daten für eine Einordnung." }
         switch kind {
-        case .strain: return available.strain ? scores.strain : nil
-        case .recovery: return available.recovery ? scores.recovery : nil
-        case .sleep: return available.sleep ? scores.sleep : nil
+        case .sleep:
+            guard let night = day.sleep, let need = snapshot.sleepNeed else { return "Für diese Nacht liegt eine Schlafmessung vor." }
+            return night.asleep < need ? "Du hast kürzer als dein geschätzter Bedarf geschlafen."
+                : "Deine Schlafdauer hat den geschätzten Bedarf erreicht."
+        case .recovery:
+            return "Deine Messwerte deuten darauf hin, dass du \(Theme.recoveryWord(value).lowercased()) bist."
+        case .strain:
+            if value < 35 { return "Deine aufgezeichnete Tagesbelastung war niedrig." }
+            if value < 67 { return "Deine aufgezeichnete Tagesbelastung war mittel." }
+            return "Deine aufgezeichnete Tagesbelastung war hoch."
         }
     }
 
-    private func hero(value: Int?, tint: Color) -> some View {
-        let status: String = {
-            guard let value else { return "Keine Daten für heute" }
-            switch kind {
-            case .strain:
-                guard hub.availability.recovery else { return "Belastung heute" }
-                let target = hub.ringScores.target
-                if target.contains(value) { return "Im Zielbereich" }
-                return value < target.lowerBound ? "Unter dem Zielbereich" : "Über dem Zielbereich"
-            case .recovery:
-                return Theme.recoveryWord(value)
-            case .sleep:
-                return "Schlafqualität"
-            }
-        }()
-        let target = hub.ringScores.target
-        let ring = RingView(value: Double(value ?? 0), color: tint, size: 116, lineWidth: 6,
-                            target: kind == .strain && hub.availability.recovery
-                                ? Double(target.lowerBound)...Double(target.upperBound) : nil,
-                            showsNumber: false, missing: value == nil)
-            .padding(Space.s2)
-            .accessibilityHidden(true)
-        return Plate {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.s3) {
-                    scoreLabel(value, status: status)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ring
-                }
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    scoreLabel(value, status: status)
-                    ring
+    private func sleepPhases(_ night: SleepNight) -> some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            DashboardHeading(title: "Schlafphasen")
+            DashboardCard {
+                SleepTimeline(night: night).padding(Space.s4)
+                RowDivider(inset: 0)
+                if night.hasStages {
+                    ForEach(night.recordedStages, id: \.self) { stage in
+                        phase(stage, night: night)
+                        if stage != night.recordedStages.last { RowDivider() }
+                    }
+                } else {
+                    DashboardEmpty(title: "Schlafphasen wurden nicht erfasst")
                 }
             }
-            .padding(Space.s5)
+            if night.hasStages {
+                Text("Anteil an der aufgezeichneten Zeit im Bett")
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
         }
     }
 
-    private func scoreLabel(_ value: Int?, status: String) -> some View {
-        VStack(alignment: .leading, spacing: Space.s1) {
-            Text(hub.waitingForFitbit && kind != .strain ? "Gestern" : "Heute")
-                .font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-            HStack(alignment: .firstTextBaseline, spacing: Space.s1) {
-                Text(value.map(String.init) ?? "–").font(.formaHero)
-                if value != nil {
-                    Text("von 100").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                }
+    private func phase(_ stage: SleepNight.Stage, night: SleepNight) -> some View {
+        let duration = night.total(stage)
+        let fraction = min(1, duration / max(1, night.inBed))
+        return VStack(alignment: .leading, spacing: Space.s2) {
+            HStack(spacing: Space.s2) {
+                Text(stage.title).font(.formaCaptionStrong).textCase(.uppercase)
+                Spacer(minLength: Space.s2)
+                Text("\(percent(fraction)) · \(Format.duration(duration))")
+                    .font(.formaValue)
+                    .multilineTextAlignment(.trailing)
             }
-            Text(status).font(.formaRowTitle)
+            ProgressLine(fraction: fraction, color: Theme.sleep.opacity(stage == .awake ? 0.55 : 1), height: 5)
+                .accessibilityHidden(true)
         }
+        .padding(Space.s4)
         .accessibilityElement(children: .combine)
-    }
-
-    private var strain: some View {
-        VStack(spacing: 0) {
-            FormaSection(title: "Heute") {
-                Plate {
-                    MetricRow(title: "Zielbereich", value: hub.availability.recovery
-                              ? "\(hub.ringScores.target.lowerBound)–\(hub.ringScores.target.upperBound)"
-                              : "Keine Recovery")
-                    RowDivider()
-                    MetricRow(title: "Aktive Energie", value: hub.today.activeEnergy.map { Format.number($0) + " kcal" } ?? "–")
-                    let minutes = hub.today.workouts.reduce(0) { $0 + $1.duration }
-                    if minutes > 0 {
-                        RowDivider()
-                        MetricRow(title: "Trainingszeit", value: Format.duration(minutes))
-                    }
-                    if let steps = hub.today.steps {
-                        RowDivider()
-                        MetricRow(title: "Schritte", value: Format.number(steps))
-                    }
-                }
-            }
-            HourlyValueChart(title: "Belastung im Tagesverlauf", points: hub.hourlyEstimates.compactMap { hour in
-                hour.strain.map { HealthChartPoint(date: hour.at, value: Double($0)) }
-            }, color: Theme.strain, maximum: 100, valueText: { Format.number($0) })
-        }
-    }
-
-    private var recovery: some View {
-        let day = hub.waitingForFitbit ? hub.yesterday : hub.today
-        let baselineDays = hub.waitingForFitbit ? Array(hub.history.dropLast()) : hub.history
-        let hrv = hub.hours.compactMap { hour in hour.hrv.map { HealthChartPoint(date: hour.start, value: $0) } }
-        return VStack(spacing: 0) {
-            FormaSection(title: "Messwerte") {
-                Plate {
-                    recoveryMetric(.hrv, day: day, baselineDays: baselineDays)
-                    RowDivider()
-                    recoveryMetric(.restingHR, day: day, baselineDays: baselineDays)
-                    RowDivider()
-                    recoveryMetric(.respiratoryRate, day: day, baselineDays: baselineDays)
-                }
-            }
-            HourlyValueChart(title: "HRV pro Stunde", points: hrv, color: Theme.younger,
-                             maximum: max(10, (hrv.map(\.value).max() ?? 0) * 1.15),
-                             valueText: { Format.number($0) + " ms" })
-        }
-    }
-
-    private func recoveryMetric(_ metric: MetricKind, day: DayMetrics?, baselineDays: [DayMetrics]) -> some View {
-        let baseline = ScoreEngine.baseline(baselineDays.compactMap(metric.value))
-        return MetricRow(title: metric.title,
-                         subtitle: baseline.map { "Dein Ø \(metric.measurement($0.mean))" },
-                         value: day.flatMap(metric.value).map(metric.measurement) ?? "–")
-    }
-
-    private var recentNight: SleepNight? {
-        hub.waitingForFitbit ? hub.yesterday?.sleep : hub.today.sleep
-    }
-
-    private var sleep: some View {
-        let s = hub.scores
-        let prior = hub.waitingForFitbit ? Array(hub.history.dropLast()) : hub.history
-        return VStack(spacing: 0) {
-            if let night = recentNight {
-                FormaSection(title: hub.waitingForFitbit ? "Nacht zum Vortag" : "Letzte Nacht") {
-                    Plate {
-                        MetricRow(title: "Geschlafen", value: Format.duration(night.asleep))
-                        RowDivider()
-                        MetricRow(title: "Geschätzter Bedarf", value: Format.duration(ScoreEngine.sleepNeedForLastNight(history: prior)))
-                        RowDivider()
-                        MetricRow(title: "Schlafeffizienz", value: Format.number(night.efficiency * 100), unit: "%")
-                    }
-                }
-                FormaSection(title: "Verlauf der Nacht") {
-                    Plate {
-                        SleepTimeline(night: night)
-                            .padding(Space.s4)
-                        RowDivider()
-                        if night.hasStages {
-                            ForEach(night.recordedStages, id: \.self) { stage in
-                                MetricRow(title: stage.title, value: Format.duration(night.total(stage)))
-                                if stage != night.recordedStages.last { RowDivider() }
-                            }
-                        } else {
-                            MetricRow(title: "Schlafphasen", value: "Nicht erfasst")
-                        }
-                    }
-                }
-            }
-            FormaSection(title: "Heute Nacht") {
-                Plate {
-                    MetricRow(title: "Empfohlene Bettzeit", value: CoachEngine.bedtime(s))
-                    RowDivider()
-                    MetricRow(title: "Schlafbedarf", value: Format.duration(s.sleepNeed))
-                    RowDivider()
-                    MetricRow(title: "Schlafschuld", subtitle: "Letzte 7 Nächte",
-                              value: hub.history.suffix(7).contains { $0.sleep != nil } ? Format.duration(s.sleepDebt) : "–")
-                }
-            }
-        }
-    }
-
-    private var history: [HealthChartPoint] {
-        let recent = hub.days
-        let all = (recent.first.map { first in hub.longDays.filter { $0.date < first.date } } ?? []) + recent
-        return all.indices.suffix(30).compactMap { index in
-            let day = all[index]
-            let value: Double?
-            switch kind {
-            case .sleep:
-                value = day.sleep.map { $0.asleep / 3600 }
-            case .strain:
-                value = day.activeEnergy == nil && day.workouts.isEmpty ? nil : Double(ScoreEngine.strain(day))
-            case .recovery:
-                // Wie beim heutigen Ring: Das 30-Tage-Fenster enthält den Tag selbst.
-                let previous = Array(all[max(0, index - 29)..<index])
-                let hasHRV = day.hrv != nil && ScoreEngine.baseline(previous.compactMap(\.hrv)) != nil
-                let hasRHR = day.restingHR != nil && ScoreEngine.baseline(previous.compactMap(\.restingHR)) != nil
-                value = hasHRV || hasRHR ? Double(ScoreEngine.scores(today: day, history: previous).recovery) : nil
-            }
-            return value.map { HealthChartPoint(date: day.date, value: $0) }
-        }
     }
 }
 

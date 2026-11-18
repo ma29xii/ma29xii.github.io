@@ -43,6 +43,9 @@ enum BodyAge {
         let systemImage: String
         let valueText: String
         let referenceText: String
+        let value: Double
+        let displayRange: ClosedRange<Double>
+        let referenceRange: ClosedRange<Double>
         /// Datengrundlage, z. B. „164 von 180 Tagen“ oder „4 Messungen, zuletzt am 14.11.“
         let coverage: String
         let years: Double
@@ -65,10 +68,8 @@ enum BodyAge {
     struct Result: Sendable {
         let age: Double
         let bodyAge: Double
-        /// Gleiche Rechnung mit den letzten 30 Tagen …
-        let recentBodyAge: Double?
-        /// … und mit den 30 Tagen davor. Nur wenn beide genug Daten haben, gibt es einen Vergleich.
-        let previousBodyAge: Double?
+        let recent: Estimate?
+        let previous: Estimate?
         let factors: [Factor]
         let missing: [String]
         let daysWithData: Int
@@ -76,9 +77,26 @@ enum BodyAge {
         let confidence: Confidence
         var difference: Double { bodyAge - age }
         var trend: Double? {
-            guard let recentBodyAge, let previousBodyAge else { return nil }
-            return recentBodyAge - previousBodyAge
+            guard let recent, let previous else { return nil }
+            return recent.bodyAge - previous.bodyAge
         }
+        var pace: Double? { BodyAge.agingPace(previous: previous, recent: recent) }
+    }
+
+    struct Estimate: Sendable, Identifiable {
+        let date: Date
+        let bodyAge: Double
+        let age: Double
+        var id: Date { date }
+    }
+
+    /// Geschätzte Altersjahre pro verstrichenem Kalenderjahr zwischen den Fenstermitten.
+    static func agingPace(previous: Estimate?, recent: Estimate?) -> Double? {
+        guard let previous, let recent else { return nil }
+        let elapsedYears = recent.date.timeIntervalSince(previous.date) / (365.2425 * 86_400)
+        guard elapsedYears > 0 else { return nil }
+        let pace = (recent.bodyAge - previous.bodyAge) / elapsedYears
+        return pace.isFinite ? pace : nil
     }
 
     enum Outcome: Sendable {
@@ -95,6 +113,8 @@ enum BodyAge {
         var previousPerWeek: Double = 0
         /// Gibt es überhaupt aufgezeichnetes Krafttraining? Sonst kein Faktor statt „0 Minuten“ (Codex R-02-10).
         var hasRecord: Bool = true
+        var recentHasRecord: Bool? = nil
+        var previousHasRecord: Bool? = nil
     }
 
     static let minimumDays = 21
@@ -115,15 +135,26 @@ enum BodyAge {
             return .insufficient("Für Health Age fehlen Ruhepuls, Schlaf oder VO₂max.")
         }
         // Vergleich nur zwischen gleich langen, nicht überlappenden Fenstern mit denselben Faktoren (Codex R-01-09).
-        let recentDays = Array(days.suffix(30))
-        let previousDays = Array(days.dropLast(30).suffix(30))
-        var recent: Double?, previous: Double?
+        let end = now.startOfDay
+        let split = end.adding(days: -30)
+        let start = end.adding(days: -60)
+        let recentDays = days.filter { $0.date >= split && $0.date < end }
+        let previousDays = days.filter { $0.date >= start && $0.date < split }
+        var recent: Estimate?, previous: Estimate?
         if recentDays.filter(hasData).count >= minimumDays, previousDays.filter(hasData).count >= minimumDays {
-            let r = factors(days: recentDays, age: age, sex: person.sex, strengthPerWeek: strength.recentPerWeek, hasStrengthRecord: strength.hasRecord)
-            let p = factors(days: previousDays, age: age, sex: person.sex, strengthPerWeek: strength.previousPerWeek, hasStrengthRecord: strength.hasRecord)
-            if Set(r.factors.map(\.id)) == Set(p.factors.map(\.id)) {
-                recent = combine(age: age, sum: r.sum)
-                previous = combine(age: age, sum: p.sum)
+            let recentMid = split.adding(days: 15)
+            let previousMid = start.adding(days: 15)
+            if let recentAge = person.age(at: recentMid), let previousAge = person.age(at: previousMid),
+               (18...90).contains(recentAge), (18...90).contains(previousAge) {
+                let r = factors(days: recentDays, age: recentAge, sex: person.sex, strengthPerWeek: strength.recentPerWeek,
+                                hasStrengthRecord: strength.recentHasRecord ?? strength.hasRecord)
+                let p = factors(days: previousDays, age: previousAge, sex: person.sex, strengthPerWeek: strength.previousPerWeek,
+                                hasStrengthRecord: strength.previousHasRecord ?? strength.hasRecord)
+                if Set(r.factors.map(\.id)) == Set(p.factors.map(\.id)),
+                   r.factors.contains(where: { ["rhr", "sleep", "vo2"].contains($0.id) }) {
+                    recent = Estimate(date: recentMid, bodyAge: combine(age: recentAge, sum: r.sum), age: recentAge)
+                    previous = Estimate(date: previousMid, bodyAge: combine(age: previousAge, sum: p.sum), age: previousAge)
+                }
             }
         }
 
@@ -136,8 +167,8 @@ enum BodyAge {
 
         return .ready(Result(
             age: age, bodyAge: bodyAge,
-            recentBodyAge: recent,
-            previousBodyAge: previous,
+            recent: recent,
+            previous: previous,
             factors: long.factors.sorted { abs($0.years) > abs($1.years) },
             missing: long.missing,
             daysWithData: withData.count, windowDays: days.count,
@@ -171,6 +202,7 @@ enum BodyAge {
                 id: "vo2", title: "VO₂max", systemImage: "lungs",
                 valueText: "\(Format.number(vo2, decimals: 1)) ml/kg/min",
                 referenceText: "Median deiner Alters- und Geschlechtsgruppe (US-Laufbandtests): \(Format.number(reference, decimals: 1))",
+                value: vo2, displayRange: 15...75, referenceRange: reference...reference,
                 coverage: "\(vo2Values.count) Messung\(vo2Values.count == 1 ? "" : "en")" + (vo2Days.last.map { ", zuletzt am \(Format.shortDate($0.date))" } ?? ""),
                 years: years,
                 explanation: "In Studien war je 1 MET (3,5 ml/kg/min) mehr Fitness mit etwa 13 % geringerem Sterberisiko verbunden. Annahmen von Health: lineare Umrechnung zwischen den Altersgruppen, Begrenzung auf ±6 Jahre. Die VO₂max der Uhr ist eine Schätzung und liegt oft anders als ein Labortest.",
@@ -190,6 +222,7 @@ enum BodyAge {
             result.append(Factor(
                 id: "rhr", title: "Ruhepuls", systemImage: "heart",
                 valueText: "\(Format.number(rhr)) bpm im Mittel", referenceText: "Vergleichswert: 65 bpm (Annahme von Health)",
+                value: rhr, displayRange: 35...105, referenceRange: 65...65,
                 coverage: "\(rhrValues.count) von \(days.count) Tagen",
                 years: years,
                 explanation: "In großen Studien war je 10 Schläge pro Minute mehr Ruhepuls mit etwa 9 % höherem Sterberisiko verbunden. Annahmen von Health: 65 bpm als Vergleichswert und ein linearer Verlauf, begrenzt auf ±4 Jahre.",
@@ -205,6 +238,7 @@ enum BodyAge {
             result.append(Factor(
                 id: "steps", title: "Schritte", systemImage: "figure.walk",
                 valueText: "\(Format.number(steps)) pro Tag", referenceText: "Vergleichswert: 7.000 pro Tag (Annahme von Health)",
+                value: steps, displayRange: 0...15_000, referenceRange: 7_000...7_000,
                 coverage: "\(stepValues.count) von \(days.count) Tagen",
                 years: years,
                 explanation: "In Studien ging mehr Gehen mit geringerem Risiko einher, mit abflachendem Nutzen: unter 60 Jahren bei etwa 8.000 bis 10.000 Schritten. Annahmen von Health: gemittelte Kurve über alle Altersgruppen, Tage unter 500 Schritten gelten als „Uhr nicht getragen“, Begrenzung auf ±4 Jahre.",
@@ -223,6 +257,7 @@ enum BodyAge {
             result.append(Factor(
                 id: "sleep", title: "Schlafdauer", systemImage: "moon",
                 valueText: "\(Format.duration(hours * 3600)) im Mittel", referenceText: "Vergleichsbereich: 7–8 h (Annahme von Health)",
+                value: hours, displayRange: 4...11, referenceRange: 7...8,
                 coverage: "\(sleepHours.count) von \(days.count) Nächten",
                 years: clamp(yearsPerLogHazard * logHazard, 4),
                 explanation: "In Studien war kurzer Schlaf mit etwa 12 % und sehr langer Schlaf mit etwa 30 % höherem Risiko verbunden. Beim langen Schlaf kann eine Erkrankung die Ursache sein, nicht der Schlaf selbst. Annahme von Health: gleitender Übergang zwischen 6 und 7 h bzw. 8 und 9 h.",
@@ -236,13 +271,14 @@ enum BodyAge {
         if !hasStrengthRecord {
             missing.append("Krafttraining – noch nichts aufgezeichnet (Training in dieser App oder Krafttraining in Apple Health)")
         } else {
-        result.append(Factor(
-            id: "strength", title: "Krafttraining", systemImage: "dumbbell",
-            valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
-            coverage: "Trainings aus dieser App und Krafttrainings aus Apple Health",
-            years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
-            explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Health: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
-            source: "Momma et al., Br J Sports Med 2022"))
+            result.append(Factor(
+                id: "strength", title: "Krafttraining", systemImage: "dumbbell",
+                valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
+                value: strengthPerWeek, displayRange: 0...120, referenceRange: 0...0,
+                coverage: "Trainings aus dieser App und Krafttrainings aus Apple Health",
+                years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
+                explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Health: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
+                source: "Momma et al., Br J Sports Med 2022"))
         }
 
         let sum = result.reduce(0) { $0 + $1.years }
@@ -294,11 +330,13 @@ enum BodyAge {
 
     /// Krafttraining pro Woche: Forma-Trainings plus Krafttrainings aus Apple Health,
     /// die sich zeitlich nicht mit einem Forma-Training überschneiden (keine Doppelzählung, Codex R-01-08).
-    static func strengthMinutes(days: [DayMetrics], formaSessions: [(start: Date, minutes: Double)]) -> StrengthMinutes {
-        func perWeek(_ window: [DayMetrics]) -> Double {
-            guard let first = window.first?.date, let last = window.last?.date else { return 0 }
-            let end = last.adding(days: 1)
-            var total = formaSessions.filter { $0.start >= first && $0.start < end }.reduce(0) { $0 + max(0, $1.minutes) }
+    static func strengthMinutes(days: [DayMetrics], formaSessions: [(start: Date, minutes: Double)], now: Date = .now) -> StrengthMinutes {
+        func perWeek(from start: Date, until end: Date) -> (minutes: Double, hasRecord: Bool) {
+            let numberOfDays = Calendar.forma.dateComponents([.day], from: start, to: end).day ?? 0
+            guard numberOfDays > 0 else { return (0, false) }
+            let window = days.filter { $0.date >= start && $0.date < end }
+            var total = formaSessions.filter { $0.start >= start && $0.start < end && $0.minutes.isFinite }
+                .reduce(0) { $0 + max(0, $1.minutes) }
             for day in window {
                 for w in day.workouts where w.isStrength {
                     let wEnd = w.start.addingTimeInterval(w.duration)
@@ -309,12 +347,14 @@ enum BodyAge {
                     if !overlaps { total += w.duration / 60 }
                 }
             }
-            return total / (Double(window.count) / 7)
+            return (total / (Double(numberOfDays) / 7), total > 0)
         }
-        let hasRecord = !formaSessions.isEmpty || days.contains { $0.workouts.contains(where: \.isStrength) }
-        return StrengthMinutes(perWeek: perWeek(days),
-                               recentPerWeek: perWeek(Array(days.suffix(30))),
-                               previousPerWeek: perWeek(Array(days.dropLast(30).suffix(30))),
-                               hasRecord: hasRecord)
+        let end = now.startOfDay
+        let split = end.adding(days: -30)
+        let long = days.first.map { perWeek(from: $0.date, until: end.adding(days: 1)) } ?? (minutes: 0, hasRecord: false)
+        let recent = perWeek(from: split, until: end)
+        let previous = perWeek(from: end.adding(days: -60), until: split)
+        return StrengthMinutes(perWeek: long.minutes, recentPerWeek: recent.minutes, previousPerWeek: previous.minutes,
+                               hasRecord: long.hasRecord, recentHasRecord: recent.hasRecord, previousHasRecord: previous.hasRecord)
     }
 }

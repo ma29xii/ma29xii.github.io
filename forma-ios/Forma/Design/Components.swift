@@ -221,9 +221,15 @@ struct RangeBar: View {
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule().fill(Color.white.opacity(0.08)).frame(height: 4)
-            Capsule().fill(Color.white.opacity(0.2))
-                .frame(width: width * (position(high) - position(low)), height: 4)
-                .offset(x: width * position(low))
+            if low == high {
+                Capsule().fill(Theme.textTertiary)
+                    .frame(width: 2, height: 10)
+                    .offset(x: width * position(low) - 1)
+            } else {
+                Capsule().fill(Color.white.opacity(0.24))
+                    .frame(width: width * (position(high) - position(low)), height: 4)
+                    .offset(x: width * position(low))
+            }
             Circle().fill(dotColor)
                 .frame(width: 8, height: 8)
                 .overlay(Circle().stroke(Theme.background, lineWidth: 2))
