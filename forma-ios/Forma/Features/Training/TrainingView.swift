@@ -133,9 +133,8 @@ struct TrainingView: View {
 
     private func nextCard(_ routine: Routine) -> some View {
         let adjustment = TrainingAdjustment.today
-        return Plate {
+        return WidgetCard(title: "Als Nächstes", systemImage: TrainingTile.next.systemImage) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Als Nächstes").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
                 Text(routine.name).font(.formaHeadline)
                 Text("\(routine.items.count) Übungen · \(routine.totalSets) Sätze · \(routine.muscleSummary)")
                     .font(.formaBody).foregroundStyle(Theme.textSecondary)
@@ -148,7 +147,7 @@ struct TrainingView: View {
                     .padding(.top, Space.s4)
             }
             .padding(.horizontal, Space.s4)
-            .padding(.top, 20)
+            .padding(.top, 6)
             .padding(.bottom, Space.s4)
         }
     }

@@ -7,18 +7,19 @@ enum SampleData {
         return (0..<count).map { offset in
             let index = count - 1 - offset
             let date = today.adding(days: -index)
-            let t = Double(offset)
+            // Die letzten 30 Tage bleiben wie in früheren Versionen (gleiche Phase der Wellen).
+            let t = Double(offset - (count - 30))
             let wave = sin(t * 0.9) * 0.5 + sin(t * 0.37 + 1.3) * 0.5
             var day = DayMetrics(date: date)
             day.hrv = (56 + wave * 6 + (index == 0 ? 3 : 0)).rounded()
             day.restingHR = (53 - wave * 2 - (index == 0 ? 1 : 0)).rounded()
             day.respiratoryRate = ((14.3 + sin(t * 0.5) * 0.3) * 10).rounded() / 10
             day.spo2 = (96.5 + sin(t * 0.7) * 0.8).rounded()
-            day.vo2max = ((44.0 + t / Double(max(1, count - 1)) * 3.0) * 10).rounded() / 10
+            day.vo2max = ((44.0 + Double(offset) / Double(max(1, count - 1)) * 3.0) * 10).rounded() / 10
             day.steps = index == 0 ? 6240 : (8200 + wave * 2600).rounded()
             day.activeEnergy = index == 0 ? 410 : (520 + wave * 160).rounded()
             day.sleep = night(for: date, variation: wave, isToday: index == 0)
-            if offset % 2 == 0 && index != 0 {
+            if index % 2 == 1 {
                 let names = ["Push", "Pull", "Beine", "Lauf"]
                 day.workouts = [WorkoutSummary(name: names[(offset / 2) % 4], start: date.adding(minutes: 18 * 60),
                                                duration: (52 + wave * 8) * 60, energy: 380,

@@ -103,18 +103,23 @@ extension Font {
 /// Auf „Heute“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
 struct ScreenBackground: View {
     var tint: Color? = nil
+    /// Gelb wirkt auf Schwarz schnell schmutzig (oliv): dort schwächer leuchten.
+    private var strength: Double {
+        guard let tint else { return 0.07 }
+        return tint == Theme.recoveryMid ? 0.11 : 0.20
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             Theme.background
             RadialGradient(
-                colors: [(tint ?? .white).opacity(tint == nil ? 0.07 : 0.20), .clear],
+                colors: [(tint ?? .white).opacity(strength), .clear],
                 center: .top, startRadius: 0, endRadius: 380
             )
             .scaleEffect(x: 1.7, y: 1, anchor: .top)
             .frame(height: 520)
             RadialGradient(
-                colors: [(tint ?? .white).opacity(tint == nil ? 0.03 : 0.08), .clear],
+                colors: [(tint ?? .white).opacity(strength * 0.4), .clear],
                 center: .topTrailing, startRadius: 0, endRadius: 300
             )
             .frame(height: 420)
