@@ -11,6 +11,11 @@ struct FormaApp: App {
     @State private var hub = DataHub()
     @State private var app = AppState()
 
+    init() {
+        // Coach-Schlüssel aus dem App-Paket einmalig in den Schlüsselbund übernehmen.
+        if !Self.isUITest { BundledKeys.installIfNeeded() }
+    }
+
     var body: some Scene {
         let backgroundHub = hub
         WindowGroup {

@@ -13,10 +13,13 @@ struct CoachView: View {
     @State private var dismissed = TrainingAdjustment.dismissedToday
     @FocusState private var inputFocused: Bool
     /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
-    @AppStorage("forma.claudeConsent") private var claudeConsent = false
+    @AppStorage(CoachProviders.consentKey) private var externalConsent = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
-    private var hasKey: Bool { !hub.isSample && !(Keychain.get("anthropic.key") ?? "").isEmpty }
+    /// Schlüssel einmal beim Öffnen prüfen (Schlüsselbund-Zugriff nicht bei jedem Neuzeichnen).
+    @State private var keyConfigured = false
+    private var hasKey: Bool { !hub.isSample && keyConfigured }
+    private var online: Bool { hasKey && externalConsent }
 
     private var context: CoachEngine.Context {
         let planned = routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
@@ -39,14 +42,17 @@ struct CoachView: View {
                     VStack(alignment: .leading, spacing: Space.s3) {
                         HStack(spacing: Space.s2) {
                             if hub.isSample { SampleDataBadge() }
-                            Label(hasKey && claudeConsent ? "Claude (extern)" : "Lokaler Coach", systemImage: hasKey && claudeConsent ? "cloud" : "iphone")
-                                .font(.formaMicro)
-                                .tracking(Tracking.micro)
-                                .textCase(.uppercase)
-                                .foregroundStyle(Theme.textSecondary)
-                                .padding(.horizontal, 10).frame(height: 26)
-                                .background(Capsule().fill(Theme.cardRaised))
-                                .accessibilityLabel(hasKey && claudeConsent ? "Antworten kommen von Claude über das Internet" : "Antworten werden auf dem iPhone berechnet")
+                            if online {
+                                Menu {
+                                    Button("Datenfreigabe widerrufen", systemImage: "hand.raised", role: .destructive) { externalConsent = false }
+                                } label: {
+                                    sourceChip("Online-Coach", systemImage: "cloud")
+                                }
+                                .accessibilityLabel("Antworten kommen vom Online-Coach über das Internet. Tippen, um die Freigabe zu widerrufen.")
+                            } else {
+                                sourceChip("Lokaler Coach", systemImage: "iphone")
+                                    .accessibilityLabel("Antworten werden auf dem iPhone berechnet")
+                            }
                         }
                         .padding(.top, Space.s1)
                         Text("Heute")
@@ -79,6 +85,7 @@ struct CoachView: View {
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
             .onAppear {
+                keyConfigured = CoachProviders.hasConfiguredKey
                 if hub.isSample && messages.isEmpty {
                     let example = "Wann soll ich ins Bett?"
                     messages = [
@@ -89,12 +96,12 @@ struct CoachView: View {
                 consumePrompt()
             }
             // Widerruf bricht eine laufende Anfrage sofort ab (Codex R-02-15).
-            .onChange(of: claudeConsent) { _, allowed in
+            .onChange(of: externalConsent) { _, allowed in
                 if !allowed { claudeTask?.cancel(); claudeTask = nil; thinking = false }
             }
-            .confirmationDialog("Frage an Claude senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
+            .confirmationDialog("Frage an den Online-Coach senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
                 Button("Senden und merken") {
-                    claudeConsent = true
+                    externalConsent = true
                     if let t = pendingConsentText { pendingConsentText = nil; send(t) }
                 }
                 Button("Nur lokal antworten") {
@@ -106,10 +113,22 @@ struct CoachView: View {
                 }
                 Button("Abbrechen", role: .cancel) { pendingConsentText = nil }
             } message: {
-                Text("Dann gehen deine Frage, der bisherige Chat und eine Zusammenfassung deiner Tageswerte (Erholung, Schlaf, Belastung, HRV, Ruhepuls, geplantes Training) an Anthropic. Widerrufen kannst du das im Profil.")
+                Text("Dann gehen deine Frage, der bisherige Chat und eine Zusammenfassung deiner Tageswerte (Recovery, Sleep, Strain, HRV, Ruhepuls, geplantes Training) an Anthropic. Ist Anthropic nicht erreichbar, antwortet OpenAI mit denselben Daten. Widerrufen kannst du das oben im Coach.")
             }
             .onChange(of: app.coachPrompt) { _, _ in consumePrompt() }
         }
+    }
+
+    private func sourceChip(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.formaMicro)
+            .tracking(Tracking.micro)
+            .textCase(.uppercase)
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 10).frame(height: 26)
+            .background(Capsule().fill(Theme.cardRaised))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
 
     // MARK: Vorschlag (nur mit Bestätigung)
@@ -231,28 +250,28 @@ struct CoachView: View {
     private func send(_ raw: String) {
         let text = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
         guard !text.isEmpty, !thinking else { return }
-        if hasKey && !claudeConsent {
+        if hasKey && !externalConsent {
             input = ""
             pendingConsentText = text
             return
         }
         input = ""
         let ctx = context
-        let external = claudeConsent && hasKey
+        let external = online
         messages.append(ChatMessage(role: .user, text: text, localOnly: !external))
-        if external, let key = Keychain.get("anthropic.key") {
+        if external {
             thinking = true
             let history = messages
             let summary = CoachEngine.contextSummary(ctx)
             claudeTask = Task {
                 do {
-                    let reply = try await ClaudeClient.reply(apiKey: key, context: summary, history: history)
-                    guard !Task.isCancelled, claudeConsent else { thinking = false; return }
+                    let reply = try await CoachProviders.reply(context: summary, history: history)
+                    guard !Task.isCancelled, externalConsent else { thinking = false; return }
                     messages.append(ChatMessage(role: .coach, text: reply))
                 } catch is CancellationError {
                     messages.append(ChatMessage(role: .coach, text: "Abgebrochen. Nichts weiter wurde gesendet.", localOnly: true))
                 } catch {
-                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Claude ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
+                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Der Online-Coach ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
                 }
                 thinking = false
             }
