@@ -6,7 +6,8 @@ import BackgroundTasks
 struct FormaApp: App {
     nonisolated static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
     private static let models: [any PersistentModel.Type] = [
-        Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self
+        Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self,
+        FoodEntry.self
     ]
     @State private var hub = DataHub()
     @State private var app = AppState()
@@ -74,9 +75,22 @@ struct RootView: View {
             Tab("Coach", systemImage: "bubble.left.and.bubble.right", value: AppTab.coach) {
                 CoachView().scrollEdgeEffectStyle(.soft, for: .all)
             }
+            // Plus: Die Rolle `.search` setzt den Knopf als eigene runde Glas-Insel rechts neben die Leiste
+            // (Systemplatz, keine nachgebaute Schwebefläche). Er wählt keinen Inhalt, sondern öffnet das Menü.
+            Tab("Plus", systemImage: "plus", value: AppTab.add, role: .search) {
+                Color.clear
+            }
+            .accessibilityIdentifier("tab.plus")
+        }
+        // Der Plus-Tab springt sofort zurück und öffnet stattdessen das Menü.
+        .onChange(of: app.selectedTab) { old, new in
+            guard new == .add else { return }
+            app.selectedTab = old == .add ? .today : old
+            app.showPlus = true
         }
         // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)
+        .plusFlow()
         .fullScreenCover(item: $app.liveWorkout) { workout in
             LiveWorkoutView(workout: workout)
         }

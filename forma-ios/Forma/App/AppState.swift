@@ -30,6 +30,8 @@ final class AppState {
     }
     var finishedSession: WorkoutSession?
     var showProfile = false
+    /// Plus-Menü (Mahlzeit scannen, Essen suchen, Ernährung heute, Training starten).
+    var showPlus = false
     var profilePhoto = ProfilePhotoStore.load()
 
     var weightUnit: WeightUnit {

@@ -17,6 +17,10 @@ struct CoachView: View {
     @AppStorage(CoachProviders.consentKey) private var externalConsent = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
+    /// Kurz nach einer Antwort freut sich das Maskottchen.
+    @State private var justReplied = false
+    @State private var repliedResetTask: Task<Void, Never>?
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// Schlüssel einmal beim Öffnen prüfen (Schlüsselbund-Zugriff nicht bei jedem Neuzeichnen).
     @State private var keyConfigured = false
     private var hasKey: Bool { !hub.isSample && keyConfigured }
@@ -32,6 +36,15 @@ struct CoachView: View {
             trainedToday: sessions.contains { Calendar.forma.isDateInToday($0.start) },
             isSample: hub.isSample, hour: Calendar.forma.component(.hour, from: .now),
             recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain)
+    }
+
+    private var hasSuggestion: Bool {
+        guard !hub.isSample, !dismissed, let suggested = CoachEngine.suggestion(context) else { return false }
+        return adjustment != suggested
+    }
+
+    private var mascotMood: MascotMood {
+        CoachMascotLogic.mood(thinking: thinking, justReplied: justReplied, hasSuggestion: hasSuggestion)
     }
 
     private let suggestions = ["Warum ist meine Erholung so?", "Was soll ich heute trainieren?", "Wann soll ich ins Bett?", "Wie viel Belastung ist heute gut?"]
@@ -56,20 +69,17 @@ struct CoachView: View {
                             }
                         }
                         .padding(.top, Space.s1)
-                        Text("Heute")
-                            .formaLabelStyle()
-                            .padding(.top, Space.s4)
-                        Text(CoachEngine.dailyLine(context))
-                            .font(.system(.title3, weight: .medium))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, Space.s2)
+                        header
                         suggestionCard
                         ForEach(messages) { message in
                             bubble(message).id(message.id)
                         }
                         if thinking {
-                            CoachThinkingLine().padding(.leading, Space.s2)
+                            HStack(spacing: Space.s2) {
+                                Mascot(mood: .thinking, size: 36)
+                                    .accessibilityHidden(true)
+                                CoachThinkingLine()
+                            }
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -119,7 +129,40 @@ struct CoachView: View {
                 Text("Dann gehen deine Frage, der bisherige Chat und eine Zusammenfassung deiner Tageswerte (Recovery, Sleep, Strain, HRV, Ruhepuls, geplantes Training) an Anthropic. Ist Anthropic nicht erreichbar, antwortet OpenAI mit denselben Daten. Widerrufen kannst du das oben im Coach.")
             }
             .onChange(of: app.coachPrompt) { _, _ in consumePrompt() }
+            .onChange(of: messages.count) { _, _ in
+                guard messages.last?.role == .coach else { return }
+                justReplied = true
+                repliedResetTask?.cancel()
+                repliedResetTask = Task {
+                    try? await Task.sleep(for: .seconds(2.5))
+                    guard !Task.isCancelled else { return }
+                    justReplied = false
+                }
+            }
         }
+    }
+
+    /// Maskottchen links, „Heute“ und die Tageszeile rechts (bei großer Schrift untereinander).
+    private var header: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.s3))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: Space.s4))
+        return layout {
+            Mascot(mood: mascotMood, size: 88)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(mascotMood.accessibilityText)
+                .accessibilityIdentifier("coach.mascot")
+            VStack(alignment: .leading, spacing: Space.s2) {
+                Text("Heute").formaLabelStyle()
+                Text(CoachEngine.dailyLine(context))
+                    .font(.system(.title3, weight: .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, Space.s3)
+        .padding(.bottom, Space.s2)
     }
 
     private func sourceChip(_ title: String, systemImage: String) -> some View {
@@ -177,8 +220,9 @@ struct CoachView: View {
     // MARK: Chat
 
     private func bubble(_ m: ChatMessage) -> some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: Space.s2) {
             if m.role == .user { Spacer(minLength: 48) }
+            if m.role == .coach { MascotBadge(size: 26) }
             Text(m.text)
                 .font(.formaBody)
                 .foregroundStyle(m.role == .user ? Theme.onSelection : Theme.textPrimary)
