@@ -15,6 +15,7 @@ struct CoachView: View {
     /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
     @AppStorage("forma.claudeConsent") private var claudeConsent = false
     @State private var pendingConsentText: String?
+    @State private var claudeTask: Task<Void, Never>?
     private var hasKey: Bool { !(Keychain.get("anthropic.key") ?? "").isEmpty }
 
     private var context: CoachEngine.Context {
@@ -75,6 +76,10 @@ struct CoachView: View {
                 }
             }
             .onAppear(perform: consumePrompt)
+            // Widerruf bricht eine laufende Anfrage sofort ab (Codex R-02-15).
+            .onChange(of: claudeConsent) { _, allowed in
+                if !allowed { claudeTask?.cancel(); claudeTask = nil; thinking = false }
+            }
             .confirmationDialog("Frage an Claude senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
                 Button("Senden und merken") {
                     claudeConsent = true
@@ -83,8 +88,8 @@ struct CoachView: View {
                 Button("Nur lokal antworten") {
                     if let t = pendingConsentText {
                         pendingConsentText = nil
-                        messages.append(ChatMessage(role: .user, text: t))
-                        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: t, context)))
+                        messages.append(ChatMessage(role: .user, text: t, localOnly: true))
+                        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: t, context), localOnly: true))
                     }
                 }
                 Button("Abbrechen", role: .cancel) { pendingConsentText = nil }
@@ -197,8 +202,8 @@ struct CoachView: View {
     private func consumePrompt() {
         guard let prompt = app.coachPrompt else { return }
         app.coachPrompt = nil
-        messages.append(ChatMessage(role: .coach, text: prompt))
-        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: app.coachTopic, context)))
+        messages.append(ChatMessage(role: .coach, text: prompt, localOnly: true))
+        messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: app.coachTopic, context), localOnly: true))
     }
 
     private func send(_ raw: String) {
@@ -210,23 +215,27 @@ struct CoachView: View {
             return
         }
         input = ""
-        messages.append(ChatMessage(role: .user, text: text))
         let ctx = context
-        if claudeConsent, let key = Keychain.get("anthropic.key"), !key.isEmpty {
+        let external = claudeConsent && !(Keychain.get("anthropic.key") ?? "").isEmpty
+        messages.append(ChatMessage(role: .user, text: text, localOnly: !external))
+        if external, let key = Keychain.get("anthropic.key") {
             thinking = true
             let history = messages
             let summary = CoachEngine.contextSummary(ctx)
-            Task {
+            claudeTask = Task {
                 do {
                     let reply = try await ClaudeClient.reply(apiKey: key, context: summary, history: history)
+                    guard !Task.isCancelled, claudeConsent else { thinking = false; return }
                     messages.append(ChatMessage(role: .coach, text: reply))
+                } catch is CancellationError {
+                    messages.append(ChatMessage(role: .coach, text: "Abgebrochen. Nichts weiter wurde gesendet.", localOnly: true))
                 } catch {
-                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Claude ist gerade nicht erreichbar, das war die lokale Antwort.)"))
+                    messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Claude ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
                 }
                 thinking = false
             }
         } else {
-            messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx)))
+            messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx), localOnly: true))
         }
     }
 }

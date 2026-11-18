@@ -282,8 +282,11 @@ private struct SleepDetail: View {
             FormaSection(title: "Letzte 7 Nächte") {
                 Plate {
                     let hours = hub.days.suffix(7).map { ($0.sleep?.asleep ?? 0) / 3600 }
+                    let measured = hub.days.suffix(7).compactMap { $0.sleep?.asleep }
                     DayBars(values: hours, labels: lastDaysLabels(hub.days), maximum: 9.5) { _ in Theme.sleep }
-                    Text("Mittel \(Format.duration(hours.reduce(0, +) / Double(Swift.max(1, hours.count)) * 3600))")
+                    // Fehlende Nächte zählen nicht als 0 h (Codex R-02-09/A-13).
+                    Text(measured.isEmpty ? "Keine gemessene Nacht"
+                         : "Mittel \(Format.duration(measured.reduce(0, +) / Double(measured.count))) · \(measured.count) von 7 Nächten")
                         .font(.formaCaption).foregroundStyle(Theme.textSecondary)
                         .padding(Space.s4)
                 }

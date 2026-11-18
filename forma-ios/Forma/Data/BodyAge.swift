@@ -84,6 +84,8 @@ enum BodyAge {
     enum Outcome: Sendable {
         case needsProfile
         case needsData(have: Int, need: Int)
+        /// Rechnung wäre nicht belastbar (Alter außerhalb, nur Schritte …) – mit Begründung (Codex R-02-10).
+        case insufficient(String)
         case ready(Result)
     }
 
@@ -91,6 +93,8 @@ enum BodyAge {
         var perWeek: Double
         var recentPerWeek: Double
         var previousPerWeek: Double = 0
+        /// Gibt es überhaupt aufgezeichnetes Krafttraining? Sonst kein Faktor statt „0 Minuten“ (Codex R-02-10).
+        var hasRecord: Bool = true
     }
 
     static let minimumDays = 21
@@ -102,15 +106,21 @@ enum BodyAge {
         guard let age = person.age(at: now) else { return .needsProfile }
         let withData = days.filter(hasData)
         guard withData.count >= minimumDays else { return .needsData(have: withData.count, need: minimumDays) }
+        guard (18...90).contains(age) else {
+            return .insufficient("Das Körperalter ist für 18 bis 90 Jahre ausgelegt. Prüfe dein Geburtsjahr im Profil.")
+        }
 
-        let long = factors(days: days, age: age, sex: person.sex, strengthPerWeek: strength.perWeek)
+        let long = factors(days: days, age: age, sex: person.sex, strengthPerWeek: strength.perWeek, hasStrengthRecord: strength.hasRecord)
+        guard long.factors.contains(where: { ["rhr", "sleep", "vo2"].contains($0.id) }) else {
+            return .insufficient("Nur aus Schritten rechne ich kein Körperalter. Dafür brauche ich zusätzlich Ruhepuls, Schlaf oder VO₂max.")
+        }
         // Vergleich nur zwischen gleich langen, nicht überlappenden Fenstern mit denselben Faktoren (Codex R-01-09).
         let recentDays = Array(days.suffix(30))
         let previousDays = Array(days.dropLast(30).suffix(30))
         var recent: Double?, previous: Double?
         if recentDays.filter(hasData).count >= minimumDays, previousDays.filter(hasData).count >= minimumDays {
-            let r = factors(days: recentDays, age: age, sex: person.sex, strengthPerWeek: strength.recentPerWeek)
-            let p = factors(days: previousDays, age: age, sex: person.sex, strengthPerWeek: strength.previousPerWeek)
+            let r = factors(days: recentDays, age: age, sex: person.sex, strengthPerWeek: strength.recentPerWeek, hasStrengthRecord: strength.hasRecord)
+            let p = factors(days: previousDays, age: age, sex: person.sex, strengthPerWeek: strength.previousPerWeek, hasStrengthRecord: strength.hasRecord)
             if Set(r.factors.map(\.id)) == Set(p.factors.map(\.id)) {
                 recent = combine(age: age, sum: r.sum)
                 previous = combine(age: age, sum: p.sum)
@@ -145,14 +155,15 @@ enum BodyAge {
 
     // MARK: Faktoren
 
-    private static func factors(days: [DayMetrics], age: Double, sex: BiologicalSex, strengthPerWeek: Double) -> (factors: [Factor], missing: [String], sum: Double) {
+    private static func factors(days: [DayMetrics], age: Double, sex: BiologicalSex, strengthPerWeek: Double,
+                                hasStrengthRecord: Bool = true) -> (factors: [Factor], missing: [String], sum: Double) {
         var result: [Factor] = []
         var missing: [String] = []
 
         // 1. VO₂max gegen den Median deiner Alters- und Geschlechtsgruppe.
         let vo2Days = days.suffix(90).filter { $0.vo2max != nil }
         let vo2Values = vo2Days.compactMap(\.vo2max).suffix(10)
-        if let vo2 = mean(Array(vo2Values)), sex != .unknown {
+        if let vo2 = mean(Array(vo2Values)), sex != .unknown, (20...79).contains(age) {
             let reference = vo2Reference(age: age, sex: sex)
             let deltaMET = (vo2 - reference) / 3.5
             let years = clamp(yearsPerLogHazard * log(0.87) * deltaMET, 6)
@@ -164,6 +175,8 @@ enum BodyAge {
                 years: years,
                 explanation: "In Studien war je 1 MET (3,5 ml/kg/min) mehr Fitness mit etwa 13 % geringerem Sterberisiko verbunden. Annahmen von Forma: lineare Umrechnung zwischen den Altersgruppen, Begrenzung auf ±6 Jahre. Die VO₂max der Uhr ist eine Schätzung und liegt oft anders als ein Labortest.",
                 source: "Kodama et al., JAMA 2009 · Referenz: FRIEND-Register (Kaminsky et al., 2015)"))
+        } else if !vo2Values.isEmpty && !(20...79).contains(age) {
+            missing.append("VO₂max-Vergleich – die Referenzwerte gibt es nur für 20 bis 79 Jahre")
         } else if vo2Values.isEmpty {
             missing.append("VO₂max der letzten 90 Tage – entsteht bei Läufen oder zügigen Spaziergängen im Freien mit der Apple Watch")
         } else {
@@ -220,6 +233,9 @@ enum BodyAge {
 
         // 5. Krafttraining pro Woche (Forma-Trainings und Krafttrainings aus Apple Health).
         let strengthLogHazard = log(0.86) * min(1, strengthPerWeek / 30)
+        if !hasStrengthRecord {
+            missing.append("Krafttraining – noch nichts aufgezeichnet (Forma-Training oder Krafttraining in Apple Health)")
+        } else {
         result.append(Factor(
             id: "strength", title: "Krafttraining", systemImage: "dumbbell",
             valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
@@ -227,6 +243,7 @@ enum BodyAge {
             years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
             explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Forma: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
             source: "Momma et al., Br J Sports Med 2022"))
+        }
 
         let sum = result.reduce(0) { $0 + $1.years }
         return (result, missing, sum)
@@ -294,8 +311,10 @@ enum BodyAge {
             }
             return total / (Double(window.count) / 7)
         }
+        let hasRecord = !formaSessions.isEmpty || days.contains { $0.workouts.contains(where: \.isStrength) }
         return StrengthMinutes(perWeek: perWeek(days),
                                recentPerWeek: perWeek(Array(days.suffix(30))),
-                               previousPerWeek: perWeek(Array(days.dropLast(30).suffix(30))))
+                               previousPerWeek: perWeek(Array(days.dropLast(30).suffix(30))),
+                               hasRecord: hasRecord)
     }
 }

@@ -18,12 +18,13 @@ enum BodyAgeText {
 
     static func signedYears(_ value: Double) -> String {
         let rounded = (value * 2).rounded() / 2
-        if abs(rounded) < 0.5 { return "kaum Einfluss" }
+        if abs(rounded) < 0.5 { return "unter ½ Jahr" }
         return (rounded < 0 ? "−" : "+") + Format.number(abs(rounded), decimals: rounded.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1) + " J."
     }
 
     static func difference(_ result: BodyAge.Result) -> String {
-        let d = result.bodyAge.rounded() - result.age.rounded(.down)
+        // Aus der *ungerundeten* Differenz – sonst entsteht aus 30,8 vs. 30,8 ein „1 Jahr älter“ (Codex A-15).
+        let d = (result.bodyAge - result.age).rounded()
         if d == 0 { return "Etwa so alt wie du bist" }
         let n = Int(abs(d))
         return "Etwa \(n) \(n == 1 ? "Jahr" : "Jahre") \(d < 0 ? "jünger" : "älter") als du bist"
@@ -38,7 +39,7 @@ enum BodyAgeText {
 struct AgeScale: View {
     let age: Double
     let bodyAge: Double
-    var span: Double = 12
+    var span: Double = 15   // gleiche Grenze wie die Rechnung (±15 Jahre, Codex R-02-11)
 
     var body: some View {
         GeometryReader { geo in
@@ -65,6 +66,9 @@ struct AgeScale: View {
                 Text("dein Alter").font(.formaMicro).foregroundStyle(Theme.textTertiary)
                     .fixedSize()
                     .offset(x: x(age) - 26, y: 24)
+                Text("jünger").font(.formaMicro).foregroundStyle(Theme.textTertiary).offset(x: 0, y: 24)
+                Text("älter").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                    .frame(width: w, alignment: .trailing).offset(y: 24)
             }
         }
         .frame(height: 40)
@@ -94,7 +98,7 @@ struct BodyAgeSummaryCard: View {
         switch outcome {
         case .ready(let r):
             Button(action: open) {
-                WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "Schätzung · \(r.windowDays) Tage") {
+                WidgetCard(title: "Körperalter", systemImage: "hourglass", accessory: "Schätzung, nicht validiert") {
                     VStack(alignment: .leading, spacing: Space.s3) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(BodyAgeText.years(r.bodyAge))
@@ -126,6 +130,15 @@ struct BodyAgeSummaryCard: View {
                     Text("Für dein Körperalter brauche ich dein Geburtsjahr. Das Geschlecht ist nur für den VO₂max-Vergleich nötig.")
                         .font(.formaBody).foregroundStyle(Theme.textSecondary)
                     Button("Im Profil eintragen", action: openProfile).buttonStyle(.glass)
+                }
+                .padding([.horizontal, .bottom], Space.s4)
+                .padding(.top, 4)
+            }
+        case .insufficient(let reason):
+            WidgetCard(title: "Körperalter", systemImage: "hourglass") {
+                VStack(alignment: .leading, spacing: Space.s3) {
+                    Text(reason).font(.formaBody).foregroundStyle(Theme.textSecondary)
+                    Button("Profil öffnen", action: openProfile).buttonStyle(.glass)
                 }
                 .padding([.horizontal, .bottom], Space.s4)
                 .padding(.top, 4)

@@ -564,3 +564,65 @@ final class LiveWorkoutAttackTests: XCTestCase {
         XCTAssertFalse(plan.increased)
     }
 }
+
+/// Regressionstests zu Codex-Review 02 (Körperalter, Schlaf).
+final class ReviewTwoTests: XCTestCase {
+    private func person(age: Double, sex: BiologicalSex = .male) -> PersonInfo {
+        PersonInfo(birthDate: Date.now.addingTimeInterval(-age * 365.2425 * 86_400), sex: sex, origin: .manual)
+    }
+
+    // A-04/R-02-10: Nur Schritte → kein Körperalter.
+    func testStepsOnlyGivesNoBodyAge() {
+        let days = SampleData.days().map { d -> DayMetrics in
+            var x = DayMetrics(date: d.date); x.steps = d.steps; return x
+        }
+        let outcome = BodyAge.evaluate(days: days, person: person(age: 30), strength: .init(perWeek: 0, recentPerWeek: 0, hasRecord: false))
+        guard case .insufficient = outcome else { return XCTFail("Nur Schritte darf kein Alter ergeben") }
+    }
+
+    // A-14: Alter außerhalb 18–90 → keine extrapolierte Zahl.
+    func testAgeOutOfRange() {
+        let outcome = BodyAge.evaluate(days: SampleData.days(), person: person(age: 12), strength: .init(perWeek: 0, recentPerWeek: 0))
+        guard case .insufficient = outcome else { return XCTFail("12 Jahre ist außerhalb des Bereichs") }
+    }
+
+    // R-02-10: Ohne Aufzeichnung kein Krafttraining-Faktor, sondern ein Hinweis.
+    func testNoStrengthRecordMeansNoFactor() {
+        let outcome = BodyAge.evaluate(days: SampleData.days(), person: person(age: 30),
+                                       strength: .init(perWeek: 0, recentPerWeek: 0, hasRecord: false))
+        guard case .ready(let r) = outcome else { return XCTFail() }
+        XCTAssertFalse(r.factors.contains { $0.id == "strength" })
+        XCTAssertTrue(r.missing.contains { $0.contains("Krafttraining") })
+    }
+
+    // A-15: Anzeige-Differenz aus der ungerundeten Differenz.
+    func testDifferenceFromUnroundedValues() {
+        let r = BodyAge.Result(age: 30.8, bodyAge: 30.8, recentBodyAge: nil, previousBodyAge: nil, factors: [], missing: [],
+                               daysWithData: 100, windowDays: 180, confidence: .medium)
+        XCTAssertEqual(BodyAgeText.difference(r), "Etwa so alt wie du bist")
+    }
+
+    // A-13: Die Nacht bekommt denselben Wert, egal wie viel du heute trainierst.
+    func testSleepScoreStableAfterTraining() {
+        let history = Array(SampleData.days(count: 30).dropLast())
+        var today = SampleData.days(count: 30).last!
+        let before = ScoreEngine.scores(today: today, history: history).sleep
+        today.activeEnergy = 1500
+        today.workouts.append(WorkoutSummary(name: "Beine", start: .now, duration: 5400, energy: 700, isStrength: true))
+        let after = ScoreEngine.scores(today: today, history: history).sleep
+        XCTAssertEqual(before, after)
+    }
+
+    // R-02-09: Überlappende Tief- und REM-Phasen zählen nur einmal.
+    func testOverlappingDeepAndRemCountOnce() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        func seg(_ s: SleepNight.Stage, _ a: Double, _ b: Double) -> SleepNight.Segment {
+            .init(stage: s, start: t0.addingTimeInterval(a * 60), end: t0.addingTimeInterval(b * 60))
+        }
+        let overlapping = SleepNight(start: t0, end: t0.addingTimeInterval(480 * 60),
+                                     segments: [seg(.core, 0, 480), seg(.deep, 60, 180), seg(.rem, 60, 180)])
+        let score = ScoreEngine.sleepScore(overlapping, need: 8 * 3600)
+        XCTAssertLessThanOrEqual(score, 100)
+        XCTAssertGreaterThan(score, 0)
+    }
+}

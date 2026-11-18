@@ -5,6 +5,8 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var id = UUID()
     var role: Role
     var text: String
+    /// Nur lokal beantwortet – geht nie an Claude, auch nicht später im Verlauf (Codex R-02-15/A-22).
+    var localOnly: Bool = false
 }
 
 /// Lokaler Coach: knapp, freundlich, du-Form. Optional mit Claude, wenn ein API-Schlüssel hinterlegt ist.
@@ -171,7 +173,10 @@ enum ClaudeClient {
         Daten von heute:
         \(context)
         """
-        let messages: [[String: String]] = history.suffix(12).map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.text] }
+        // Lokale Nachrichten nie senden, jede Nachricht begrenzen (Codex R-02-15/A-22/A-23).
+        let messages: [[String: String]] = history.filter { !$0.localOnly }.suffix(12)
+            .map { ["role": $0.role == .user ? "user" : "assistant", "content": String($0.text.prefix(2000))] }
+        guard messages.last?["role"] == "user" else { throw NSError(domain: "Forma.Claude", code: 400) }
         let body: [String: Any] = ["model": model, "max_tokens": 400, "system": system, "messages": messages]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 30
@@ -193,7 +198,9 @@ enum ClaudeClient {
                 lastError = error
                 guard attempt == 0 else { throw error }
             }
+            try Task.checkCancellation()   // Widerruf stoppt auch den zweiten Versuch
             try await Task.sleep(for: .seconds(2))
+            try Task.checkCancellation()
         }
         throw lastError
     }

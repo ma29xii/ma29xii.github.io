@@ -135,9 +135,10 @@ struct MetricDetailView: View {
         return result
     }
 
+    /// Nur eine Messung am *gewählten Tag* – in Lücken keine weiter entfernte Messung (Codex R-02-20/A-28).
     private func selectedPoint(_ points: [(Date, Double)]) -> (Date, Double)? {
         guard let selection else { return nil }
-        return points.min { abs($0.0.timeIntervalSince(selection)) < abs($1.0.timeIntervalSince(selection)) }
+        return points.first { Calendar.forma.isDate($0.0, inSameDayAs: selection) }
     }
 
     var body: some View {
@@ -170,6 +171,7 @@ struct MetricDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, Space.s5)
+                .onChange(of: range) { _, _ in selection = nil }
 
                 Plate {
                     VStack(alignment: .leading, spacing: Space.s2) {
@@ -178,6 +180,12 @@ struct MetricDetailView: View {
                             if let sel = selectedPoint(points) {
                                 Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.formatted(sel.1))\(kind == .sleepDuration ? "" : " " + kind.unit)")
                                     .foregroundStyle(Theme.textPrimary)
+                            } else if let selection {
+                                Text("\(selection.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): keine Messung")
+                                    .foregroundStyle(Theme.textSecondary)
+                            } else if points.isEmpty {
+                                Text("Keine Messungen in diesem Zeitraum")
+                                    .foregroundStyle(Theme.textSecondary)
                             } else {
                                 Text("\(points.count) Messungen · Finger über das Diagramm ziehen")
                                     .foregroundStyle(Theme.textSecondary)

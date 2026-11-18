@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 struct LiveWorkoutView: View {
     @Environment(\.modelContext) private var context
@@ -10,6 +11,8 @@ struct LiveWorkoutView: View {
     @State private var confirmEnd = false
     @State private var completedCount = 0
     @State private var saveError: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var notificationStatus: UNAuthorizationStatus = .authorized
 
     var body: some View {
         NavigationStack {
@@ -67,6 +70,7 @@ struct LiveWorkoutView: View {
                 ExercisePickerView { ex in workout.addExercise(name: ex.name, muscle: ex.muscle) }
             }
             .sensoryFeedback(.success, trigger: completedCount)
+            .task { notificationStatus = await CoachNotifier.authorizationStatus() }
         }
     }
 
@@ -196,7 +200,19 @@ struct LiveWorkoutView: View {
                         .accessibilityLabel("Noch \(remaining) Sekunden Pause")
                     if let next = workout.currentLabel {
                         Text("Als Nächstes: \(next)").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1).minimumScaleFactor(0.8)
+                            .lineLimit(2)
+                    }
+                    // Freiwillig und erst hier, mit Kontext – nicht beim Trainingsstart (Codex R-02-26/A-33).
+                    if notificationStatus == .notDetermined {
+                        Button("Bei Pausenende benachrichtigen") {
+                            Task {
+                                _ = await CoachNotifier.requestPermission()
+                                notificationStatus = await CoachNotifier.authorizationStatus()
+                                if let end = workout.restEndsAt { RestNotifier.schedule(at: end, next: workout.currentExercise?.name) }
+                            }
+                        }
+                        .font(.formaCaptionStrong)
+                        .padding(.top, 4)
                     }
                 }
                 Spacer()
@@ -223,14 +239,14 @@ struct LiveWorkoutView: View {
         return VStack(spacing: Space.s3) {
             if let label = workout.currentLabel {
                 Text(label)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(.subheadline, weight: .semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .lineLimit(2)   // bei großer Schrift umbrechen statt schrumpfen (Codex R-02-17)
                     .contentTransition(.opacity)
                     .accessibilityAddTraits(.isHeader)
             }
-            HStack(spacing: Space.s3) {
+            // Bei Bedienungshilfen-Schriftgrößen untereinander statt nebeneinander.
+            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: Space.s2)) : AnyLayout(HStackLayout(spacing: Space.s3))) {
                 stepper(value: Format.weight(set?.weight ?? 0, unit: app.weightUnit), unit: app.weightUnit.rawValue,
                         minus: { workout.changeWeight(by: -step) }, plus: { workout.changeWeight(by: step) })
                 stepper(value: "\(set?.reps ?? 0)", unit: "Wdh",
@@ -245,12 +261,13 @@ struct LiveWorkoutView: View {
                     .accessibilityLabel("Scheiben pro Seite: \(plates)")
             }
             if set?.isWarmup == false {
-                HStack(spacing: 6) {
+                (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Reserve").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                        Text("Wdh. übrig").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                        Text("Wdh. übrig, optional").font(.formaMicro).foregroundStyle(Theme.textTertiary)
                     }
-                    Spacer(minLength: 4)
+                    if !typeSize.isAccessibilitySize { Spacer(minLength: 4) }
+                    HStack(spacing: 6) {
                     ForEach(0..<5, id: \.self) { i in
                         // Antippen wählt, nochmal antippen hebt auf (Reserve ist optional, Codex A-18).
                         Button { workout.currentRIR = workout.currentRIR == i ? nil : i } label: {
@@ -264,6 +281,7 @@ struct LiveWorkoutView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel(i == 4 ? "4 oder mehr Wiederholungen übrig" : "\(i) Wiederholungen übrig")
                         .accessibilityAddTraits(workout.currentRIR == i ? .isSelected : [])
+                    }
                     }
                 }
             }

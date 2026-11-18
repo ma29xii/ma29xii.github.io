@@ -23,7 +23,9 @@ enum ScoreEngine {
         let duration = min(1, night.asleep / max(need, 1)) * 60
         let efficiency = clamp((night.efficiency - 0.75) / 0.2) * 20
         // Ohne gemessene Phasen neutral werten statt mit 0 bestrafen (Codex R-01-06).
-        let restorative = night.hasStages ? clamp(((night.total(.deep) + night.total(.rem)) / night.asleep - 0.25) / 0.2) * 20 : 10
+        // Tief und REM als *gemeinsame* Vereinigung: überlappende Phasen zählen nur einmal (Codex R-02-09).
+        let restorativeTime = SleepNight.unionLength(night.segments.filter { $0.stage == .deep || $0.stage == .rem })
+        let restorative = night.hasStages ? clamp((min(1, restorativeTime / night.asleep) - 0.25) / 0.2) * 20 : 10
         return Int((duration + efficiency + restorative).rounded()).clamped(1, 100)
     }
 
@@ -66,7 +68,10 @@ enum ScoreEngine {
         let debt = sleepDebt(history: history)
         let strainValue = strain(today)
         let need = sleepNeed(strain: strainValue, debt: debt)
-        let sleepValue = sleepScore(today.sleep, need: need)
+        // Die vergangene Nacht wird am Bedarf von *gestern* gemessen – sonst ändert sich ihr Wert,
+        // nur weil du heute trainierst (Codex R-02-09/A-13).
+        let nightNeed = sleepNeed(strain: history.last.map { strain($0) } ?? 0, debt: sleepDebt(history: Array(history.dropLast())))
+        let sleepValue = sleepScore(today.sleep, need: nightNeed)
         let rec = recovery(today: today, history: history, sleepScore: sleepValue)
         let hour = Double(Calendar.forma.component(.hour, from: now))
         let dayFatigue = max(0, hour - 8) * 1.4
