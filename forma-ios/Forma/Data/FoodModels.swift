@@ -134,6 +134,18 @@ final class FoodEntry {
     }
 
     var meal: FoodMeal { FoodMeal(rawValue: mealRaw) ?? .snack }
+
+    @MainActor
+    static func saveChange(in context: ModelContext, _ change: () -> Void) throws {
+        // Ausstehende Änderungen anderer Ansichten vor dieser Änderung abschließen.
+        if context.hasChanges { try context.save() }
+        do {
+            try context.transaction(block: change)
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
 }
 
 struct FoodGoal {
@@ -152,7 +164,7 @@ struct FoodGoal {
             // Geschätzter Ruheenergiebedarf nach Mifflin–St Jeor, DOI 10.1093/ajcn/51.2.241.
             let estimate = 10 * weightKg + 6.25 * heightCm - 5 * Double(age) + (sex == .male ? 5 : -161)
             isPersonalized = estimate > 0
-            base = isPersonalized ? estimate : 2_000
+            base = estimate > 0 ? estimate : 2_000
         } else {
             isPersonalized = false
             base = 2_000
