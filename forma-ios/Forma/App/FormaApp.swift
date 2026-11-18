@@ -3,6 +3,7 @@ import SwiftData
 
 @main
 struct FormaApp: App {
+    static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
     @State private var hub = DataHub()
     @State private var app = AppState()
 
@@ -14,7 +15,8 @@ struct FormaApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Theme.selection)
         }
-        .modelContainer(for: [Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self])
+        .modelContainer(for: [Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self],
+                        inMemory: FormaApp.isUITest)
     }
 }
 

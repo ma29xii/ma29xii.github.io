@@ -95,9 +95,9 @@ struct ExercisePickerView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(groups, id: \.0) { muscle, items in
-                    Section(muscle) {
-                        ForEach(items) { ex in
+                ForEach(groups, id: \.0) { group in
+                    Section(group.0) {
+                        ForEach(group.1) { ex in
                             Button {
                                 onPick(ex)
                                 dismiss()

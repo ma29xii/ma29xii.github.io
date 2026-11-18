@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: forma-ios-${{ github.ref }}
@@ -73,3 +73,76 @@ jobs:
           path: ${{ runner.temp }}/ipa/Forma.ipa
           if-no-files-found: error
           retention-days: 30
+
+  screens:
+    # Screenshots für die Design-Prüfung. Darf scheitern, ohne den IPA-Build rot zu machen.
+    runs-on: macos-26
+    timeout-minutes: 40
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: forma-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode und Projekt
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Simulator starten
+        run: |
+          RT=$(xcrun simctl list runtimes available | grep -oE 'iOS [0-9.]+' | sort -V | tail -n 1 | cut -d' ' -f2)
+          echo "Runtime: $RT"
+          UDID=$(xcrun simctl list devices available | awk -v rt="-- iOS $RT --" '$0==rt{f=1;next} /^--/{f=0} f && /iPhone 17 Pro \(/{print; exit}' | grep -oE '[0-9A-F-]{36}')
+          [ -z "$UDID" ] && UDID=$(xcrun simctl list devices available | awk -v rt="-- iOS $RT --" '$0==rt{f=1;next} /^--/{f=0} f && /iPhone/{print; exit}' | grep -oE '[0-9A-F-]{36}')
+          echo "Simulator: $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl ui "$UDID" appearance dark || true
+
+      - name: UI-Rundgang
+        run: |
+          set +e
+          xcodebuild test -project Forma.xcodeproj -scheme Forma \
+            -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$RUNNER_TEMP/ui.xcresult" > "$RUNNER_TEMP/ui.log" 2>&1
+          status=$?
+          grep -E "error:|failed|Executed|TEST (SUCCEEDED|FAILED)" "$RUNNER_TEMP/ui.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -60
+          mkdir -p "$RUNNER_TEMP/shots"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ui.xcresult" --output-path "$RUNNER_TEMP/shots" > /dev/null 2>&1
+          ls "$RUNNER_TEMP/shots" | head -40
+          exit 0
+
+      - name: Screenshots in den Branch legen
+        run: |
+          cd "$RUNNER_TEMP/shots" || exit 0
+          [ -f manifest.json ] || exit 0
+          OUT="$GITHUB_WORKSPACE/docs/forma-screens"
+          rm -rf "$OUT"; mkdir -p "$OUT"
+          python3 - "$OUT" <<'PY'
+          import json, os, re, subprocess, sys
+          out = sys.argv[1]
+          found = []
+          def walk(n):
+              if isinstance(n, dict):
+                  if "exportedFileName" in n:
+                      found.append((n.get("suggestedHumanReadableName") or n["exportedFileName"], n["exportedFileName"]))
+                  for v in n.values(): walk(v)
+              elif isinstance(n, list):
+                  for v in n: walk(v)
+          walk(json.load(open("manifest.json")))
+          for name, f in found:
+              if not f.lower().endswith((".png", ".jpg", ".jpeg", ".heic")): continue
+              clean = re.sub(r"[^0-9A-Za-zäöüÄÖÜß -]", "", name.split("_")[0]).strip().replace(" ", "-") or f
+              subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "70", "-Z", "1000", f, "--out", os.path.join(out, clean + ".jpg")],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          PY
+          ls -la "$OUT"
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "forma-ci"
+          git config user.email "forma-ci@users.noreply.github.com"
+          git add docs/forma-screens
+          git commit -q -m "Forma: Screenshots aus dem UI-Rundgang ($GITHUB_SHA)" || exit 0
+          for i in 1 2 3; do git pull -q --rebase origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && break; sleep 5; done

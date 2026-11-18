@@ -97,8 +97,10 @@ struct MetricDetailView: View {
                 Plate {
                     Chart {
                         if let b = base {
-                            RectangleMark(yStart: .value("unten", b.mean - b.sd), yEnd: .value("oben", b.mean + b.sd))
-                                .foregroundStyle(Color.white.opacity(0.06))
+                            ForEach(points, id: \.0) { p in
+                                AreaMark(x: .value("Tag", p.0), yStart: .value("unten", b.mean - b.sd), yEnd: .value("oben", b.mean + b.sd))
+                                    .foregroundStyle(Color.white.opacity(0.06))
+                            }
                         }
                         ForEach(points, id: \.0) { p in
                             LineMark(x: .value("Tag", p.0), y: .value(kind.title, p.1))
@@ -114,7 +116,7 @@ struct MetricDetailView: View {
                     .chartYScale(domain: .automatic(includesZero: false))
                     .chartXAxis {
                         AxisMarks(values: .stride(by: .day, count: range > 14 ? 7 : 2)) { _ in
-                            AxisValueLabel(format: .dateTime.day().month(.abbreviated), centered: false)
+                            AxisValueLabel(format: .dateTime.day().month(.abbreviated))
                                 .foregroundStyle(Theme.textTertiary)
                         }
                     }

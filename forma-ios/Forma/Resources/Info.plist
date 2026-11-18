@@ -35,6 +35,8 @@
 	<string>$(FITBIT_CLIENT_ID)</string>
 	<key>FitbitRedirectScheme</key>
 	<string>$(FITBIT_REDIRECT_SCHEME)</string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>

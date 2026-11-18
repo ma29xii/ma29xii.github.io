@@ -29,8 +29,24 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Forma/Resources/Info.plist
+  FormaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: FormaUITests
+    dependencies:
+      - target: Forma
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ma29xii.forma.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Forma
 schemes:
   Forma:
     build:
       targets:
         Forma: all
+        FormaUITests: [test]
+    test:
+      targets:
+        - FormaUITests

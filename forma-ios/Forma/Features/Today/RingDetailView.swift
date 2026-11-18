@@ -275,7 +275,7 @@ private struct SleepDetail: View {
 struct Hypnogram: View {
     let night: SleepNight
 
-    static func color(_ stage: SleepNight.Stage) -> Color {
+    nonisolated static func color(_ stage: SleepNight.Stage) -> Color {
         switch stage {
         case .awake: Color.white.opacity(0.55)
         case .rem: Color(hex: 0xB9C8FF)

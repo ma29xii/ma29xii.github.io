@@ -21,6 +21,7 @@ final class DataHub {
 
     init() {
         preferredSource = DataSourceKind(rawValue: UserDefaults.standard.string(forKey: "forma.source") ?? "") ?? .automatic
+        if ProcessInfo.processInfo.arguments.contains("-uitest") { preferredSource = .sample }
     }
 
     var isSample: Bool { activeSource == .sample }
