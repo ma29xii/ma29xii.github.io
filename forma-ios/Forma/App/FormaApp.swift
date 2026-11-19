@@ -7,7 +7,8 @@ struct FormaApp: App {
     nonisolated static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
     private static let models: [any PersistentModel.Type] = [
         Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self,
-        FoodEntry.self, FoodLibraryItem.self, FoodWaterEntry.self, FoodFast.self, FoodWeightEntry.self
+        FoodEntry.self, FoodLibraryItem.self, FoodWaterEntry.self, FoodFast.self, FoodWeightEntry.self,
+        FoodPlanItem.self
     ]
     @State private var hub = DataHub()
     @State private var app = AppState()

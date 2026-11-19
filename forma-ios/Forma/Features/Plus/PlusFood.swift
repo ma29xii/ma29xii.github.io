@@ -8,6 +8,7 @@ enum PlusFood {
     @ViewBuilder static func search() -> some View { FoodScanSheet(startInSearch: true) }
     @ViewBuilder static func photo() -> some View { FoodPhotoSheet() }
     @ViewBuilder static func log() -> some View { FoodLogView() }
+    @ViewBuilder static func plan() -> some View { FoodPlanView() }
     @ViewBuilder static func water() -> some View { FoodWaterView(standalone: true) }
     @ViewBuilder static func fasting() -> some View { FoodFastingView(standalone: true) }
     @ViewBuilder static func weight() -> some View { FoodWeightView(standalone: true) }

@@ -3,7 +3,7 @@ import SwiftData
 
 /// Einträge des Plus-Menüs.
 enum PlusAction: String, CaseIterable, Identifiable, Sendable {
-    case scan, photo, search, food, water, fasting, weight, training
+    case scan, photo, search, food, plan, water, fasting, weight, training
 
     var id: String { rawValue }
     var accessibilityID: String { "plus." + rawValue }
@@ -14,6 +14,7 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         case .photo: "Essen fotografieren"
         case .search: "Essen suchen"
         case .food: "Ernährung heute"
+        case .plan: "Essen planen"
         case .water: "Wasser"
         case .fasting: "Fasten"
         case .weight: "Gewicht"
@@ -27,6 +28,7 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         case .photo: "camera.viewfinder"
         case .search: "magnifyingglass"
         case .food: "fork.knife"
+        case .plan: "calendar"
         case .water: "drop"
         case .fasting: "timer"
         case .weight: "scalemass"
@@ -44,7 +46,7 @@ struct PlusGroup: Identifiable, Sendable {
 extension PlusAction {
     /// Gruppen im Menü: Essen, Heute erfassen, Training.
     static let groups = [
-        PlusGroup(title: "Essen", actions: [.scan, .photo, .search, .food]),
+        PlusGroup(title: "Essen", actions: [.scan, .photo, .search, .food, .plan]),
         PlusGroup(title: "Heute erfassen", actions: [.water, .fasting, .weight]),
         // Ohne Überschrift: „Training“ über „Training starten“ wäre doppelt.
         PlusGroup(title: "", actions: [.training])
@@ -157,6 +159,7 @@ private struct PlusFlow: ViewModifier {
                 case .photo: PlusFood.photo()
                 case .search: PlusFood.search()
                 case .food: PlusFood.log()
+                case .plan: PlusFood.plan()
                 case .water: PlusFood.water()
                 case .fasting: PlusFood.fasting()
                 case .weight: PlusFood.weight()
@@ -175,7 +178,7 @@ private struct PlusFlow: ViewModifier {
     private func routeIntent() {
         // Erst ansehen, dann verbrauchen: Was jetzt nicht gezeigt werden kann, bleibt in der Warteschlange
         // und läuft weiter, sobald das Hindernis weg ist (Profil zu, Training beendet, Sheet geschlossen).
-        guard app.launchReady, !app.showProfile, app.finishedSession == nil, destination == nil,
+        guard app.launchReady, !app.showProfile, !trainingEndBlocksWindows, destination == nil,
               let request = HealthIntentRouter.shared.pending else { return }
         // Ein laufendes Training liegt als Vollbild darüber; der Scanner wartet, bis es beendet ist.
         if request == .scanFood, app.liveWorkout != nil {
@@ -204,6 +207,13 @@ private struct PlusFlow: ViewModifier {
                 destination = .scan
             }
         }
+    }
+
+    /// Zwischen Trainingsende und geschlossener Zusammenfassung darf kein weiteres Fenster aufgehen.
+    /// Heute nur die Zusammenfassung selbst; die Lücke von 450 ms davor schließt der Zustand von training-muskeln,
+    /// sobald er da ist. Hier ist die einzige Stelle, an der er ergänzt wird (plus `onChange` oben).
+    private var trainingEndBlocksWindows: Bool {
+        app.finishedSession != nil
     }
 
     private func menuClosedStart() {
