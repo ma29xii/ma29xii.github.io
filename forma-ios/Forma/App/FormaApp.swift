@@ -115,6 +115,7 @@ struct RootView: View {
                 SampleData.seedWorkouts(hub.longDays, in: context)
             }
             app.profilePhoto = ProfilePhotoStore.load()
+            WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
             // Training, das iOS im Hintergrund beendet hat, wiederherstellen.
             if !app.isDemo, !FormaApp.isUITest, app.liveWorkout == nil,
                let restored = LiveWorkout.restore(alreadySaved: { id in
@@ -141,7 +142,10 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && !app.isDemo { BackgroundRefresh.schedule() }
-            if phase == .active { Task { await hub.syncAndNotify(background: false) } }
+            if phase == .active {
+                WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
+                Task { await hub.syncAndNotify(background: false) }
+            }
         }
         // Ganz am Ende: Der Tracker liegt so auch in den hier gezeigten Sheets (Profil, Zusammenfassung) im Environment.
         .achievementTracking(healthScope: hub.achievementHealthScope)

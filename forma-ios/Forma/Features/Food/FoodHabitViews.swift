@@ -64,6 +64,7 @@ struct FoodWaterView: View {
 private struct FoodWaterContent: View {
     var standalone = false
     @Environment(\.modelContext) private var context
+    @Environment(AppState.self) private var app
     @AppStorage(FoodSettings.waterGoalKey) private var goal = FoodSettings.defaultWaterMl
     @Query private var entries: [FoodWaterEntry]
     @State private var saveError = false
@@ -152,7 +153,14 @@ private struct FoodWaterContent: View {
             .alert("Konnte nicht gespeichert werden", isPresented: $saveError) {
                 Button("OK", role: .cancel) {}
             }
+            // Widget und Kontrollzentrum zeigen denselben Tagesstand.
+            .onChange(of: entries.count) { _, _ in syncWidget() }
+            .onChange(of: goal) { _, _ in syncWidget() }
         }
+    }
+
+    private func syncWidget() {
+        WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
     }
 
     private func tapGlass(_ index: Int) {
