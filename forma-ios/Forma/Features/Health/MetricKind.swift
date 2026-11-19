@@ -38,6 +38,20 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Kennfarbe des Messwerts (wie in Apple Health je Kategorie), bewertet nichts.
+    var tint: Color {
+        switch self {
+        case .hrv: Color(hex: 0x7FD8B6)
+        case .restingHR: Color(hex: 0xFF8A93)
+        case .respiratoryRate: Color(hex: 0x7CCBE6)
+        case .spo2: Color(hex: 0x93B8FF)
+        case .vo2max: Color(hex: 0xFFB672)
+        case .sleepDuration: Theme.sleep
+        case .steps: Theme.strain
+        case .activeEnergy: Color(hex: 0xFFD27A)
+        }
+    }
+
     func value(_ day: DayMetrics) -> Double? {
         switch self {
         case .hrv: day.hrv
@@ -62,7 +76,7 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Eine Zeile der Biomarker-Liste: Name, Zustand gegen deinen Bereich, Wert, Verlauf der letzten 14 Tage.
+/// Eine Zeile der Biomarker-Liste: Name und Zustand links, Mini-Verlauf und Wert rechts.
 /// Bei großer Schrift stehen die Teile untereinander statt zu schrumpfen (K-03-26).
 struct MetricSummaryRow: View {
     @Environment(DataHub.self) private var hub
@@ -77,33 +91,40 @@ struct MetricSummaryRow: View {
             kind.value(day).map { HealthChartPoint(date: day.date, value: $0) }
         }
         let large = typeSize.isAccessibilitySize
+        let value = evaluation.latest.map { kind.measurement($0.value) } ?? "–"
 
         HStack(spacing: Space.s3) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(kind.title)
-                    .font(.formaRowTitle)
-                    .foregroundStyle(Theme.textPrimary)
-                if let latest = evaluation.latest {
-                    Text(kind.measurement(latest.value))
-                        .font(.formaValue)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: Space.s2) {
+                    Circle()
+                        .fill(kind.tint)
+                        .frame(width: 7, height: 7)
+                        .accessibilityHidden(true)
+                    Text(kind.title)
+                        .font(.formaRowTitle)
                         .foregroundStyle(Theme.textPrimary)
-                        .formaNumberTransition(latest.value)
                 }
-                Label {
-                    Text(status.title)
-                } icon: {
-                    if let symbol = status.symbol { Image(systemName: symbol) }
+                if large {
+                    Text(value)
+                        .font(.formaNumber)
+                        .foregroundStyle(Theme.textPrimary)
                 }
-                .labelStyle(.titleAndIcon)
-                .font(.formaCaptionStrong)
-                .foregroundStyle(status.color)
+                BiomarkerStatusLabel(status: status)
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !large, recent.count >= 2 {
-                MetricSparkline(points: recent, range: evaluation.range)
-                    .frame(width: 72, height: 32)
-                    .accessibilityHidden(true)
+            if !large {
+                if recent.count >= 2 {
+                    MetricSparkline(points: recent, range: evaluation.range, tint: kind.tint)
+                        .frame(width: 84, height: 34)
+                        .accessibilityHidden(true)
+                }
+                Text(value)
+                    .font(.formaValue)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textPrimary)
+                    .formaNumberTransition(evaluation.latest?.value ?? 0)
+                    .frame(minWidth: 64, alignment: .trailing)
             }
             Image(systemName: "chevron.right")
                 .font(.formaCaptionStrong)
@@ -112,16 +133,45 @@ struct MetricSummaryRow: View {
         }
         .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)
-        .frame(minHeight: 64)
+        .frame(minHeight: 68)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(kind.title)
+        .accessibilityValue("\(value), \(status.title)")
     }
 }
 
-/// Die X-Position folgt dem Kalendertag. Eine fehlende Messung unterbricht die Linie.
+/// Zustand neutral: im Bereich leise mit Haken, Abweichung heller mit Pfeil in einer kleinen Kapsel.
+struct BiomarkerStatusLabel: View {
+    let status: BiomarkerStatus
+
+    var body: some View {
+        switch status {
+        case .above, .below:
+            Label(status.title, systemImage: status.symbol ?? "arrow.up")
+                .font(.formaCaptionStrong)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, Space.s2)
+                .padding(.vertical, 3)
+                .background(Theme.cardRaised, in: Capsule())
+        case .within:
+            Label(status.title, systemImage: "checkmark")
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textSecondary)
+        default:
+            Text(status.title)
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textTertiary)
+        }
+    }
+}
+
+/// 14 Tage in der Kennfarbe: zarte Fläche, dein Bereich als Band, letzter Wert mit Lichthof.
+/// Die X-Position folgt dem Kalendertag; eine fehlende Messung unterbricht Linie und Fläche.
 private struct MetricSparkline: View {
     let points: [HealthChartPoint]
     let range: ClosedRange<Double>?
+    let tint: Color
 
     var body: some View {
         Canvas { context, size in
@@ -130,34 +180,55 @@ private struct MetricSparkline: View {
             let first = Date.now.startOfDay.adding(days: -13)
             let span = max(high - low, 0.001)
             func y(_ value: Double) -> CGFloat {
-                high == low ? size.height / 2 : size.height - 3 - (size.height - 6) * CGFloat((value - low) / span)
+                high == low ? size.height / 2 : size.height - 4 - (size.height - 8) * CGFloat((value - low) / span)
+            }
+            func x(_ date: Date) -> CGFloat {
+                let days = Calendar.forma.dateComponents([.day], from: first, to: date).day ?? 0
+                return 3 + (size.width - 8) * CGFloat(days) / 13
             }
             if let range {
-                let top = y(range.upperBound), bottom = y(range.lowerBound)
+                let top = y(range.upperBound)
+                let bottom = y(range.lowerBound)
                 context.fill(Path(roundedRect: CGRect(x: 0, y: top, width: size.width, height: max(1, bottom - top)),
-                                  cornerRadius: 2), with: .color(Color.white.opacity(0.07)))
+                                  cornerRadius: 3), with: .color(Color.white.opacity(0.06)))
             }
-            var path = Path()
+            // Zusammenhängende Abschnitte (Tag für Tag) einzeln zeichnen.
+            var segments: [[CGPoint]] = []
             var previous: Date?
-            var end: (point: CGPoint, outside: Bool)?
             for point in points {
-                let days = Calendar.forma.dateComponents([.day], from: first, to: point.date).day ?? 0
-                let position = CGPoint(x: 2 + (size.width - 6) * CGFloat(days) / 13, y: y(point.value))
-                if previous?.adding(days: 1) == point.date {
-                    path.addLine(to: position)
+                let position = CGPoint(x: x(point.date), y: y(point.value))
+                if previous?.adding(days: 1) == point.date, !segments.isEmpty {
+                    segments[segments.count - 1].append(position)
                 } else {
-                    path.move(to: position)
+                    segments.append([position])
                 }
                 previous = point.date
-                end = (point: position, outside: range.map { !$0.contains(point.value) } ?? false)
-                context.fill(Path(ellipseIn: CGRect(x: position.x - 1, y: position.y - 1, width: 2, height: 2)),
-                             with: .color(Theme.textTertiary))
             }
-            context.stroke(path, with: .color(Theme.textSecondary),
-                           style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-            if let end {
-                context.fill(Path(ellipseIn: CGRect(x: end.point.x - 2.5, y: end.point.y - 2.5, width: 5, height: 5)),
-                             with: .color(end.outside ? Theme.textPrimary : Theme.textSecondary))
+            let fade = Gradient(colors: [tint.opacity(0.28), tint.opacity(0)])
+            for segment in segments {
+                guard let head = segment.first, let tail = segment.last else { continue }
+                if segment.count == 1 {
+                    context.fill(Path(ellipseIn: CGRect(x: head.x - 1.5, y: head.y - 1.5, width: 3, height: 3)),
+                                 with: .color(tint.opacity(0.8)))
+                    continue
+                }
+                var line = Path()
+                line.move(to: head)
+                for next in segment.dropFirst() { line.addLine(to: next) }
+                var area = line
+                area.addLine(to: CGPoint(x: tail.x, y: size.height))
+                area.addLine(to: CGPoint(x: head.x, y: size.height))
+                area.closeSubpath()
+                context.fill(area, with: .linearGradient(fade, startPoint: CGPoint(x: 0, y: 0),
+                                                         endPoint: CGPoint(x: 0, y: size.height)))
+                context.stroke(line, with: .color(tint),
+                               style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            }
+            if let end = segments.last?.last {
+                context.fill(Path(ellipseIn: CGRect(x: end.x - 5, y: end.y - 5, width: 10, height: 10)),
+                             with: .color(tint.opacity(0.25)))
+                context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)),
+                             with: .color(tint))
             }
         }
     }

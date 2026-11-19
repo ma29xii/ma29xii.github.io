@@ -87,6 +87,9 @@ final class DesignHealthTests: XCTestCase {
     func testPaceOutsideTheScaleIsNotShownPrecisely() {
         XCTAssertEqual(AgingPace.text(3.65), "über 3,0×")
         XCTAssertEqual(AgingPace.text(-2), "unter −1,0×")
+        XCTAssertEqual(AgingPace.outsideText(-1.6), "Langsamer, als die Skala zeigt")
+        XCTAssertEqual(AgingPace.outsideText(3.4), "Schneller, als die Skala zeigt")
+        XCTAssertNil(AgingPace.outsideText(0.8))
     }
 
     func testMonitorSummaryCountsValuesInRange() {

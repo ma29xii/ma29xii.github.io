@@ -64,6 +64,13 @@ enum AgingPace {
         return .clock
     }
 
+    /// Ruhige Worte statt einer Grenzzahl, wenn das Tempo außerhalb der Skala liegt.
+    static func outsideText(_ pace: Double) -> String? {
+        if pace < scale.lowerBound { return "Langsamer, als die Skala zeigt" }
+        if pace > scale.upperBound { return "Schneller, als die Skala zeigt" }
+        return nil
+    }
+
     static func text(_ pace: Double) -> String {
         // Außerhalb der Skala keine Scheingenauigkeit (K-03-38).
         if pace > scale.upperBound { return "über 3,0×" }

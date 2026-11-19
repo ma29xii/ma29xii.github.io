@@ -165,13 +165,21 @@ private struct AgingPaceCard: View {
                     let band = AgingPace.band(pace)
                     VStack(alignment: .leading, spacing: Space.s3) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text(AgingPace.text(pace))
-                                .font(.formaWidgetNumber)
-                                .formaNumberTransition(pace)
-                            Spacer()
-                            Text(band.title)
-                                .font(.formaCaptionStrong)
-                                .foregroundStyle(band.color)
+                            if let outside = AgingPace.outsideText(pace) {
+                                Text(outside)
+                                    .font(.formaHeadline)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
+                                Text(AgingPace.text(pace))
+                                    .font(.formaWidgetNumber)
+                                    .formaNumberTransition(pace)
+                            }
+                            Spacer(minLength: Space.s2)
+                            if AgingPace.outsideText(pace) == nil {
+                                Text(band.title)
+                                    .font(.formaCaptionStrong)
+                                    .foregroundStyle(band.color)
+                            }
                         }
                         AgingPaceScale(pace: pace, tint: band.color)
                         Text("Zwei 90-Tage-Fenster verglichen · Schätzung")
@@ -218,6 +226,16 @@ private struct AgingPaceScale: View {
                         .frame(width: 4, height: 34)
                         .shadow(color: tint.opacity(0.9), radius: 6)
                         .position(x: min(max(marker, 2), width - 2), y: 18)
+                    // Außerhalb der Skala: Marker bleibt am Rand, ein Pfeil zeigt nach außen.
+                    if pace < AgingPace.scale.lowerBound || pace > AgingPace.scale.upperBound {
+                        let left = pace < AgingPace.scale.lowerBound
+                        Image(systemName: left ? "chevron.left" : "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .padding(4)
+                            .background(Theme.cardRaised, in: Circle())
+                            .position(x: left ? 18 : width - 18, y: 18)
+                    }
                 }
             }
             .frame(height: 36)

@@ -211,12 +211,20 @@ private struct HealthMonitorDetail: View {
     private func tile(_ reading: MonitorReading) -> some View {
         DashboardCard {
             VStack(alignment: .leading, spacing: Space.s2) {
-                Label(reading.title, systemImage: reading.icon)
-                    .font(.formaMicro)
-                    .tracking(Tracking.micro)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2)
+                // Kurzer Titel ohne Großbuchstaben-Trennung („SAUERSTOFFSÄTTI-GUNG“), voller Name leise darunter.
+                VStack(alignment: .leading, spacing: 1) {
+                    Label(reading.shortTitle, systemImage: reading.icon)
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    if reading.title != reading.shortTitle {
+                        Text(reading.title)
+                            .font(.formaCaption)
+                            .foregroundStyle(Theme.textTertiary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(reading.value.map { reading.formatted($0) } ?? "–")
                         .font(.formaBigNumber)
