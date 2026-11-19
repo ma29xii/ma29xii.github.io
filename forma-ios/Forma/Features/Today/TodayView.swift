@@ -161,14 +161,16 @@ struct TodayView: View {
     /// Recovery groß in der Mitte, Strain und Sleep als Kapseln daneben, etwas tiefer gesetzt.
     /// Bei großer Schrift steht Recovery allein oben und die Kapseln darunter, statt alles zu stauchen.
     @ViewBuilder private func header(_ snapshot: DashboardDay) -> some View {
+        let stacked = Self.stacksHeader(width: headerWidth, largeText: typeSize >= .xxLarge)
         let debt = snapshot.day.sleep == nil ? nil : Self.debtNote(ScoreEngine.sleepDebt(history: snapshot.history))
         let strain = side(.strain, snapshot, band: snapshot.recovery.map { ScoreEngine.target(recovery: $0) },
                           note: nil, delay: 0.08)
         let recovery = gauge(.recovery, snapshot) {
-            DashboardRing(kind: .recovery, value: snapshot.recovery, size: Self.recoverySize(width: headerWidth))
+            DashboardRing(kind: .recovery, value: snapshot.recovery,
+                          size: stacked ? min(184, headerWidth) : Self.recoverySize(width: headerWidth))
         }
         let sleep = side(.sleep, snapshot, band: nil, note: debt, delay: 0.16)
-        if typeSize >= .xxLarge {
+        if stacked {
             VStack(spacing: Space.s4) {
                 recovery
                 HStack(alignment: .top, spacing: Space.s4) {
@@ -231,6 +233,12 @@ struct TodayView: View {
         .accessibilityIdentifier("ring." + kind.rawValue)
     }
 
+    /// Zwei Zeilen (Recovery oben, Kapseln darunter), sobald nebeneinander keine 80 pt je Kapsel bleiben
+    /// oder die Schrift groß ist. 292 = Mindestbogen 132 + 2 × 80.
+    nonisolated static func stacksHeader(width: CGFloat, largeText: Bool) -> Bool {
+        largeText || width < 132 + 2 * 80
+    }
+
     /// Recovery bleibt die Hauptsache: bis 184 pt, links und rechts aber immer 80 pt für die Kapseln.
     nonisolated static func recoverySize(width: CGFloat) -> CGFloat {
         min(184, max(132, width - 2 * 80))
@@ -239,24 +247,15 @@ struct TodayView: View {
     /// Ruhige Leiste, sobald der Kopf weggescrollt ist. Tippen springt zurück nach oben.
     private func compactBar(_ snapshot: DashboardDay, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: Space.s4) {
-                ForEach([RingKind.strain, .recovery, .sleep]) { kind in
-                    HStack(spacing: Space.s1) {
-                        Circle()
-                            .fill(DashboardRing.tint(kind: kind, value: snapshot.value(for: kind)))
-                            .frame(width: 6, height: 6)
-                        // Bei Bedienungshilfe-Größen nur Punkt und Zahl, damit die Leiste einzeilig bleibt.
-                        if !typeSize.isAccessibilitySize {
-                            Text(kind.title)
-                                .font(.formaMicro)
-                                .textCase(.uppercase)
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                        Text(snapshot.value(for: kind).map(String.init) ?? "–")
-                            .font(.formaValue)
-                            .formaNumberTransition(Double(snapshot.value(for: kind) ?? 0))
-                    }
+            // Beschriftungen bleiben immer sichtbar; reicht die Breite nicht, steht jeder Wert in einer eigenen Zeile.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Space.s4) {
+                    ForEach([RingKind.strain, .recovery, .sleep]) { kind in compactItem(kind, snapshot) }
                 }
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    ForEach([RingKind.strain, .recovery, .sleep]) { kind in compactItem(kind, snapshot) }
+                }
+                .padding(.vertical, Space.s2)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
             .contentShape(Rectangle())
@@ -277,6 +276,22 @@ struct TodayView: View {
         .accessibilityHint("Springt nach oben")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("today.compact")
+    }
+
+    private func compactItem(_ kind: RingKind, _ snapshot: DashboardDay) -> some View {
+        HStack(spacing: Space.s1) {
+            Circle()
+                .fill(DashboardRing.tint(kind: kind, value: snapshot.value(for: kind)))
+                .frame(width: 6, height: 6)
+            Text(kind.title)
+                .font(.formaMicro)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.textSecondary)
+            Text(snapshot.value(for: kind).map(String.init) ?? "–")
+                .font(.formaValue)
+                .formaNumberTransition(Double(snapshot.value(for: kind) ?? 0))
+        }
+        .fixedSize()
     }
 
     // MARK: Coach-Zeile

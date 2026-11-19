@@ -43,6 +43,17 @@ final class DesignTodayTests: XCTestCase {
         XCTAssertEqual(TodayView.recoverySize(width: 200), 132)   // Untergrenze
     }
 
+    func testHeaderStacksWhenCapsulesWouldLoseTheirSpace() {
+        XCTAssertTrue(TodayView.stacksHeader(width: 288, largeText: false))    // 132 + 2 × 78: zu eng
+        XCTAssertFalse(TodayView.stacksHeader(width: 292, largeText: false))   // genau 132 + 2 × 80
+        XCTAssertFalse(TodayView.stacksHeader(width: 358, largeText: false))
+        XCTAssertTrue(TodayView.stacksHeader(width: 358, largeText: true))
+        // Nebeneinander bleiben je Seite mindestens 80 pt.
+        for width in stride(from: 292.0, through: 430.0, by: 2) {
+            XCTAssertGreaterThanOrEqual((width - TodayView.recoverySize(width: width)) / 2, 80)
+        }
+    }
+
     // MARK: Satz zum Tag
 
     func testInsightNamesLowerRestingHeartRate() {
