@@ -55,6 +55,11 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
+    /// Element per Kennung, egal welcher Typ (Text in Buttons wird oft zusammengefasst).
+    private func el(_ id: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
     private func reveal(_ element: XCUIElement, swipes: Int = 10) -> Bool {
         for _ in 0..<swipes {
             if element.exists && element.isHittable { return true }
@@ -64,7 +69,7 @@ final class ScreenTour: XCTestCase {
     }
 
     private func captureDetail(_ id: String, title: String, screenshot: String) {
-        let button = app.buttons[id]
+        let button = el(id)
         guard reveal(button) else {
             XCTFail("Der Einstieg für \(title) fehlt")
             return
@@ -113,11 +118,11 @@ final class ScreenTour: XCTestCase {
             }
         }
 
-        let ranges = app.segmentedControls["trend.range"]
+        let ranges = el("trend.range")
         if reveal(ranges), ranges.buttons.count == 3 {
             let previousWindow = app.buttons["trend.window.left"]
             let nextWindow = app.buttons["trend.window.right"]
-            let window = app.staticTexts["trend.window.date"]
+            let window = el("trend.window.date")
             if reveal(previousWindow, swipes: 3) {
                 let latestWindow = window.label
                 previousWindow.tap()
@@ -138,8 +143,8 @@ final class ScreenTour: XCTestCase {
         back()
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
-        if reveal(app.staticTexts["today.stress.title"]) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
-        if reveal(app.staticTexts["today.activities.title"]) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
+        if reveal(el("today.stress.title")) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
+        if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 
         tab("Training")
@@ -180,8 +185,8 @@ final class ScreenTour: XCTestCase {
         app.buttons["health.age"].tap()
         if app.navigationBars["Health Age"].waitForExistence(timeout: 4) {
             shot("14b Health Age")
-            if reveal(app.staticTexts["health.age.pace.title"]) { shot("14d Alterungstempo") } else { XCTFail("Das Alterungstempo fehlt") }
-            if reveal(app.staticTexts["health.age.trend.title"]) { shot("14e Health Age Trend") } else { XCTFail("Der Health Age Trend fehlt") }
+            if reveal(el("health.age.pace.title")) { shot("14d Alterungstempo") } else { XCTFail("Das Alterungstempo fehlt") }
+            if reveal(el("health.age.trend.title")) { shot("14e Health Age Trend") } else { XCTFail("Der Health Age Trend fehlt") }
             back()
         } else {
             XCTFail("Die Health-Age-Seite fehlt")
