@@ -606,6 +606,14 @@ struct BodyAgeDetailView: View {
         .dashboardScreen()
         .navigationTitle("Health Age")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Teilen nur mit fertiger Schätzung; gleiche Rundung wie auf dem Bildschirm.
+            if case .ready(let result) = outcome {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareCardButton { .healthAge(result, isSample: hub.isSample) }
+                }
+            }
+        }
     }
 }
 
