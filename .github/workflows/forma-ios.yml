@@ -57,13 +57,25 @@ jobs:
         run: |
           APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Forma.app"
           test -d "$APP"
-          # Ad-hoc-Signatur nur, damit die HealthKit-Berechtigung in der App steckt.
-          # Sideloadly signiert beim Installieren mit deiner Apple-ID neu und übernimmt sie.
+          # Keine Schlüssel in der Standard-IPA (K-03-11).
+          if find "$APP" -name 'coach-keys.json' | grep -q .; then echo "coach-keys.json im Paket!"; exit 1; fi
+          # Ad-hoc-Signatur nur, damit App Group und Erweiterungen in der IPA stehen; Sideloadly signiert neu.
+          EXT="$APP/PlugIns/HealthWidgets.appex"
+          if [ -d "$EXT" ]; then
+            test -f "$EXT/HealthWidgets"
+            /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$EXT/Info.plist"
+            codesign --force --sign - --timestamp=none --entitlements HealthWidgets/HealthWidgets.entitlements "$EXT"
+          else
+            echo "::warning::HealthWidgets.appex fehlt im Build"
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist" || echo "::warning::NSSupportsLiveActivities fehlt"
           codesign --force --sign - --timestamp=none --entitlements Forma/Resources/Forma.entitlements "$APP"
+          codesign --verify --strict "$APP"
           codesign -d --entitlements - "$APP" || true
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa" && zip -qry Forma.ipa Payload
+          unzip -Z1 Forma.ipa | grep -E 'PlugIns/.*appex/[^/]+$' | head -5 || true
           ls -lh "$RUNNER_TEMP/ipa/Forma.ipa"
 
       - name: Artifact hochladen
