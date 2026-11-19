@@ -1,105 +1,82 @@
-# AGENTS.md – Zusammenarbeit an Forma (Claude baut, Codex prüft)
+# AGENTS.md – Übergabe für Codex: App „Health“ selbstständig weiterentwickeln
 
-Diese Datei liest Codex automatisch. Sie beschreibt den Stand, die Rollen und den Ablauf.
-Sprache im Projekt: **Deutsch**. Nutzer: Maxi.
+Codex liest diese Datei automatisch. Sie enthält alles, um **ohne Claude** weiterzubauen: Ziel, Aufbau, Design-Regeln, Ablauf, offene Punkte.
+Sprache: **Deutsch**, du-Form. Nutzer und Entscheider: **Maxi** (testet auf dem iPhone).
 
-## Rollen
+## 1. Ziel (Maxis Dauerauftrag, gilt bis er „Stopp“ sagt)
 
-| Wer | Aufgabe |
-|---|---|
-| **Claude** (Claude Code) | baut die App, setzt Kritik um, hält CI grün |
-| **Codex** (ChatGPT Codex) | **prüft**: extrem kritischer Senior Product Designer und iOS-Reviewer. Baut nicht selbst, außer Maxi sagt es ausdrücklich. |
-| **Maxi** | entscheidet, testet auf dem iPhone 18 Pro |
+Die App soll mit den modernsten Apps mithalten („krass, das ist eine krasse App“): **cleanes Design auf Jony-Ive-/WHOOP-Niveau**, viele neue Features, gründlich testen und debuggen, in Runden wiederholen.
+Codex und Claude teilen sich die Arbeit **etwa 50/50** – Codex baut echte Features, nicht nur Reviews.
+Modell: **höchstens GPT-6.2** (kleine Aufgaben `medium`, große `high`).
 
-Warum Codex nicht selbst Swift ändert: Zwei Agenten auf denselben Dateien erzeugen Konflikte. Codex schreibt Kritik, Claude setzt um.
+## 2. Die App
 
-## Stand (18.11.2026)
+- Anzeigename **„Health“**. Code-Namen bleiben **Forma** (Ordner `forma-ios/`, Target `Forma`, Bundle-ID `com.ma29xii.forma`, App Group `group.com.ma29xii.forma`). Nicht umbenennen.
+- SwiftUI, **iOS 26**, **Swift 6 strict concurrency**, Liquid Glass, SwiftData, Swift Charts, WidgetKit, ActivityKit, App Intents. **XcodeGen** (`forma-ios/project.yml`), keine Fremd-Frameworks.
+- **Einzige Datenquelle: Google Health API** (Fitbit 24/7 + Apple Watch tagsüber, ohne Doppelzählung; `Data/GoogleHealth*.swift`). Kein Apple-HealthKit (kostenlose Apple-ID kann es nicht).
+- Beispieldaten-Modus (`SampleData.swift`, 180 Tage) für Vorschau und CI. Beispieldaten schreiben nie in echte Einstellungen (`FoodSettings.store(isSample:)`).
+- Coach läuft **direkt auf dem iPhone** (Anthropic → OpenAI-Rückfall, `Features/Coach/CoachProviders.swift`), Schlüssel nur im Schlüsselbund, nie im Repo.
 
-- Branch: `claude/awesome-hypatia-tnhuis` (nur dort arbeiten, keine PR ohne Auftrag)
-- App: `forma-ios/` – SwiftUI, iOS 26, Swift 6, Liquid Glass, XcodeGen, keine Fremd-Frameworks
-- CI: `.github/workflows/forma-ios.yml` baut bei jedem Push eine unsignierte **Forma.ipa** (Artifact „Forma-IPA“) und fährt einen UI-Rundgang im Simulator. Die Screenshots landen per CI-Commit in `docs/forma-screens/` (Dateiname = Bildschirm).
-- Maxis Zusatzziel: **Synchronisierung extrem zuverlässig und automatisch im Hintergrund**, **Coach läuft immer** (Morgenbericht, Schlafenszeit, offline). Umgesetzt mit HealthKit-Hintergrundzustellung, BGAppRefresh, `SyncStore`, `CoachNotifier`.
-- Runde 02: Codex-Review 02 mit Angriffstest umgesetzt (`2ed96df`, `7dab922`), Antwort in `forma-ios/reviews/review-02-antwort.md`.
-- Runde 01: Codex-Review 01 und Prüfer-Review 01b umgesetzt (`d411500`), Antwort in `forma-ios/reviews/review-01-antwort.md`. Unit-Tests (`FormaTests`) laufen in der CI verpflichtend.
-- Fitbit Web API ist seit 2.11.2026 abgeschaltet → in der App als „wird umgestellt“ gekennzeichnet. Nächster großer Schritt: Google-Health-Importer (braucht Maxis Google-Cloud-Projekt).
-- Fertig: Heute (3 Ringe fest oben, darunter verschiebbare Kacheln), Training im Hevy-Stil (SwiftData, Live-Training, Pausentimer, 1RM), Gesundheit (Trends, **Körperalter**), Coach (lokal + optional Claude-API), Journal, Profil, Apple Health, Fitbit (PKCE).
-- Neu in Iteration 6: neutrales Schwarz statt Blaugrau, Lichtschein in Datenfarbe, Glas-Chips, Kachel-Karten, **Kacheln auf Heute, Training und Gesundheit verschiebbar** (lange drücken und ziehen, Kontextmenü, „… anpassen“-Liste), Körperalter mit offengelegter Methode und Quellen (`forma-ios/Forma/Data/BodyAge.swift`).
-- Offen / bekannt:
-  - Fitbit: alte API abgeschaltet, Google Health API noch nicht angebunden.
-  - HealthKit mit kostenloser Apple-ID per Sideloadly: nicht bestätigt.
-  - Noch kein Test auf echtem Gerät.
+### Tabs und Bildschirme (Stand Runde 12)
 
-## Ablauf pro Runde
+| Tab | Inhalt | Ordner |
+|---|---|---|
+| **Today** | Kopf: Recovery groß in der Mitte, Strain/Sleep als Kapseln links/rechts – wählbar auch als **3 Ringe** (langer Druck auf den Kopf oder „Anpassen“). Darunter Kacheln: Health Monitor (kompakt), Stress, Energie, Schritte mit adaptivem Ziel (Strich-Halbkreis), Mein Tag. Ring antippen → Detailseite. | `Features/Today/` |
+| **Food** | YAZIO-artig: Kalorien Mitte, Protein links, Kohlenhydrate rechts, Ballaststoffe, Mahlzeiten, Wasser, Fasten, Wochenplan + Einkaufsliste. | `Features/Food/` |
+| **Health** | Health Age als **Partikelkreis** (WHOOP-Age-Vorbild), Alterungstempo, Biomarker, Gewohnheit (14-Tage-Vergleich), Health Monitor. | `Features/Health/` |
+| **Coach** | Chat mit Lumo (schlichter, atmender Lichtpunkt), Fotos senden. | `Features/Coach/`, `Design/Mascot.swift` |
+| **Plus** (Knopf rechts) | Kachel-Menü, springt aus der Ecke auf: Nährwerte tracken (Scan/Foto/Suche), Essen planen, **Training** (Hevy-artig, Muskelkarte, Supersätze, Live-Training), Wasser, Fasten, Gewicht. | `Features/Plus/`, `Features/Training/` |
 
-1. Claude pusht → CI baut → neue Screenshots in `docs/forma-screens/`.
-2. **Codex** liest Screenshots **und** Code (`forma-ios/Forma/**`, besonders `Design/Theme.swift`, `Design/Components.swift`, `Design/Tiles.swift`) und schreibt
-   `forma-ios/reviews/review-NN.md` (NN fortlaufend: 01, 02, …). Commit nur diese Datei, Nachricht `Codex-Review NN`, push auf den Branch.
-3. **Claude** setzt um und antwortet in `forma-ios/reviews/review-NN-antwort.md`: pro Befund *umgesetzt* (mit Commit) oder *abgelehnt* (mit Begründung).
-4. Nächste Runde, bis Codex nichts Wesentliches mehr findet.
+Weitere: Profil/Body/Designs (Themes: Standard, Schwarz, Blau #4D8EB6, Bordeaux #5C2624, Verläufe), Onboarding, Erfolge, Teilen-Karten, Widgets (Recovery/Sleep/Strain + Wasser +250 ml, Control Center), Live Activity fürs Training, Siri-Kurzbefehle.
 
-## Prüfauftrag an Codex (bitte wörtlich nehmen)
+## 3. Design-Regeln (aus Maxis Feedback – verbindlich)
 
-Du bist ein **extrem kritischer Senior Product Designer** mit Apple-HIG- und iOS-26-Erfahrung.
-Nichts ist „okay“. Sprich **jedes** Detail an, auch kleine: Abstände (in pt schätzen), Ausrichtung, Kanten,
-Typografie-Hierarchie, Zeilenlängen, Zahlenformate, Farbe und ihre Bedeutung, Kontrast (WCAG AA),
-Liquid Glass (Glas auf Inhalt? Glas auf Glas? zu viel/zu wenig?), Tippziele (mind. 44 pt), Dynamic Type,
-leere Zustände, Ladezustände, Fehlertexte, Texte (Deutsch, du-Form, kurz, keine Fachsprache ohne Erklärung),
-Bewegung/Animation, Konsistenz zwischen den Bildschirmen, Daumenzone, Bedienbarkeit mit einer Hand,
-VoiceOver-Beschriftungen, Dark Mode zuerst.
+1. **Keine Chevrons/Pfeile** in Listen und Kacheln. Antippen geht trotzdem.
+2. **Keine Erklär- oder Berechnungstexte** („So wird gerechnet“, „Deine Messwerte deuten darauf hin …“, Fußnoten). Höchstens hinter einem kleinen (i).
+3. **Kein „Heute vs. 30-Tage-Schnitt“**, kein Datum unter großen Werten, keine Tagesauswahl durch Tippen in Diagrammen, kein „Schätzung“, kein „Stand 17:00“.
+4. **Alles auf einen Blick beim Scrollen** – keine Extra-Tipps für Standardinhalte; nur sehr spezielle Daten in Unterseiten.
+5. **„Anpassen“ immer ganz unten.**
+6. **Etwas mehr Farbe** – Ringfarben als Akzente (Recovery grün/gelb/rot, Strain blau, Sleep lila), nicht bunt.
+7. **Einheitliche Skala** (`Design/MetricScale.swift`) statt eigener Varianten.
+8. **Englische Ring- und Tab-Namen** (Recovery, Strain, Sleep; Today, Food, Health, Coach), sonst Deutsch.
+9. **Apple-Gesten**: vom Rand zurück, Blätter wegwischen, Wischen zum Löschen, Kontextmenü, Ziehen zum Aktualisieren.
+10. Eigene Formen – **keine 1:1-Kopie** von WHOOP/Bevel/YAZIO/Hevy (Rechtsrisiko), aber deren Qualität.
+11. Dark Mode zuerst, Dynamic Type, VoiceOver-Labels, Tippziele ≥ 44 pt, Reduce Motion beachten.
 
-Vergleiche mit dem Besten (Apple Fitness/Health, Bevel, Oura), aber **schlage keine Kopie** von Whoop oder anderen Apps vor.
-Forma soll ruhig, modern und eigenständig sein.
+Maxis Original-Feedback: `.teamarbeit/feedback-maxi-03.md` (Kürzel T1, H1 …), WHOOP-Age-Referenz `.teamarbeit/whoop-age-referenz.webp`, WHOOP-PDF `C:\Users\maxi\Downloads\Forma-Referenzbilder.pdf`, Inspiration `.teamarbeit/recherche-inspiration.md`, Feature-Ideen `.teamarbeit/recherche-features.md`.
 
-Prüfe auch die **Inhalte**: Stimmen Berechnungen und Erklärungen (z. B. Körperalter, Quellen in `BodyAge.swift`)?
-Wird irgendwo etwas behauptet, das nicht belegt ist? Ist etwas irreführend?
+## 4. Ablauf, Build, Git
 
-### Format von `review-NN.md`
+- Branch **`claude/awesome-hypatia-tnhuis`**, Repo `ma29xii/ma29xii.github.io`. Keine PRs.
+- Windows-Rechner: **kein Xcode**. Bauen und testen nur über **GitHub Actions** (`.github/workflows/forma-ios.yml`): Job `ipa` baut die IPA (Artifact `Forma-IPA`), Job `screens` führt `FormaTests` (müssen grün sein) und den UI-Rundgang `FormaUITests/ScreenTour.swift` aus (Artifact `Health-Screenshots`, Pflichtbilder in `REQUIRED`).
+- Neue Pushes **ersetzen wartende CI-Läufe** – bei vielen Commits erst am Ende einen Lauf abwarten.
+- **Codex kann in seiner Sandbox nicht committen** (`.git` gesperrt). Lege Änderungen nur im Arbeitsbaum ab und schreibe `.teamarbeit/ergebnis-<name>.md`; Claude oder Maxi committet. Wenn Maxi Codex mit Git-Rechten startet: nur eigene Dateien `git add`, Commit `[codex-<runde>] Runde NN: …`, `git pull --rebase --autostash`, `git push`.
+- IPA für Maxi: nach grünem Lauf `gh run download <id> -n Forma-IPA` → `C:\Users\maxi\Downloads\Health.ipa`. Installation per Sideloadly (kostenlose Apple-ID, 7 Tage gültig).
+- Testplan fürs iPhone: `forma-ios/TESTEN.md`.
 
-```
-# Codex-Review NN – <Datum>
-Geprüfter Commit: <hash>
+### Häufige Swift-6-Fallen (schon passiert)
+- Statische Konstanten in Views/MainActor-Typen, die Tests lesen → `nonisolated static let` oder Test `@MainActor`.
+- `UserDefaults.register(defaults:)` gilt prozessweit → nie für Vorschau-Speicher verwenden.
+- Nicht-Sendable ActivityKit-Objekte über `await` → `nonisolated(unsafe) let`.
+- Keine erfundenen APIs (z. B. gab es `IntentExecutionTargets` nicht).
+- Definition und erster Aufruf eines neuen Members **im selben Commit** liefern, sonst bricht der Build dazwischen.
 
-## Gesamturteil
-Note pro Bildschirm (1–10) und die 5 wichtigsten Punkte.
+## 5. Dateibesitz pro Runde
 
-## Befunde
-### R-NN-01 · P0|P1|P2|P3 · <Bildschirm> · <Screenshot-Datei>
-Beobachtung: was genau (mit geschätzten Maßen/Werten)
-Warum falsch: Prinzip/HIG/Nutzerwirkung
-Lösung: konkret, auf SwiftUI-Ebene (Datei, Komponente, Wert)
+Pro Runde gibt es eine `.teamarbeit/REGELN-runde-NN.md` mit Tabelle „wer ändert welche Dateien“ und festen Schnittstellen. **Nur eigene Dateien ändern.** Aktuell: `REGELN-runde-11.md`. Arbeitet Codex allein, gehört ihm alles – dann trotzdem in kleinen, in sich kompilierbaren Schritten.
 
-## Was bleiben soll
-Was gut ist und nicht angefasst werden darf.
-```
+## 6. Offene Punkte (Backlog, nach Nutzen sortiert)
 
-Schweregrade: **P0** kaputt/irreführend · **P1** deutlich sichtbarer Designfehler · **P2** Feinschliff · **P3** Geschmack/Idee.
+1. **CI-Lauf von Runde 11/12 prüfen** und Compile-/Testfehler beheben (viele Teile noch nie kompiliert).
+2. Schlafplan (Codex G, Runde 12) fertigstellen, ggf. an `CoachNotifier` (Bettzeit-Erinnerung) anbinden.
+3. Gegenprüfung 05 Restpunkte: A5 einheitliche Skala auch für Schritte/Stress/Alterungstempo; H1 Feinschliff Partikelkreis.
+4. Ideen: Gerätevergleich bei widersprüchlichem Schlaf (zwei Zeitachsen, Korrektur), Rezepte/Favoriten-Ausbau, Jetlag-Plan, Wochenrückblick als Story, Achievements-Ausbau.
+5. Google-Cloud-Client-ID fehlt noch von Maxi (`Config.xcconfig` `GOOGLE_CLIENT_ID`; App in Google Cloud „In Produktion“ stellen, sonst laufen Tokens nach 7 Tagen ab).
 
-## Runde 02 – Design-Nachprüfung und Angriffstest (für Codex)
+## 7. Regeln für alle Agenten
 
-Zuerst `forma-ios/reviews/review-01-antwort.md` lesen und jeden Punkt nachprüfen. Nichts glauben, alles im Code und auf den neuen Screenshots kontrollieren.
-
-Danach **wie ein Angreifer** vorgehen. Ziel: Forma zum Absturz bringen, falsche Zahlen erzeugen, Daten verlieren oder Daten nach außen geben. Für jeden Fund einen konkreten Testfall (Eingabe → erwartetes Verhalten) angeben, möglichst als XCTest-Vorschlag für `forma-ios/FormaTests/`.
-
-Angriffsflächen:
-1. **Eingaben aus dem Netz:** Fitbit-/Google-Antworten (kaputtes JSON, riesige Werte, negative Dauern, falsche Zeitzonen, Sommerzeitwechsel), Anthropic-Antworten (leer, Fehlercodes, sehr lang), Header (`Retry-After`).
-2. **Apple-Health-Daten:** NaN/∞, Überlappungen, Nickerchen, mehrere Quellen, Daten aus der Zukunft, 0 Tage, 1 Tag, 10 Jahre.
-3. **Lokaler Speicher:** manipulierte UserDefaults (`forma.tiles.*`, `forma.liveWorkout`, `forma.birthYear`, `forma.lastRings`), kaputte SwiftData-Zustände, App-Abbruch mitten im Speichern.
-4. **Bedienung:** Doppeltippen, sehr schnelles Tippen, Training ohne Sätze, 1000 Sätze, Gewicht 0 / 1000, Einheitenwechsel mitten im Training, Rotation/Hintergrund/Sperrbildschirm während der Pause.
-5. **Datenschutz:** Gelangt irgendein Gesundheitswert ohne Zustimmung nach außen? Liegen Schlüssel/Token außerhalb des Schlüsselbunds? Logs?
-6. **OAuth/PKCE:** `state`-Prüfung, Wiederverwendung von Codes, URL-Schema `forma://` von außen aufrufbar?
-7. **Synchronisierung (Maxi: „extrem wichtig“):** Hintergrundzustellung, `BGAppRefreshTask`, `SyncStore.merge`, gesperrtes Gerät, Zeitzonenwechsel, Mitternacht, gleichzeitige Anstöße (`refreshPending`), App-Neustart im Hintergrund. Kann irgendein Weg Daten verlieren oder alte Daten als neu zeigen?
-8. **Coach im Hintergrund:** Morgenbericht (einmal pro Tag?), Schlafenszeit-Erinnerung (Zeitzonen, Sommerzeit), Claude-Zeitlimit und Rückfall.
-9. **Berechnungen:** Grenzwerte in `ScoreEngine`, `BodyAge`, `Progression`, `PlateMath` (Off-by-one, Rundung, Division durch 0).
-
-Ergebnis nach `forma-ios/reviews/review-02.md`, Befunde `R-02-xx`, Schweregrade wie oben, plus Abschnitt „Angriffstest“ mit Tabelle *Angriff · Ergebnis laut Code · Risiko · Testfall*. Nur diese Datei committen.
-
-## Runde 03 – Nachprüfung (für Codex)
-
-`forma-ios/reviews/review-02-antwort.md` lesen und jeden Punkt im Code und auf den neuen Screenshots kontrollieren (`docs/forma-screens/HERKUNFT.txt` nennt Build und Lauf). Danach die neue Synchronisierung und den Coach im Hintergrund erneut angreifen. Ergebnis nach `forma-ios/reviews/review-03.md`, Befunde `R-03-xx`, gleiches Format, nur diese Datei committen.
-
-## Regeln für alle Agenten
-
-- Keine Fakten erfinden. Unbelegtes kennzeichnen („Ich kann das nicht bestätigen“).
-- Keine Geheimnisse (API-Schlüssel, Tokens) ins Repo.
-- Keine Modellnamen in Commits.
+- Keine Fakten erfinden; Unbelegtes kennzeichnen.
+- Keine Schlüssel, Tokens oder `.env` lesen, ausgeben oder committen. `coach-keys.json` nie in die Standard-IPA.
+- Bestehende Tests nicht löschen oder abschwächen; nur anpassen, wenn Maxis Wunsch sie direkt ändert (im Commit nennen).
 - Nicht in `docs/forma-screens/` schreiben (macht die CI).
+- Am Ende jeder Aufgabe auf Deutsch in 3 Stichpunkten: was geändert, was getestet, was offen.
