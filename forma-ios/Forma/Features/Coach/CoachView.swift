@@ -168,7 +168,8 @@ struct CoachView: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.s3))
             : AnyLayout(HStackLayout(alignment: .center, spacing: Space.s4))
         return layout {
-            Mascot(mood: mascotMood, size: 88, tint: mascotTint)
+            // Beim Warten bewegt sich nur Lumo im Chat; der Kopf steht ruhig.
+            Mascot(mood: thinking ? .calm : mascotMood, size: 88, tint: mascotTint, animated: !thinking)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mascotMood.accessibilityText)
                 .accessibilityIdentifier("coach.mascot")
@@ -441,28 +442,11 @@ extension Array where Element == ChatMessage {
     }
 }
 
+/// Wartezeile neben dem Maskottchen. Bewegung gibt es nur dort; der Text bleibt ruhig.
 private struct CoachThinkingLine: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Text("Denkt nach …")
             .font(.formaCaptionStrong)
             .foregroundStyle(Theme.textSecondary)
-            .overlay {
-                if !reduceMotion {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                        let position = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3.2) / 3.2
-                        GeometryReader { geometry in
-                            LinearGradient(colors: [.clear, Color.white.opacity(0.68), .clear],
-                                           startPoint: .leading, endPoint: .trailing)
-                                .frame(width: geometry.size.width / 2)
-                                .offset(x: geometry.size.width * (position * 1.5 - 0.5))
-                        }
-                        .mask { Text("Denkt nach …").font(.formaCaptionStrong) }
-                    }
-                    .accessibilityHidden(true)
-                    .allowsHitTesting(false)
-                }
-            }
     }
 }

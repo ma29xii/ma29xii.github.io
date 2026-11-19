@@ -42,6 +42,19 @@ final class PlusCoachTests: XCTestCase {
 
     // MARK: Maskottchen
 
+    // MARK: Pause
+
+    @MainActor
+    func testExtendRestStopsAtLimit() {
+        let workout = LiveWorkout(title: "Test", exercises: [])
+        workout.isDemo = true   // keine Systemaufrufe
+        XCTAssertTrue(workout.canExtendRest)
+        for _ in 0..<80 { workout.extendRest(by: 15) }
+        XCTAssertLessThanOrEqual(workout.restEndsAt?.timeIntervalSinceNow ?? 0, LiveWorkout.maxRestSeconds + 1)
+        XCTAssertEqual(workout.restTotal, Int(LiveWorkout.maxRestSeconds))
+        XCTAssertFalse(workout.canExtendRest)
+    }
+
     func testMascotTintFollowsRecovery() {
         XCTAssertEqual(CoachMascotLogic.tint(recovery: 90), Theme.recoveryHigh)
         XCTAssertEqual(CoachMascotLogic.tint(recovery: 50), Theme.recoveryMid)

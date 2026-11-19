@@ -128,6 +128,8 @@ private struct PlusFlow: ViewModifier {
     @State private var destination: PlusAction?
     /// Training kam von einem Kurzbefehl: ohne Routine ein freies Training starten.
     @State private var freeTrainingIfNone = false
+    /// Seit wann ein Scan-Auftrag auf das Ende des Trainings wartet; nach 15 Minuten ist er veraltet.
+    @State private var scanHeldSince: Date?
 
     private var nextRoutine: Routine? {
         PlusLogic.nextRoutineIndex(lastUsed: routines.map(\.lastUsed)).map { routines[$0] }
@@ -147,6 +149,8 @@ private struct PlusFlow: ViewModifier {
             .onChange(of: app.launchReady) { _, _ in routeIntent() }
             .onChange(of: app.showProfile) { _, _ in routeIntent() }
             .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
+            .onChange(of: app.liveWorkout?.draftID) { _, _ in routeIntent() }
+            .onChange(of: destination) { _, _ in routeIntent() }
             .sheet(item: $destination) { action in
                 switch action {
                 case .scan: PlusFood.scan()
@@ -169,9 +173,19 @@ private struct PlusFlow: ViewModifier {
 
     /// Übernimmt eine wartende Anfrage von Siri, Kurzbefehl oder Steuerelement.
     private func routeIntent() {
-        guard app.launchReady, !app.showProfile, app.finishedSession == nil,
-              HealthIntentRouter.shared.pending != nil,
-              let request = HealthIntentRouter.shared.consume() else { return }
+        // Erst ansehen, dann verbrauchen: Was jetzt nicht gezeigt werden kann, bleibt in der Warteschlange
+        // und läuft weiter, sobald das Hindernis weg ist (Profil zu, Training beendet, Sheet geschlossen).
+        guard app.launchReady, !app.showProfile, app.finishedSession == nil, destination == nil,
+              let request = HealthIntentRouter.shared.pending else { return }
+        // Ein laufendes Training liegt als Vollbild darüber; der Scanner wartet, bis es beendet ist.
+        if request == .scanFood, app.liveWorkout != nil {
+            if scanHeldSince == nil { scanHeldSince = .now }
+            return
+        }
+        let held = scanHeldSince
+        scanHeldSince = nil
+        guard HealthIntentRouter.shared.consume() != nil else { return }
+        if request == .scanFood, let held, Date.now.timeIntervalSince(held) > 15 * 60 { return }
         switch request {
         case .startTraining:
             freeTrainingIfNone = true
@@ -183,8 +197,6 @@ private struct PlusFlow: ViewModifier {
                 menuClosedStart()
             }
         case .scanFood:
-            // Läuft ein Training, liegt der Vollbild-Dialog darüber. Dann nicht dazwischenfahren.
-            guard app.liveWorkout == nil else { return }
             if app.showPlus {
                 chosen = .scan
                 app.showPlus = false

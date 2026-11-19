@@ -56,15 +56,17 @@ struct CoachPhotoButton: View {
     @Binding var isLoading: Bool
     @State private var showLibrary = false
     @State private var showCamera = false
+    @State private var cameraDenied = false
     @State private var items: [PhotosPickerItem] = []
 
     private var remaining: Int { CoachPhoto.maxCount - photos.count }
-    private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    /// Ohne Kamera-Hardware (Simulator, iPad ohne Kamera) gibt es den Eintrag nicht; bei verweigertem Zugriff erklärt ein Hinweis den Rückweg.
+    private var cameraAvailable: Bool { CameraAccess.current != .unavailable }
 
     var body: some View {
         Menu {
             if cameraAvailable {
-                Button("Kamera", systemImage: "camera") { showCamera = true }
+                Button("Kamera", systemImage: "camera") { openCamera() }
             }
             Button("Fotos", systemImage: "photo.on.rectangle") { showLibrary = true }
         } label: {
@@ -79,6 +81,12 @@ struct CoachPhotoButton: View {
         .accessibilityHint(remaining <= 0 ? "Höchstens vier Fotos pro Nachricht" : "Kamera oder Fotos")
         .accessibilityIdentifier("coach.photo")
         .photosPicker(isPresented: $showLibrary, selection: $items, maxSelectionCount: max(1, remaining), matching: .images)
+        .alert("Kein Zugriff auf die Kamera", isPresented: $cameraDenied) {
+            Button("Einstellungen öffnen") { CameraAccess.openSettings() }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Erlaube Health den Zugriff in den iOS-Einstellungen. Du kannst stattdessen ein Foto aus deiner Mediathek wählen.")
+        }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { data in add(data) }.ignoresSafeArea()
         }
@@ -91,6 +99,16 @@ struct CoachPhotoButton: View {
                     if let data = try? await item.loadTransferable(type: Data.self) { add(data) }
                 }
                 isLoading = false
+            }
+        }
+    }
+
+    private func openCamera() {
+        Task {
+            switch await CameraAccess.request() {
+            case .ready: showCamera = true
+            case .denied: cameraDenied = true
+            case .needsRequest, .unavailable: break
             }
         }
     }

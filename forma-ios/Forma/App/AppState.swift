@@ -247,7 +247,7 @@ final class LiveWorkout: Identifiable {
                 s.rir = s.rir.map { min(4, max(0, $0)) }
                 return s
             }
-            ex.restSeconds = min(900, max(15, ex.restSeconds))
+            ex.restSeconds = min(Int(Self.maxRestSeconds), max(15, ex.restSeconds))
             return ex
         }.filter { !$0.sets.isEmpty }
         guard !exercises.isEmpty else { clearSaved(); return nil }
@@ -256,8 +256,8 @@ final class LiveWorkout: Identifiable {
             w.exerciseIndex = snap.exerciseIndex
             w.setIndex = snap.setIndex
         }
-        w.restTotal = min(900, max(1, snap.restTotal))
-        w.restEndsAt = snap.restEndsAt.flatMap { $0 > now && $0 < now.addingTimeInterval(900) ? $0 : nil }
+        w.restTotal = min(Int(Self.maxRestSeconds), max(1, snap.restTotal))
+        w.restEndsAt = snap.restEndsAt.flatMap { $0 > now && $0 <= now.addingTimeInterval(Self.maxRestSeconds) ? $0 : nil }
         w.currentRIR = snap.currentRIR.map { min(4, max(0, $0)) }
         return w
     }
@@ -385,10 +385,18 @@ final class LiveWorkout: Identifiable {
         LiveTrainingActivity.update(workout: self)
     }
 
+    /// Längste Pause in Sekunden. Dieselbe Grenze gilt beim Verlängern, Wiederherstellen und für die Live Activity.
+    static let maxRestSeconds: TimeInterval = 900
+    /// Es ist noch Platz für „+15 Sek.“ (Restzeit unter der Obergrenze).
+    var canExtendRest: Bool {
+        (restEndsAt ?? .now).timeIntervalSinceNow < Self.maxRestSeconds - 1
+    }
+
     func extendRest(by seconds: Int) {
-        let base = max(Date.now, restEndsAt ?? .now)
-        restEndsAt = base.addingTimeInterval(TimeInterval(seconds))
-        restTotal += seconds
+        let now = Date.now
+        let base = max(now, restEndsAt ?? now)
+        restEndsAt = min(base.addingTimeInterval(TimeInterval(seconds)), now.addingTimeInterval(Self.maxRestSeconds))
+        restTotal = min(Int(Self.maxRestSeconds), restTotal + seconds)
         if !isDemo, let end = restEndsAt { RestNotifier.schedule(at: end, next: currentExercise?.name) }
         persist()
         LiveTrainingActivity.update(workout: self)

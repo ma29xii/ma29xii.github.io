@@ -16,6 +16,9 @@ struct ProfileView: View {
     @AppStorage(BackgroundRefresh.plannedKey) private var refreshPlanned = 0.0
     @AppStorage(BackgroundRefresh.errorKey) private var refreshError = ""
     @AppStorage(BackgroundRefresh.attemptKey) private var refreshAttempt = 0.0
+    @AppStorage(CoachProviders.consentKey) private var coachConsent = false
+    @AppStorage(CoachProviders.photoConsentKey) private var coachPhotoConsent = false
+    @AppStorage(FoodSettings.photoConsentKey) private var foodPhotoConsent = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoError: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -41,6 +44,8 @@ struct ProfileView: View {
                 .listRowBackground(Theme.card)
 
                 sourceSection
+
+                consentSection
 
                 Section {
                     if notificationStatus == .notDetermined {
@@ -109,6 +114,43 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    // MARK: Freigaben
+
+    /// Nur Widerruf: Zustimmen geschieht dort, wo der Text erklärt, was gesendet wird (Coach-Dialog, Essensfoto).
+    /// Der Chat-Widerruf nimmt auch beide Foto-Freigaben mit, damit sie nicht still wieder wirksam werden.
+    @ViewBuilder private var consentSection: some View {
+        if coachConsent || coachPhotoConsent || foodPhotoConsent {
+            Section {
+                if coachConsent {
+                    revokeRow("Fragen an den Online-Coach", systemImage: "cloud", id: "profile.consent.chat") {
+                        coachConsent = false
+                        coachPhotoConsent = false
+                        foodPhotoConsent = false
+                    }
+                }
+                if coachPhotoConsent {
+                    revokeRow("Fotos im Chat", systemImage: "photo", id: "profile.consent.chatPhotos") { coachPhotoConsent = false }
+                }
+                if foodPhotoConsent {
+                    revokeRow("Fotos beim Essen", systemImage: "fork.knife", id: "profile.consent.foodPhotos") { foodPhotoConsent = false }
+                }
+            } header: {
+                Text("Freigaben").formaLabelStyle()
+            } footer: {
+                Text("Nach dem Widerruf sendet Health dafür nichts mehr an den Online-Coach, bis du erneut zustimmst. Der Coach antwortet dann auf dem iPhone.")
+            }
+            .listRowBackground(Theme.card)
+        }
+    }
+
+    private func revokeRow(_ title: String, systemImage: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            SettingsRow(title: title, systemImage: systemImage, detail: "Widerrufen")
+        }
+        .accessibilityHint("Gibt diese Freigabe zurück")
+        .accessibilityIdentifier(id)
     }
 
     /// Weckzeit als Uhrzeit. Gespeichert werden Minuten nach Mitternacht.
