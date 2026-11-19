@@ -24,7 +24,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var top: Color {
         switch self {
         case .standard: Color(hex: 0x222325)
-        case .black: Color(hex: 0x050505)
+        case .black: Color(hex: 0x000000)
         case .blue: Color(hex: 0x1A2A35)
         case .bordeaux: Color(hex: 0x2B1514)
         case .blend: Color(hex: 0x2B1514)
@@ -36,7 +36,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var mid: Color {
         switch self {
         case .standard: Color(hex: 0x161719)
-        case .black: Color(hex: 0x020202)
+        case .black: Color(hex: 0x000000)
         case .blue: Color(hex: 0x111B23)
         case .bordeaux: Color(hex: 0x1B0E0E)
         case .blend: Color(hex: 0x181620)

@@ -32,6 +32,13 @@ final class Runde11DesignRestTests: XCTestCase {
         XCTAssertTrue(AppTheme.blend.glowLayers(tint: nil).allSatisfy { $0.opacity > 0 })
     }
 
+    func testBlackIsPureBlackFromTopToBottom() {
+        let black = Color(hex: 0x000000)
+        XCTAssertEqual(AppTheme.black.top, black)
+        XCTAssertEqual(AppTheme.black.mid, black)
+        XCTAssertEqual(AppTheme.black.bottom, black)
+    }
+
     func testStoreKeepsSelectionAndIgnoresGarbage() throws {
         let suite = "forma.test.theme.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
