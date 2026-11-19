@@ -55,9 +55,10 @@ struct LiveWorkoutView: View {
                 }
             }
             .task(id: record?.id) {
-                guard record != nil else { return }
-                try? await Task.sleep(for: .seconds(3))
-                withAnimation(.smooth) { record = nil }
+                guard let id = record?.id else { return }
+                // Abbruch heißt: ein neuer Hinweis ist da. Dann nichts ausblenden.
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                if record?.id == id { withAnimation(.smooth) { record = nil } }
             }
             .sensoryFeedback(.levelChange, trigger: record?.id) { _, new in new != nil }
             .formaScreen()

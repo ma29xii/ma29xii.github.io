@@ -83,7 +83,7 @@ struct TrainingView: View {
                 }
             }
             .sheet(item: $tappedMuscle) { m in
-                MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0, recovery: MuscleRecovery.state(recoveryLoad[m] ?? 0))
+                MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0, recovery: sessions.isEmpty ? nil : MuscleRecovery.state(recoveryLoad[m] ?? 0))
             }
         }
     }
@@ -274,21 +274,29 @@ struct TrainingView: View {
     @ViewBuilder private func recoveryRows(_ load: [Muscle: Double]) -> some View {
         let byState = Dictionary(grouping: Muscle.allCases) { MuscleRecovery.state(load[$0] ?? 0) }
         VStack(alignment: .leading, spacing: Space.s2) {
-            ForEach([RecoveryState.loaded, .recovering], id: \.self) { state in
-                if let muscles = byState[state], !muscles.isEmpty {
-                    HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                        Circle().fill(Theme.older.opacity(state == .loaded ? 1 : 0.5)).frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
-                        Text(state.title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
-                        Text(muscles.map(\.name).joined(separator: ", ")).font(.formaCaption)
-                            .fixedSize(horizontal: false, vertical: true)
+            if sessions.isEmpty {
+                // Ohne Verlauf gibt es keine Einstufung, auch kein „frisch“.
+                Text("Noch keine Trainingsdaten.")
+                    .font(.formaBody).foregroundStyle(Theme.textSecondary)
+            } else {
+                ForEach([RecoveryState.loaded, .recovering], id: \.self) { state in
+                    if let muscles = byState[state], !muscles.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                            Circle().fill(Theme.older.opacity(state == .loaded ? 1 : 0.5)).frame(width: 8, height: 8)
+                                .accessibilityHidden(true)
+                            Text(state.title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                            Text(muscles.map(\.name).joined(separator: ", ")).font(.formaCaption)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
                     }
-                    .accessibilityElement(children: .combine)
                 }
+                let fresh = byState[.fresh]?.count ?? 0
+                Text(fresh == Muscle.allCases.count ? "Alle Muskeln sind frisch." : "\(fresh) von \(Muscle.allCases.count) Muskeln sind frisch.")
+                    .font(.formaCaption).foregroundStyle(Theme.textTertiary)
+                Text("Schätzung aus deinen erfassten Sätzen der letzten 72 Stunden.")
+                    .font(.formaCaption).foregroundStyle(Theme.textTertiary)
             }
-            let fresh = byState[.fresh]?.count ?? 0
-            Text(fresh == Muscle.allCases.count ? "Alle Muskeln sind frisch." : "\(fresh) von \(Muscle.allCases.count) Muskeln sind frisch.")
-                .font(.formaCaption).foregroundStyle(Theme.textTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.s4)
