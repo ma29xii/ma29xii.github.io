@@ -73,6 +73,12 @@ struct TodayView: View {
                 InsightPage(title: route.kind.title) {
                     RingDetailView(kind: route.kind, snapshot: snapshot, history: history)
                 }
+                // Teilen sitzt bewusst im Detail statt auf Today, damit der Kopf ruhig bleibt.
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareCardButton { .today(snapshot, isSample: hub.isSample) }
+                    }
+                }
                 .todayZoom(route.zoom && !reduceMotion ? route.kind : nil, in: zoomSpace)
             }
         }
