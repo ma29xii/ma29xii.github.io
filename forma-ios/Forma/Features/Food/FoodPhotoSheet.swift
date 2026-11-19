@@ -12,6 +12,8 @@ struct FoodPhotoSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @AppStorage(CoachProviders.consentKey) private var consent = false
+    /// Gleiche Foto-Zustimmung wie im Coach.
+    @AppStorage("forma.coach.photoConsent.v1") private var photoConsent = false
     @State private var phase = Phase.idle
     @State private var photo: UIImage?
     @State private var portions: [FoodPhotoPortion] = []
@@ -118,6 +120,20 @@ struct FoodPhotoSheet: View {
                 Text("Die Schätzung schickt das Foto an Anthropic, bei Ausfall an OpenAI. Erlaube das zuerst im Coach.")
                     .font(.formaBody)
                     .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(Space.s4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
+        } else if !photoConsent {
+            VStack(alignment: .leading, spacing: Space.s3) {
+                Label("Fotos an die KI senden?", systemImage: "photo.badge.checkmark")
+                    .font(.formaRowTitle)
+                Text("Anthropic erhält das ausgewählte Foto. Wenn Anthropic ausfällt oder nur OpenAI eingerichtet ist, geht es an OpenAI. Eingetragen wird erst nach deiner Bestätigung.")
+                    .font(.formaBody)
+                    .foregroundStyle(Theme.textSecondary)
+                Button("Erlauben") { photoConsent = true }
+                    .buttonStyle(.glassProminent)
+                    .frame(minHeight: 44)
             }
             .padding(Space.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
