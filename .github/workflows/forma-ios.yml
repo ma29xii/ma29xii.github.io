@@ -173,7 +173,7 @@ jobs:
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
           PY
           ls -la "$OUT"
-          REQUIRED="01-Today 03-Mein-Tag 04-Recovery 06-Sleep 08-Strain 08b-Schritte 08c-Health-Monitor 08d-Stress-Monitor 08e-Strain-Trend 09-Training 10-Live-Training 11-Pause 13-Zusammenfassung 14-Health 14b-Health-Age-Datengrundlage 14c-Health-bearbeiten 14d-Alterungstempo 14e-Health-Age-Trend 14f-Health-Monitor 15-HRV 16-Coach 19-Profil 20-Body"
+          REQUIRED="01-Today 03-Mein-Tag 04-Recovery 06-Sleep 08-Strain 08b-Schritte 08c-Health-Monitor 08d-Stress-Monitor 08e-Strain-Trend 09-Training 10-Live-Training 11-Pause 13-Zusammenfassung 14-Health 14b-Health-Age 14c-Health-bearbeiten 14d-Alterungstempo 14e-Health-Age-Trend 14f-Health-Monitor 15-HRV 16-Coach 19-Profil 20-Body"
           MISSING=""
           for r in $REQUIRED; do [ -f "$OUT/$r.jpg" ] || MISSING="$MISSING $r"; done
           if [ -n "$MISSING" ]; then

@@ -176,17 +176,17 @@ final class ScreenTour: XCTestCase {
         XCTAssertTrue(app.navigationBars["Health"].exists)
         XCTAssertTrue(app.buttons["health.age"].isHittable)
         shot("14 Health")
-        captureDetail("health.age", title: "Datengrundlage", screenshot: "14b Health Age Datengrundlage")
-        if reveal(app.staticTexts["health.age.pace.title"]) {
-            shot("14d Alterungstempo")
+        // Runde 3: Tempo, Trend und Quellen liegen auf der Health-Age-Seite.
+        app.buttons["health.age"].tap()
+        if app.navigationBars["Health Age"].waitForExistence(timeout: 4) {
+            shot("14b Health Age")
+            if reveal(app.staticTexts["health.age.pace.title"]) { shot("14d Alterungstempo") } else { XCTFail("Das Alterungstempo fehlt") }
+            if reveal(app.staticTexts["health.age.trend.title"]) { shot("14e Health Age Trend") } else { XCTFail("Der Health Age Trend fehlt") }
+            back()
         } else {
-            XCTFail("Das Alterungstempo fehlt")
+            XCTFail("Die Health-Age-Seite fehlt")
         }
-        if reveal(app.staticTexts["health.age.trend.title"]) {
-            shot("14e Health Age Trend")
-        } else {
-            XCTFail("Der Health Age Trend fehlt")
-        }
+        app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
         if reveal(edit) {
