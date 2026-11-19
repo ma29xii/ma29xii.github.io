@@ -18,16 +18,27 @@ final class AppState {
     var coachTopic: String = "erholung"
     var liveWorkout: LiveWorkout? {
         didSet {
+            // Die Live Activity spiegelt nur ein echtes Training, nie Vorschau oder UI-Test.
+            let mirrorsActivity = !isDemo && !FormaApp.isUITest
             if let liveWorkout {
                 liveWorkout.isDemo = isDemo
                 liveWorkout.persist()
                 // Keine Mitteilungs-Abfrage beim Start: Sie unterbrach den ersten Satz (Codex R-02-26).
-            } else if !isDemo {
-                LiveWorkout.clearSaved()
-                RestNotifier.cancel()
+                if mirrorsActivity {
+                    if let old = oldValue, old.draftID != liveWorkout.draftID { LiveTrainingActivity.end(workoutID: old.draftID) }
+                    LiveTrainingActivity.start(workout: liveWorkout)
+                }
+            } else {
+                if !isDemo {
+                    LiveWorkout.clearSaved()
+                    RestNotifier.cancel()
+                }
+                if mirrorsActivity, let old = oldValue { LiveTrainingActivity.end(workoutID: old.draftID) }
             }
         }
     }
+    /// Start abgeschlossen (Onboarding entschieden, Entwurf wiederhergestellt): erst dann werden Kurzbefehle ausgeführt.
+    var launchReady = false
     var finishedSession: WorkoutSession?
     var showProfile = false
     /// Plus-Menü (Mahlzeit scannen, Essen suchen, Ernährung heute, Training starten).
@@ -323,6 +334,7 @@ final class LiveWorkout: Identifiable {
         exerciseIndex = exercise
         setIndex = set
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     /// Vorschlag übernehmen: alle offenen Arbeitssätze der Übung auf das vorgeschlagene Gewicht.
@@ -370,6 +382,7 @@ final class LiveWorkout: Identifiable {
             RestNotifier.schedule(at: end, next: currentExercise?.name)
         }
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     func extendRest(by seconds: Int) {
@@ -378,12 +391,14 @@ final class LiveWorkout: Identifiable {
         restTotal += seconds
         if !isDemo, let end = restEndsAt { RestNotifier.schedule(at: end, next: currentExercise?.name) }
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     func skipRest() {
         restEndsAt = nil
         if !isDemo { RestNotifier.cancel() }
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     func addSet(to exercise: Int) {
@@ -394,6 +409,7 @@ final class LiveWorkout: Identifiable {
         // Ist der ausgewählte Satz schon erledigt, den neuen auswählen (Codex A-19).
         if currentSet == nil || currentSet?.done == true { selectFirstOpen(keepRest: true) }
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     func addExercise(name: String, muscle: String) {
@@ -402,6 +418,7 @@ final class LiveWorkout: Identifiable {
                                       sets: (0..<3).map { _ in LiveSet(weight: 20, reps: 10, isWarmup: false) }))
         if currentSet == nil || currentSet?.done == true { selectFirstOpen() }
         persist()
+        LiveTrainingActivity.update(workout: self)
     }
 
     private func selectFirstOpen(keepRest: Bool = false) {

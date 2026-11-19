@@ -14,7 +14,11 @@ struct FormaApp: App {
 
     init() {
         // Coach-Schlüssel aus dem App-Paket einmalig in den Schlüsselbund übernehmen.
-        if !Self.isUITest { BundledKeys.installIfNeeded() }
+        if !Self.isUITest {
+            BundledKeys.installIfNeeded()
+            // Siri-Kurzbefehle mit den aktuellen Parametern bei iOS anmelden.
+            HealthShortcuts.updateAppShortcutParameters()
+        }
     }
 
     var body: some Scene {
@@ -115,9 +119,16 @@ struct RootView: View {
                    ((try? context.fetchCount(FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.draftID == id }))) ?? 0) > 0
                }) {
                 app.liveWorkout = restored
+            } else if !app.isDemo, !FormaApp.isUITest, app.liveWorkout == nil {
+                // Kein Entwurf zum Wiederherstellen: übrig gebliebene Sperrbildschirm-Anzeigen beenden.
+                LiveTrainingActivity.endOrphans()
             }
             if !onboarded && !FormaApp.isUITest { showOnboarding = true }
+            app.launchReady = !showOnboarding
             await hub.syncAndNotify(background: false)
+        }
+        .onChange(of: showOnboarding) { _, shown in
+            if !shown { app.launchReady = true }
         }
         .onChange(of: sessions.count, initial: true) { _, _ in
             guard !app.isDemo else { return }

@@ -46,7 +46,8 @@ extension PlusAction {
     static let groups = [
         PlusGroup(title: "Essen", actions: [.scan, .photo, .search, .food]),
         PlusGroup(title: "Heute erfassen", actions: [.water, .fasting, .weight]),
-        PlusGroup(title: "Training", actions: [.training])
+        // Ohne Überschrift: „Training“ über „Training starten“ wäre doppelt.
+        PlusGroup(title: "", actions: [.training])
     ]
 }
 
@@ -67,8 +68,12 @@ struct PlusMenuSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s3) {
                 ForEach(PlusAction.groups) { group in
-                    Text(group.title).formaLabelStyle()
-                        .padding(.top, group.id == PlusAction.groups.first?.id ? 0 : Space.s3)
+                    if !group.title.isEmpty {
+                        Text(group.title).formaLabelStyle()
+                            .padding(.top, group.id == PlusAction.groups.first?.id ? 0 : Space.s3)
+                    } else {
+                        Color.clear.frame(height: Space.s1)
+                    }
                     VStack(spacing: 0) {
                         ForEach(Array(group.actions.enumerated()), id: \.element.id) { index, action in
                             if index > 0 { RowDivider(inset: Space.s4 + 36 + Space.s3) }
@@ -121,6 +126,8 @@ private struct PlusFlow: ViewModifier {
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var chosen: PlusAction?
     @State private var destination: PlusAction?
+    /// Training kam von einem Kurzbefehl: ohne Routine ein freies Training starten.
+    @State private var freeTrainingIfNone = false
 
     private var nextRoutine: Routine? {
         PlusLogic.nextRoutineIndex(lastUsed: routines.map(\.lastUsed)).map { routines[$0] }
@@ -135,6 +142,11 @@ private struct PlusFlow: ViewModifier {
                     app.showPlus = false
                 }
             }
+            // Kurzbefehle und Steuerelemente: erst nach dem Start, nie über ein anderes offenes Fenster.
+            .onChange(of: HealthIntentRouter.shared.pending) { _, _ in routeIntent() }
+            .onChange(of: app.launchReady) { _, _ in routeIntent() }
+            .onChange(of: app.showProfile) { _, _ in routeIntent() }
+            .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
             .sheet(item: $destination) { action in
                 switch action {
                 case .scan: PlusFood.scan()
@@ -152,13 +164,49 @@ private struct PlusFlow: ViewModifier {
     private func menuClosed() {
         guard let action = chosen else { return }
         chosen = nil
-        if action == .training { startTraining() } else { destination = action }
+        if action == .training { menuClosedStart() } else { destination = action }
+    }
+
+    /// Übernimmt eine wartende Anfrage von Siri, Kurzbefehl oder Steuerelement.
+    private func routeIntent() {
+        guard app.launchReady, !app.showProfile, app.finishedSession == nil,
+              HealthIntentRouter.shared.pending != nil,
+              let request = HealthIntentRouter.shared.consume() else { return }
+        switch request {
+        case .startTraining:
+            freeTrainingIfNone = true
+            if app.showPlus {
+                // Menü ist offen: über dieselbe Kette schließen, dann starten.
+                chosen = .training
+                app.showPlus = false
+            } else {
+                menuClosedStart()
+            }
+        case .scanFood:
+            // Läuft ein Training, liegt der Vollbild-Dialog darüber. Dann nicht dazwischenfahren.
+            guard app.liveWorkout == nil else { return }
+            if app.showPlus {
+                chosen = .scan
+                app.showPlus = false
+            } else {
+                destination = .scan
+            }
+        }
+    }
+
+    private func menuClosedStart() {
+        startTraining()
+        freeTrainingIfNone = false
     }
 
     private func startTraining() {
         app.selectedTab = .training
         // Läuft schon ein Training, zeigt Training es wieder an. Nichts doppelt starten.
-        guard app.liveWorkout == nil, let routine = nextRoutine else { return }
+        guard app.liveWorkout == nil else { return }
+        guard let routine = nextRoutine else {
+            if freeTrainingIfNone { app.liveWorkout = LiveWorkout.empty() }
+            return
+        }
         routine.lastUsed = .now
         try? context.save()
         app.liveWorkout = LiveWorkout.from(routine, history: sessions, adjustment: app.workoutAdjustment)
