@@ -29,7 +29,7 @@ enum GoogleHealthMerge {
         var result: [DayMetrics] = []
         var date = from
         while date < until {
-            var day = DayMetrics(date: date)
+            var day = DayMetrics(date: date, civilDay: CivilDay(date, in: calendar))
             if let night = nights[date] {
                 day.sleep = night.value
                 day.setOrigins([night.origin], for: .sleep)
@@ -64,7 +64,7 @@ enum GoogleHealthMerge {
                 }
             }
             result.append(day.sanitized())
-            guard let next = calendar.date(byAdding: .day, value: 1, to: date), next > date else { break }
+            guard let next = calendar.startOfDay(offsetBy: 1, from: date), next > date else { break }
             date = next
         }
         return result
@@ -90,13 +90,17 @@ enum GoogleHealthMerge {
                     hour.activeEnergy = nonOverlappingTotal(amounts)
                     hour.energyOrigin = origin
                 }
+            } else if let bySource = energyBuckets[start], let origin = preferred(bySource, family: .appleWatch),
+                      let amounts = bySource[origin] {
+                hour.activeEnergy = nonOverlappingTotal(amounts)
+                hour.energyOrigin = origin
             }
             if let bySource = pulseBuckets[start], let origin = preferred(bySource, family: .appleWatch),
                let samples = bySource[origin]?.values, !samples.isEmpty {
                 hour.heartRate = samples.reduce(0, +) / Double(samples.count)
                 hour.heartRateOrigin = origin
             }
-            return hour.steps == nil && hour.heartRate == nil ? nil : hour
+            return hour
         }
     }
 
@@ -207,11 +211,9 @@ enum GoogleHealthMerge {
         var selected: [(WorkoutSummary, GoogleMetricOrigin)] = []
         for candidate in candidates {
             let workout = candidate.0
-            let end = workout.start.addingTimeInterval(workout.duration)
-            let overlaps = selected.contains { previous, _ in
-                previous.start < end && workout.start < previous.start.addingTimeInterval(previous.duration)
+            if !selected.contains(where: { workout.isDuplicate(of: $0.0) }) {
+                selected.append(candidate)
             }
-            if !overlaps { selected.append(candidate) }
         }
         return Dictionary(grouping: selected.sorted { $0.0.start < $1.0.start }) {
             calendar.startOfDay(for: $0.0.start)

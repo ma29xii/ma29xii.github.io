@@ -8,9 +8,22 @@ enum GoogleConnection: Equatable, Sendable {
     case notConfigured, disconnected, connecting, connected(lastSync: Date?), failed(String)
 }
 
+enum GoogleRevocation: Equatable, Sendable {
+    case inProgress, confirmed, unconfirmed
+
+    var notice: String {
+        switch self {
+        case .inProgress: "Die Freigabe bei Google wird widerrufen …"
+        case .confirmed: "Die Freigabe bei Google wurde widerrufen."
+        case .unconfirmed: "Google hat den Widerruf nicht bestätigt. Entferne Health in deinem Google-Konto unter Sicherheit → Verbindungen zu Drittanbietern."
+        }
+    }
+}
+
 enum GoogleHealthError: LocalizedError, Equatable, Sendable {
     case notConfigured, cancelled, invalidCallback, incompleteConsent, reauthorize
     case notLinked, noConnection, keychain(OSStatus), invalidResponse, http(Int), rateLimited(Date)
+    case loginRevocationUnconfirmed(String)
 
     var errorDescription: String? {
         switch self {
@@ -25,8 +38,20 @@ enum GoogleHealthError: LocalizedError, Equatable, Sendable {
         case .invalidResponse: "Google Health hat unlesbare Daten geliefert."
         case .http(let status): "Google Health antwortet mit Fehler \(status)."
         case .rateLimited(let until): "Google Health begrenzt den Abruf. Neuer Versuch ab \(Format.clock(until))."
+        case .loginRevocationUnconfirmed(let reason): "\(reason) \(GoogleRevocation.unconfirmed.notice)"
         }
     }
+}
+
+@MainActor
+protocol GoogleHealthImporting {
+    var isConfigured: Bool { get }
+    var accountID: String? { get }
+    func restore() throws
+    func connect() async throws
+    func disconnect() throws -> Task<GoogleRevocation, Never>?
+    func load(from: Date, until: Date, calendar: Calendar, includePulse: Bool) async throws -> GoogleHealthService.Import
+    func loadPulse(from: Date, until: Date, calendar: Calendar) async throws -> [HourlyMetrics]
 }
 
 struct GoogleOAuthTokens: Codable, Sendable {
@@ -69,7 +94,7 @@ struct GoogleOAuthTokens: Codable, Sendable {
 }
 
 @MainActor
-final class GoogleHealthService {
+final class GoogleHealthService: GoogleHealthImporting {
     struct Import: Sendable {
         var days: [DayMetrics]
         var hours: [HourlyMetrics]?
@@ -107,12 +132,13 @@ final class GoogleHealthService {
         config.timeoutIntervalForResource = 18
         config.urlCache = nil
         config.httpShouldSetCookies = false
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: CoachProviders.NoRedirects(), delegateQueue: nil)
     }()
     private let browser = GoogleHealthBrowser()
     private var tokens: GoogleOAuthTokens?
     private var refreshTask: Task<GoogleOAuthTokens, any Error>?
-    private var revocation: Task<Void, Never>?
+    private var revocation: Task<GoogleRevocation, Never>?
+    private var revocationID: UUID?
     private var generation = 0
     private let clock = ContinuousClock()
     private var nextRequest: ContinuousClock.Instant?
@@ -135,7 +161,7 @@ final class GoogleHealthService {
     func connect() async throws {
         guard let configuration else { throw GoogleHealthError.notConfigured }
         let generation = self.generation
-        await revocation?.value
+        _ = await revocation?.value
         try check(generation)
         let verifier = try Self.randomString()
         let state = try Self.randomString()
@@ -160,36 +186,71 @@ final class GoogleHealthService {
             "client_id": configuration.clientID, "redirect_uri": configuration.redirect,
             "grant_type": "authorization_code", "code": code, "code_verifier": verifier
         ], previous: nil)
-        try Self.requireScopes(newTokens)
-        let identity = try await request(path: "identity", query: [], bearer: newTokens.accessToken, generation: generation)
-        guard let account = try? JSONDecoder().decode(Identity.self, from: identity),
-              !account.healthUserId.isEmpty else { throw GoogleHealthError.invalidResponse }
-        try check(generation)
-        newTokens.accountID = account.healthUserId
-        newTokens.clientID = configuration.clientID
-        try GoogleCredentialStore.save(newTokens)
-        tokens = newTokens
-    }
-
-    func disconnect() throws {
-        let old = tokens ?? (try? GoogleCredentialStore.load())
-        try clearCredentials()
-        if let refreshToken = old?.refreshToken {
-            revocation = Task { [session] in
-                let url = URL(string: "https://oauth2.googleapis.com/revoke")!
-                let request = Self.formRequest(url, fields: ["token": refreshToken])
-                _ = try? await session.data(for: request)
+        do {
+            try check(generation)
+            try Self.requireScopes(newTokens)
+            let identity = try await request(path: "identity", query: [], bearer: newTokens.accessToken, generation: generation)
+            guard let account = try? JSONDecoder().decode(Identity.self, from: identity),
+                  !account.healthUserId.isEmpty else { throw GoogleHealthError.invalidResponse }
+            try check(generation)
+            newTokens.accountID = account.healthUserId
+            newTokens.clientID = configuration.clientID
+            try GoogleCredentialStore.save(newTokens)
+            tokens = newTokens
+        } catch {
+            // Eigener Task, damit auch eine abgebrochene Anmeldung die neue Freigabe zurücknehmen kann.
+            let result = await beginRevocation(newTokens.refreshToken).value
+            guard result == .confirmed else {
+                let reason = (error as? GoogleHealthError)?.errorDescription ?? "Die Anmeldung wurde nicht abgeschlossen."
+                throw GoogleHealthError.loginRevocationUnconfirmed(reason)
             }
+            throw error
         }
     }
 
-    func clearCredentials() throws {
-        try GoogleCredentialStore.delete()
+    func disconnect() throws -> Task<GoogleRevocation, Never>? {
         generation += 1
         browser.cancel()
         refreshTask?.cancel()
         refreshTask = nil
+        let old = try tokens ?? GoogleCredentialStore.load()
+        try GoogleCredentialStore.delete()
         tokens = nil
+        nextRequest = nil
+        limitedUntil = nil
+        return old.map { beginRevocation($0.refreshToken) } ?? revocation
+    }
+
+    private func beginRevocation(_ token: String) -> Task<GoogleRevocation, Never> {
+        let previous = revocation
+        let id = UUID()
+        let task = Task { [session] in
+            defer {
+                if self.revocationID == id {
+                    self.revocationID = nil
+                    self.revocation = nil
+                }
+            }
+            _ = await previous?.value
+            return await Self.revoke(token) { request in
+                let (_, response) = try await session.data(for: request)
+                return (response as? HTTPURLResponse)?.statusCode
+            }
+        }
+        revocationID = id
+        revocation = task
+        return task
+    }
+
+    static func revoke(_ token: String, send: @Sendable (URLRequest) async throws -> Int?) async -> GoogleRevocation {
+        let url = URL(string: "https://oauth2.googleapis.com/revoke")!
+        let request = formRequest(url, fields: ["token": token])
+        do {
+            guard let status = try await send(request), (200..<300).contains(status) else { return .unconfirmed }
+            return .confirmed
+        } catch {
+            return .unconfirmed
+        }
     }
 
     func load(from: Date, until: Date, calendar: Calendar, includePulse: Bool) async throws -> Import {

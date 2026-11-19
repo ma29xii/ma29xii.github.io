@@ -19,9 +19,16 @@ enum CoachNotifier {
     static var morningEnabled: Bool { UserDefaults.standard.object(forKey: morningKey) as? Bool ?? true }
     static var bedtimeEnabled: Bool { UserDefaults.standard.object(forKey: bedtimeKey) as? Bool ?? true }
     static var showValues: Bool { UserDefaults.standard.bool(forKey: detailsKey) }
-    nonisolated static var wakeMinutes: Int {
-        let v = UserDefaults.standard.integer(forKey: wakeKey)
-        return (1...(24 * 60 - 1)).contains(v) ? v : 6 * 60 + 55
+    private static let bedtimeIDKey = "forma.coach.pendingBedtimeID"
+    private static var bedtimeRevision = UUID()
+
+    nonisolated static var wakeMinutes: Int { wakeMinutes(in: .standard) }
+
+    nonisolated static func wakeMinutes(in defaults: UserDefaults) -> Int {
+        guard let value = defaults.object(forKey: wakeKey) as? Int, (0..<(24 * 60)).contains(value) else {
+            return 6 * 60 + 55
+        }
+        return value
     }
 
     /// Fragt nur auf ausdrückliche Aktion des Nutzers nach der Erlaubnis (Codex R-02-26).
@@ -34,27 +41,26 @@ enum CoachNotifier {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
-    /// Nach jedem Abruf mit frischen Daten (Vordergrund oder Hintergrund).
-    static func afterSync(_ hub: DataHub) {
-        guard !hub.isSample, !FormaApp.isUITest else { return }
-        Task {
-            guard await authorizationStatus() == .authorized else { return }
-            await sendMorningReportIfDue(hub)
-            await scheduleBedtimeReminder(hub)
-        }
+    /// Wartet auf die Annahme beider Mitteilungen durch iOS.
+    static func afterSync(_ hub: DataHub, confirmedSleep: CivilDay?, generation: Int) async -> String? {
+        guard hub.canScheduleCoach(generation), !FormaApp.isUITest else { return nil }
+        let morningIssue = await sendMorningReportIfDue(hub, confirmedSleep: confirmedSleep, generation: generation)
+        let bedtimeIssue = await reconcileBedtime(hub, generation: generation)
+        return morningIssue ?? bedtimeIssue
     }
 
     private static func dayStamp(_ date: Date) -> String {
-        let day = Calendar.forma.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+        GoogleHealthTime.day(date, calendar: .forma)
     }
 
-    static func sendMorningReportIfDue(_ hub: DataHub, now: Date = .now) async {
-        let hour = Calendar.forma.component(.hour, from: now)
+    private static func sendMorningReportIfDue(_ hub: DataHub, confirmedSleep: CivilDay?, generation: Int,
+                                               now: Date = .now) async -> String? {
+        let calendar = Calendar.forma
+        let hour = calendar.component(.hour, from: now)
         let stamp = dayStamp(now)
-        // Nur mit einer Nacht von *heute* – nie aus einem alten Stand (Codex R-02-07/24).
-        guard morningEnabled, !hub.isSample, (4...13).contains(hour), Calendar.forma.isDate(hub.today.date, inSameDayAs: now),
-              let asleep = hub.today.sleep?.asleep, asleep > 0 else { return }
+        guard morningEnabled, (4...13).contains(hour), confirmedSleep == CivilDay(now, in: calendar),
+              await authorizationStatus() == .authorized, hub.canScheduleCoach(generation),
+              let asleep = hub.today.sleep?.asleep, asleep > 0 else { return nil }
         let content = UNMutableNotificationContent()
         content.threadIdentifier = "coach"
         content.sound = .default
@@ -65,44 +71,83 @@ enum CoachNotifier {
                 hrvDelta: hub.today.hrv.flatMap { v in hub.baseline(\.hrv).map { v - $0.mean } },
                 rhrDelta: hub.today.restingHR.flatMap { v in hub.baseline(\.restingHR).map { v - $0.mean } },
                 plannedRoutine: nil, trainedToday: false, isSample: false, hour: hour,
-                recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain)
-            content.title = hub.availability.recovery ? "Erholung \(s.recovery) · Schlaf \(s.sleep)" : "Schlaf \(s.sleep)"
+                recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain, history: hub.history)
+            let sleep = context.sleepScore.map { "Schlaf \($0)" } ?? "Schlaf \(Format.duration(asleep))"
+            content.title = hub.availability.recovery ? "Erholung \(s.recovery) · \(sleep)" : sleep
             content.body = CoachEngine.dailyLine(context)
         } else {
             content.title = "Dein Tagesbericht ist bereit"
             content.body = "Deine Nacht ist da. Öffne Health für Erholung, Schlaf und deinen Plan für heute."
         }
         let id = "forma.morning." + stamp
-        await enqueueMorningReportOnce(day: stamp) {
-            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        let center = UNUserNotificationCenter.current()
+        let received = await enqueueMorningReportOnce(day: stamp) {
+            guard hub.canScheduleCoach(generation), morningEnabled else { throw CancellationError() }
+            try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            guard hub.canScheduleCoach(generation), morningEnabled else {
+                center.removePendingNotificationRequests(withIdentifiers: [id])
+                center.removeDeliveredNotifications(withIdentifiers: [id])
+                throw CancellationError()
+            }
         }
+        return received ? nil : "Der Morgenbericht konnte nicht geplant werden."
     }
 
+    @discardableResult
     static func enqueueMorningReportOnce(
         day: String, defaults: UserDefaults = .standard, enqueue: @MainActor () async throws -> Void
-    ) async {
+    ) async -> Bool {
         let sentKey = "forma.coach.morningSent." + day
-        guard !defaults.bool(forKey: sentKey), morningReportsInFlight.insert(sentKey).inserted else { return }
+        guard !defaults.bool(forKey: sentKey), morningReportsInFlight.insert(sentKey).inserted else { return true }
         defer { morningReportsInFlight.remove(sentKey) }
         do {
             try await enqueue()
-            // Erst nach erfolgreicher Annahme als erledigt merken (Codex R-02-07).
             defaults.set(true, forKey: sentKey)
+            return true
         } catch {
-            // Beim nächsten Abruf erneut versuchen.
+            return false
         }
     }
 
-    static func scheduleBedtimeReminder(_ hub: DataHub, now: Date = .now) async {
+    static func removeCoachNotifications(now: Date = .now) {
+        bedtimeRevision = UUID()
         let center = UNUserNotificationCenter.current()
-        guard bedtimeEnabled, !hub.isSample,
-              let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history),
-              let plan = bedtimePlan(sleepNeed: need, now: now) else {
-            center.removePendingNotificationRequests(withIdentifiers: ["forma.bedtime"])
-            return
+        let calendar = Calendar.forma
+        let morningIDs = (-7...1).compactMap { calendar.date(byAdding: .day, value: $0, to: now) }
+            .map { "forma.morning." + dayStamp($0) }
+        let ids = morningIDs + takeBedtimeIDs()
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center.getDeliveredNotifications { delivered in
+            let older = delivered.filter {
+                let id = $0.request.identifier
+                return $0.date <= now && (id.hasPrefix("forma.bedtime.") || id.hasPrefix("forma.morning."))
+            }.map(\.request.identifier)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: older)
         }
+    }
+
+    /// Auch bei Änderungen der Weckzeit aus dem Profil aufrufbar.
+    static func scheduleBedtimeReminder(_ hub: DataHub, now: Date = .now) async {
+        let generation = hub.generation
+        let issue = await reconcileBedtime(hub, generation: generation, now: now)
+        hub.reportNotificationIssue(issue, generation: generation)
+    }
+
+    static func reconcileBedtime(_ hub: DataHub, generation: Int, now: Date = .now) async -> String? {
+        guard hub.generation == generation, !Task.isCancelled, !FormaApp.isUITest else { return nil }
+        let token = UUID()
+        bedtimeRevision = token
+        let center = UNUserNotificationCenter.current()
+        let old = takeBedtimeIDs()
+        center.removePendingNotificationRequests(withIdentifiers: old)
+        center.removeDeliveredNotifications(withIdentifiers: old)
+        guard bedtimeEnabled, await authorizationStatus() == .authorized,
+              bedtimeRevision == token, hub.canScheduleCoach(generation),
+              let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history),
+              let plan = bedtimePlan(sleepNeed: need, now: now) else { return nil }
         let remind = plan.bed.addingTimeInterval(-30 * 60)
-        guard remind > now.addingTimeInterval(60) else { return }
+        guard remind > now.addingTimeInterval(60) else { return nil }
         let content = UNMutableNotificationContent()
         content.title = "In 30 Minuten Schlafenszeit"
         content.body = showValues
@@ -110,11 +155,32 @@ enum CoachNotifier {
             : "Bei Wecker \(Format.clock(plan.wake)): gegen \(Format.clock(plan.bed)) ins Bett."
         content.sound = .default
         content.threadIdentifier = "coach"
-        var comps = Calendar.forma.dateComponents([.year, .month, .day, .hour, .minute], from: remind)
-        comps.timeZone = Calendar.forma.timeZone   // ausdrücklich, damit Reisen nichts verschiebt (Codex R-02-08)
-        // Ersetzen statt erst löschen: gleiche Kennung überschreibt die alte Planung.
-        try? await center.add(UNNotificationRequest(identifier: "forma.bedtime", content: content,
-                                                    trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)))
+        let id = "forma.bedtime." + token.uuidString
+        UserDefaults.standard.set(id, forKey: bedtimeIDKey)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = .gmt
+        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: remind)
+        components.timeZone = utc.timeZone
+        do {
+            try await center.add(UNNotificationRequest(identifier: id, content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)))
+        } catch {
+            guard bedtimeRevision == token, hub.canScheduleCoach(generation) else { return nil }
+            UserDefaults.standard.removeObject(forKey: bedtimeIDKey)
+            return "Die Schlafenszeit-Erinnerung konnte nicht geplant werden."
+        }
+        if bedtimeRevision != token || !hub.canScheduleCoach(generation) || !bedtimeEnabled {
+            center.removePendingNotificationRequests(withIdentifiers: [id])
+            center.removeDeliveredNotifications(withIdentifiers: [id])
+        }
+        return nil
+    }
+
+    private static func takeBedtimeIDs() -> [String] {
+        let defaults = UserDefaults.standard
+        let id = defaults.string(forKey: bedtimeIDKey)
+        defaults.removeObject(forKey: bedtimeIDKey)
+        return ["forma.bedtime"] + (id.map { [$0] } ?? [])
     }
 
     /// Eine Quelle für Weckzeit und Bettzeit – UI und Mitteilung zeigen dieselbe Uhrzeit (Codex R-02-08).
@@ -123,13 +189,17 @@ enum CoachNotifier {
                                         calendar: Calendar = .forma) -> (wake: Date, bed: Date)? {
         guard sleepNeed.isFinite, sleepNeed > 0, sleepNeed < 14 * 3600 else { return nil }
         let minutes = wakeMinutes ?? self.wakeMinutes
+        guard (0..<(24 * 60)).contains(minutes) else { return nil }
         let today = calendar.startOfDay(for: now)
-        guard var wake = calendar.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: today) else { return nil }
-        while wake < now.addingTimeInterval(3 * 3600) {
-            guard let next = calendar.date(byAdding: .day, value: 1, to: wake) else { return nil }
-            wake = next
+        let earliest = now.addingTimeInterval(3 * 3600)
+        for offset in 0...2 {
+            guard let day = calendar.startOfDay(offsetBy: offset, from: today),
+                  let wake = calendar.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: day,
+                                           matchingPolicy: .nextTime, repeatedTimePolicy: .first, direction: .forward),
+                  calendar.isDate(wake, inSameDayAs: day), wake >= earliest else { continue }
+            return (wake, wake.addingTimeInterval(-sleepNeed - 10 * 60))
         }
-        return (wake, wake.addingTimeInterval(-sleepNeed - 10 * 60))
+        return nil
     }
 
     /// Für bestehende Aufrufer und Tests.

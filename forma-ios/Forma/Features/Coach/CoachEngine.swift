@@ -7,6 +7,7 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     var text: String
     /// Nur lokal beantwortet. Bleibt auch später aus dem externen Verlauf (Codex R-02-15/A-22).
     var localOnly: Bool = false
+    var conversationID = CoachProviders.conversationID
 }
 
 /// Lokale Auswertung für den Coach.
@@ -26,6 +27,7 @@ enum CoachEngine {
         var history: [DayMetrics] = []
 
         var sleepDuration: TimeInterval? { CoachEngine.measuredSleep(in: today) }
+        var sleepScore: Int? { sleepDuration != nil && scores.sleep > 0 ? scores.sleep : nil }
 
         var sleepDebt: TimeInterval? {
             CoachEngine.measuredSleepDebt(scores, history: history)
@@ -36,7 +38,7 @@ enum CoachEngine {
         }
 
         var energy: Int? {
-            recoveryAvailable && strainAvailable && sleepDuration != nil ? scores.energy : nil
+            recoveryAvailable && strainAvailable && sleepScore != nil ? scores.energy : nil
         }
 
         var stress: Double? {
@@ -53,7 +55,7 @@ enum CoachEngine {
     }
 
     private static func measuredSleepDebt(_ scores: DayScores, history: [DayMetrics]) -> TimeInterval? {
-        guard history.suffix(7).contains(where: { measuredSleep(in: $0) != nil }),
+        guard ScoreEngine.hasSleepHistory(history),
               scores.sleepDebt >= 0, scores.sleepDebt <= 7 * 24 * 3600 else { return nil }
         return scores.sleepDebt
     }
@@ -69,6 +71,9 @@ enum CoachEngine {
         let s = c.scores
         if c.trainedToday && !c.strainAvailable {
             return "Gut trainiert. Für eine Belastungszahl fehlen heute Messwerte aus Google Health."
+        }
+        if c.trainedToday && !c.recoveryAvailable {
+            return "Training abgeschlossen. Deine Belastung liegt bei \(s.strain). Für ein Ziel fehlen heute vergleichbare Herzwerte."
         }
         if !c.recoveryAvailable && !c.trainedToday && c.hour < 20 {
             return "Für heute fehlen Herzwerte mit Vergleich. Ich gebe dir erst eine Empfehlung, wenn Messwerte da sind – trag deine Uhr auch nachts."
@@ -153,10 +158,13 @@ enum CoachEngine {
             var parts: [String] = []
             if let d = c.hrvDelta { parts.append("HRV \(d >= 0 ? "+" : "")\(Int(d.rounded())) ms zum Normalwert") }
             if let d = c.rhrDelta { parts.append("Ruhepuls \(d >= 0 ? "+" : "")\(Int(d.rounded())) bpm") }
-            if c.sleepDuration != nil { parts.append("Schlafwert \(s.sleep)") }
+            if let sleepScore = c.sleepScore { parts.append("Schlafwert \(sleepScore)") }
             return "Deine Erholung liegt bei \(s.recovery). Grundlage: \(parts.joined(separator: ", ")). HRV zählt am stärksten, danach Ruhepuls und Schlaf."
         }
         if q.contains("bett") || q.contains("schlaf") || q.contains("nacht") {
+            if selected.contains(.sleepDuration), !selected.contains(.sleepNeed) {
+                return c.sleepDuration.map { "Du hast \(Format.duration($0)) geschlafen." } ?? "Schlafdauer: keine Messung."
+            }
             return sleepAdvice(c)
         }
         if q.contains("train") || q.contains("push") || q.contains("pull") || q.contains("bein") {
@@ -171,16 +179,20 @@ enum CoachEngine {
             }
         }
         if q.contains("belast") || q.contains("ziel") {
-            guard c.recoveryAvailable else {
-                return "Dein Zielbereich richtet sich nach der Erholung – und dafür fehlen heute Messwerte."
-            }
-            return "Belastung bisher \(s.strain), dein Zielbereich heute ist \(s.target.lowerBound) bis \(s.target.upperBound). Er richtet sich nach deiner Erholung."
+            let current = c.strainAvailable ? "Belastung bisher \(s.strain)." : "Belastung: keine Messung."
+            let target = c.recoveryAvailable
+                ? "Dein Zielbereich heute ist \(s.target.lowerBound) bis \(s.target.upperBound)."
+                : "Für einen Zielbereich fehlen vergleichbare Herzwerte."
+            return "\(current) \(target)"
         }
         return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training oder Belastung."
     }
 
     private static func sleepAdvice(_ c: Context) -> String {
-        guard let need = c.sleepNeed else { return "Schlafbedarf: keine Messung." }
+        guard let need = c.sleepNeed else {
+            return c.sleepDuration.map { "Du hast \(Format.duration($0)) geschlafen. Für deinen Schlafbedarf fehlen Vergleichsdaten." }
+                ?? "Schlafbedarf: keine Messung."
+        }
         return "Geschätzter Bedarf heute Nacht: \(Format.duration(need)) (inklusive Schlafschuld). Bei Wecker \(wakeTime()) heißt das: gegen \(bedtime(c.scores)) ins Bett. Die Weckzeit stellst du im Profil ein."
     }
 
@@ -227,7 +239,7 @@ enum CoachEngine {
             let s = c.scores
             switch self {
             case .recovery: return c.recoveryAvailable ? "\(s.recovery)/100" : nil
-            case .sleep: return c.sleepDuration.map { _ in "\(s.sleep)/100" }
+            case .sleep: return c.sleepScore.map { "\($0)/100" }
             case .sleepDuration: return c.sleepDuration.map(Format.duration)
             case .strain: return c.strainAvailable ? "\(s.strain)/100" : nil
             case .target: return c.recoveryAvailable ? "\(s.target.lowerBound)–\(s.target.upperBound)" : nil

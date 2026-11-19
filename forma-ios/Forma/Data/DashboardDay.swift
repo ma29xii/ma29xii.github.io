@@ -38,13 +38,14 @@ struct DashboardDay: Sendable {
 
     /// Für historische Schlafwerte wird stets der Bedarf der jeweiligen Nacht zugrunde gelegt.
     static func sleepScore(_ day: DayMetrics, history: [DayMetrics]) -> Int? {
-        guard let night = day.sleep, night.asleep > 0 else { return nil }
-        return ScoreEngine.sleepScore(night, need: ScoreEngine.sleepNeedForLastNight(history: history))
+        guard let night = day.sleep, night.asleep > 0,
+              let need = ScoreEngine.measuredNeedForLastNight(on: day.date, history: history) else { return nil }
+        return ScoreEngine.sleepScore(night, need: need)
     }
 
     var sleepNeed: TimeInterval? {
-        guard sleepScore != nil else { return nil }
-        return ScoreEngine.sleepNeedForLastNight(history: history)
+        guard (day.sleep?.asleep ?? 0) > 0 else { return nil }
+        return ScoreEngine.measuredNeedForLastNight(on: day.date, history: history)
     }
 
     /// Anteil der letzten erfassten Schlafstarts, die höchstens eine Stunde vom aktuellen Start abweichen.
@@ -71,7 +72,7 @@ struct DashboardDay: Sendable {
     }
 
     static func restorativeFraction(_ night: SleepNight) -> Double? {
-        guard night.hasStages, night.asleep > 0 else { return nil }
+        guard night.hasCompleteStages, night.asleep > 0 else { return nil }
         let restorative = SleepNight.unionLength(night.segments.filter { $0.stage == .deep || $0.stage == .rem })
         return min(1, restorative / night.asleep)
     }
@@ -79,10 +80,7 @@ struct DashboardDay: Sendable {
     static func workoutTime(_ day: DayMetrics, strengthOnly: Bool = false) -> Double? {
         let workouts = strengthOnly ? day.workouts.filter(\.isStrength) : day.workouts
         guard !workouts.isEmpty else { return nil }
-        let intervals = workouts.map {
-            SleepNight.Segment(stage: .unspecified, start: $0.start, end: $0.start.addingTimeInterval($0.duration))
-        }
-        return SleepNight.unionLength(intervals)
+        return WorkoutSummary.totalDuration(workouts)
     }
 }
 

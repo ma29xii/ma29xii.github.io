@@ -27,7 +27,7 @@ final class CoachFixTests: XCTestCase {
     }
 
     func testMeasuredZeroSleepDebtIsShownWithoutStrainAndNeedIsMissing() {
-        let context = makeContext(today: DayMetrics(date: date), history: [measuredNight()],
+        let context = makeContext(today: DayMetrics(date: date), history: (1...4).reversed().map { measuredNight(daysAgo: $0) },
                                   recovery: false, strain: false)
         XCTAssertEqual(CoachEngine.contextSummary(context, for: "Schlafbedarf und Schlafschuld?"), """
         Schlafbedarf: keine Messung
@@ -36,7 +36,8 @@ final class CoachFixTests: XCTestCase {
     }
 
     func testMeasuredStrainAndSleepHistoryAllowBedtimeEstimate() {
-        let context = makeContext(today: DayMetrics(date: date, activeEnergy: 0), history: [measuredNight()],
+        let context = makeContext(today: DayMetrics(date: date, activeEnergy: 0),
+                                  history: (1...4).reversed().map { measuredNight(daysAgo: $0) },
                                   recovery: false, strain: true)
         XCTAssertEqual(CoachEngine.contextSummary(context, for: "Wie viel Schlaf brauche ich heute Nacht?"),
                        "Schlafbedarf: 8 h")
@@ -113,8 +114,8 @@ final class CoachFixTests: XCTestCase {
         )
     }
 
-    private func measuredNight() -> DayMetrics {
-        let end = date.addingTimeInterval(-24 * 3600)
+    private func measuredNight(daysAgo: Int = 1) -> DayMetrics {
+        let end = date.adding(days: -daysAgo)
         let start = end.addingTimeInterval(-8 * 3600)
         let sleep = SleepNight(start: start, end: end, segments: [.init(stage: .core, start: start, end: end)])
         return DayMetrics(date: end, sleep: sleep)

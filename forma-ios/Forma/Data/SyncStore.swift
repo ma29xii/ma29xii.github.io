@@ -15,58 +15,100 @@ enum SyncStore {
         var hours: [HourlyMetrics]? = nil
         var historyThrough: Date? = nil
         var historyGaps: [Date]? = nil
+        var historyThroughDay: CivilDay? = nil
+        var historyGapDays: [CivilDay]? = nil
+        var dayTimeZone: String? = nil
+        var series: [MetricSeries: DataHub.SeriesFreshness]? = nil
+        var recentFailed: Set<MetricSeries>? = nil
+        var recentPulseFailed: Bool? = nil
     }
 
-    private static var url: URL? {
+    static var fileURL: URL? {
         try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("forma-sync.json")
     }
 
-    static func load() -> Snapshot? {
+    static func load(from url: URL? = fileURL) -> Snapshot? {
         guard let url, let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
     /// Speichert den Stand. Gibt false zurück, wenn das Schreiben scheitert (wird angezeigt, Codex R-02-01).
     @discardableResult
-    static func save(_ snapshot: Snapshot) -> Bool {
-        guard var url, let data = try? JSONEncoder().encode(snapshot) else { return false }
+    static func save(_ snapshot: Snapshot, to url: URL? = fileURL) -> Bool {
+        guard let url, let data = try? JSONEncoder().encode(snapshot) else { return false }
+        let files = FileManager.default
+        var isDirectory: ObjCBool = false
+        let exists = files.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        guard !isDirectory.boolValue else { return false }
+        var temporary = replacementURL(for: url)
+        defer { try? removeFile(at: temporary) }
         do {
             // Nach dem ersten Entsperren lesbar: Hintergrund-Abrufe können auch bei gesperrtem Bildschirm schreiben.
-            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            // Gesundheitskopie nicht in iCloud-/iTunes-Backups (rekonstruierbar aus Google Health).
+            try data.write(to: temporary, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            // Erst nach erfolgreichem Backup-Ausschluss den alten Stand atomar ersetzen.
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
-            try url.setResourceValues(values)
+            try temporary.setResourceValues(values)
+            if exists {
+                _ = try files.replaceItemAt(url, withItemAt: temporary, options: .usingNewMetadataOnly)
+            } else {
+                try files.moveItem(at: temporary, to: url)
+            }
             return true
         } catch {
             return false
         }
     }
 
-    /// Löscht die lokale Kopie der Gesundheitsdaten.
-    static func clear() {
-        guard let url else { return }
-        try? FileManager.default.removeItem(at: url)
+    /// Eine bereits fehlende Datei zählt als gelöscht. Andere Fehler bleiben sichtbar.
+    static func clear(at url: URL? = fileURL) throws {
+        guard let url else { throw CocoaError(.fileNoSuchFile) }
+        var failure: (any Error)?
+        for file in [url, replacementURL(for: url)] {
+            do { try removeFile(at: file) }
+            catch { failure = failure ?? error }
+        }
+        if let failure { throw failure }
+    }
+
+    private static func replacementURL(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(".replacement-\(url.lastPathComponent)")
+    }
+
+    private static func removeFile(at url: URL) throws {
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        }
     }
 
     /// Bringt einen gespeicherten Stand auf ein lückenloses Raster, das mit *heute* endet (Codex R-02-24):
     /// Nach Mitternacht oder Zeitzonenwechsel steht der alte Stand unter seinem echten Datum, heute bleibt leer.
-    static func normalized(_ days: [DayMetrics], today: Date = Date.now.startOfDay, keepDays: Int = 180) -> [DayMetrics] {
-        var byDate: [Date: DayMetrics] = [:]
-        for var d in days {
-            let key = d.date.startOfDay
-            guard key <= today else { continue }   // Tage aus der „Zukunft“ (Uhr verstellt) verwerfen
-            d.date = key
-            byDate[key] = d
+    static func normalized(_ days: [DayMetrics], today: Date = Date.now.startOfDay, keepDays: Int = 180,
+                           calendar: Calendar = .forma, legacyCalendar: Calendar? = nil) -> [DayMetrics] {
+        var byDay: [CivilDay: DayMetrics] = [:]
+        for day in days {
+            guard let projected = day.onCivilDay(in: calendar, legacyCalendar: legacyCalendar),
+                  let key = projected.civilDay else { continue }
+            byDay[key] = projected
         }
-        var result: [DayMetrics] = []
-        var date = today.adding(days: -(keepDays - 1))
-        while date <= today {
-            result.append(byDate[date] ?? DayMetrics(date: date))
-            date = date.adding(days: 1)
+        return dayGrid(ending: today, count: keepDays, calendar: calendar).map { date in
+            let key = CivilDay(date, in: calendar)
+            return byDay[key] ?? DayMetrics(date: date, civilDay: key)
         }
-        return result
+    }
+
+    private static func dayGrid(ending today: Date, count: Int, calendar: Calendar) -> [Date] {
+        guard count > 0 else { return [] }
+        return (0..<count).reversed().compactMap { offset in
+            calendar.startOfDay(offsetBy: -offset, from: today)
+        }
     }
 
     /// Hat ein Tag überhaupt Messwerte?
@@ -86,25 +128,27 @@ enum SyncStore {
     /// - Reihe fehlgeschlagen → der gespeicherte Wert bleibt.
     /// - Alle Reihen fehlgeschlagen, oder alles leer obwohl vorher Daten da waren → nichts überschreiben.
     static func merge(old: [DayMetrics], new: [DayMetrics], failed: Set<MetricSeries> = [],
-                      today: Date = Date.now.startOfDay, keepDays: Int = 180) -> MergeResult {
+                      today: Date = Date.now.startOfDay, keepDays: Int = 180, calendar: Calendar = .forma) -> MergeResult {
         if failed.count == MetricSeries.allCases.count { return .rejectedEmpty }
-        let oldHasData = old.contains(where: hasData)
+        let oldDays = old.compactMap { $0.onCivilDay(in: calendar) }
+        let newDays = new.compactMap { $0.onCivilDay(in: calendar) }
         let newHasData = new.contains(where: hasData)
-        let oldInWindowHasData = oldHasData && !Set(old.filter(hasData).map(\.date))
-            .isDisjoint(with: new.map(\.date))
+        let oldInWindowHasData = !Set(oldDays.filter(hasData).compactMap(\.civilDay))
+            .isDisjoint(with: newDays.compactMap(\.civilDay))
         if oldInWindowHasData && !newHasData && failed.isEmpty { return .rejectedEmpty }
 
-        var oldByDate: [Date: DayMetrics] = [:]
-        for d in old { oldByDate[d.date] = d }
-        var newByDate: [Date: DayMetrics] = [:]
-        for d in new { newByDate[d.date] = d }
+        func byCivilDay(_ days: [DayMetrics]) -> [CivilDay: DayMetrics] {
+            Dictionary(days.compactMap { day in day.civilDay.map { ($0, day) } },
+                       uniquingKeysWith: { _, latest in latest })
+        }
+        let oldByDate = byCivilDay(oldDays)
+        let newByDate = byCivilDay(newDays)
 
-        let first = today.adding(days: -(keepDays - 1))
         var result: [DayMetrics] = []
-        var date = first
-        while date <= today {
-            let o = oldByDate[date]
-            if var m = newByDate[date] {
+        for date in dayGrid(ending: today, count: keepDays, calendar: calendar) {
+            let key = CivilDay(date, in: calendar)
+            let o = oldByDate[key]
+            if var m = newByDate[key] {
                 if let o {
                     if failed.contains(.hrv) { m.hrv = o.hrv }
                     if failed.contains(.restingHR) { m.restingHR = o.restingHR }
@@ -121,9 +165,8 @@ enum SyncStore {
                 result.append(m)
             } else {
                 // Tag lag nicht im Abruf (älter als das Abruffenster): gespeicherten Stand behalten.
-                result.append(o ?? DayMetrics(date: date))
+                result.append(o ?? DayMetrics(date: date, civilDay: key))
             }
-            date = date.adding(days: 1)
         }
         return .merged(result)
     }

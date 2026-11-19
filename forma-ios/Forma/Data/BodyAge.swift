@@ -18,10 +18,15 @@ struct PersonInfo: Equatable, Sendable {
     var birthDate: Date?
     var sex: BiologicalSex
     var origin: Origin
+    var birthYear: Int? = nil
+    var ageIsApproximate: Bool { birthDate == nil && birthYear != nil }
 
     func age(at date: Date = .now) -> Double? {
-        guard let birthDate else { return nil }
-        return date.timeIntervalSince(birthDate) / (365.2425 * 86_400)
+        if let birthDate { return date.timeIntervalSince(birthDate) / (365.2425 * 86_400) }
+        let calendar = Calendar.forma
+        guard let birthYear, let year = calendar.dateInterval(of: .year, for: date) else { return nil }
+        let fraction = date.timeIntervalSince(year.start) / year.duration
+        return Double(calendar.component(.year, from: date) - birthYear) + fraction - 0.5
     }
 }
 
@@ -75,12 +80,14 @@ enum BodyAge {
         let daysWithData: Int
         let windowDays: Int
         let confidence: Confidence
+        var ageIsApproximate = false
+        var pace: Double? = nil
+        var paceOutsideScale: Bool { pace.map { !(-1...3).contains($0) } ?? false }
         var difference: Double { bodyAge - age }
         var trend: Double? {
             guard let recent, let previous else { return nil }
             return recent.bodyAge - previous.bodyAge
         }
-        var pace: Double? { BodyAge.agingPace(previous: previous, recent: recent) }
     }
 
     struct Estimate: Sendable, Identifiable {
@@ -115,6 +122,7 @@ enum BodyAge {
         var hasRecord: Bool = true
         var recentHasRecord: Bool? = nil
         var previousHasRecord: Bool? = nil
+        var trainingWeeks: Int? = nil
     }
 
     static let minimumDays = 21
@@ -134,45 +142,88 @@ enum BodyAge {
         guard long.factors.contains(where: { ["rhr", "sleep", "vo2"].contains($0.id) }) else {
             return .insufficient("Für Health Age fehlen Ruhepuls, Schlaf oder VO₂max.")
         }
-        // Vergleich nur zwischen gleich langen, nicht überlappenden Fenstern mit denselben Faktoren (Codex R-01-09).
         let end = now.startOfDay
-        let split = end.adding(days: -30)
-        let start = end.adding(days: -60)
-        let recentDays = days.filter { $0.date >= split && $0.date < end }
-        let previousDays = days.filter { $0.date >= start && $0.date < split }
-        var recent: Estimate?, previous: Estimate?
-        if recentDays.filter(hasData).count >= minimumDays, previousDays.filter(hasData).count >= minimumDays {
-            let recentMid = split.adding(days: 15)
-            let previousMid = start.adding(days: 15)
-            if let recentAge = person.age(at: recentMid), let previousAge = person.age(at: previousMid),
-               (18...90).contains(recentAge), (18...90).contains(previousAge) {
-                let r = factors(days: recentDays, age: recentAge, sex: person.sex, strengthPerWeek: strength.recentPerWeek,
-                                hasStrengthRecord: strength.recentHasRecord ?? strength.hasRecord)
-                let p = factors(days: previousDays, age: previousAge, sex: person.sex, strengthPerWeek: strength.previousPerWeek,
-                                hasStrengthRecord: strength.previousHasRecord ?? strength.hasRecord)
-                if Set(r.factors.map(\.id)) == Set(p.factors.map(\.id)),
-                   r.factors.contains(where: { ["rhr", "sleep", "vo2"].contains($0.id) }) {
-                    recent = Estimate(date: recentMid, bodyAge: combine(age: recentAge, sum: r.sum), age: recentAge)
-                    previous = Estimate(date: previousMid, bodyAge: combine(age: previousAge, sum: p.sum), age: previousAge)
-                }
-            }
-        }
+        let comparison = comparableWindows(days, ending: end, length: 30, minimumDaily: 21, minimumVO2: 3, person: person)
+        let longer = comparableWindows(days, ending: end, length: 90, minimumDaily: 60, minimumVO2: 6, person: person)
 
         let bodyAge = combine(age: age, sum: long.sum)
         let confidence: Confidence
-        let vo2Count = days.suffix(90).compactMap(\.vo2max).count
-        if withData.count >= 120 && long.factors.count == 5 && vo2Count >= 3 { confidence = .high }
-        else if withData.count >= 45 && long.factors.count >= 4 { confidence = .medium }
+        let weeks = strength.trainingWeeks ?? trainingWeeks(days.flatMap(\.workouts).filter(\.isStrength), calendar: .forma)
+        func hasCoverage(daily: Int, vo2: Int, training: Int) -> Bool {
+            long.factors.allSatisfy { factor in
+                if factor.id == "strength" { return weeks >= training }
+                return observations(for: factor.id, in: days).count >= (factor.id == "vo2" ? vo2 : daily)
+            }
+        }
+        if long.factors.count == 5 && hasCoverage(daily: 120, vo2: 3, training: 12) { confidence = .high }
+        else if long.factors.count >= 4 && hasCoverage(daily: 45, vo2: 2, training: 4) { confidence = .medium }
         else { confidence = .low }
 
         return .ready(Result(
             age: age, bodyAge: bodyAge,
-            recent: recent,
-            previous: previous,
+            recent: comparison?.recent,
+            previous: comparison?.previous,
             factors: long.factors.sorted { abs($0.years) > abs($1.years) },
             missing: long.missing,
             daysWithData: withData.count, windowDays: days.count,
-            confidence: confidence))
+            confidence: confidence, ageIsApproximate: person.ageIsApproximate,
+            pace: agingPace(previous: longer?.previous, recent: longer?.recent)))
+    }
+
+    private static func comparableWindows(
+        _ days: [DayMetrics], ending end: Date, length: Int, minimumDaily: Int, minimumVO2: Int,
+        person: PersonInfo
+    ) -> (previous: Estimate, recent: Estimate)? {
+        let split = end.adding(days: -length)
+        let start = split.adding(days: -length)
+        let recentDays = days.filter { $0.date >= split && $0.date < end }
+        let previousDays = days.filter { $0.date >= start && $0.date < split }
+        guard recentDays.filter(hasData).count >= minimumDaily, previousDays.filter(hasData).count >= minimumDaily else { return nil }
+        let recentMid = split.adding(days: length / 2)
+        let previousMid = start.adding(days: length / 2)
+        guard let recentAge = person.age(at: recentMid), let previousAge = person.age(at: previousMid),
+              (18...90).contains(recentAge), (18...90).contains(previousAge) else { return nil }
+        // Lokale Einheiten haben keine bekannte Geräteabdeckung für einen Zeitvergleich.
+        let r = factors(days: recentDays, age: recentAge, sex: person.sex, strengthPerWeek: 0, hasStrengthRecord: false)
+        let p = factors(days: previousDays, age: previousAge, sex: person.sex, strengthPerWeek: 0, hasStrengthRecord: false)
+        let ids = Set(r.factors.map(\.id))
+        guard ids == Set(p.factors.map(\.id)), !ids.isDisjoint(with: ["rhr", "sleep", "vo2"]) else { return nil }
+        for id in ids {
+            let minimum = id == "vo2" ? minimumVO2 : minimumDaily
+            let recent = observations(for: id, in: recentDays)
+            let previous = observations(for: id, in: previousDays)
+            guard recent.count >= minimum, previous.count >= minimum,
+                  sameMeasurementSource(for: id, recent: recent, previous: previous,
+                                        allowExampleData: person.origin == .assumed) else { return nil }
+        }
+        return (Estimate(date: previousMid, bodyAge: combine(age: previousAge, sum: p.sum), age: previousAge),
+                Estimate(date: recentMid, bodyAge: combine(age: recentAge, sum: r.sum), age: recentAge))
+    }
+
+    private static func observations(for factor: String, in days: [DayMetrics]) -> [DayMetrics] {
+        switch factor {
+        case "vo2": Array(days.suffix(90).filter { $0.vo2max != nil }.suffix(10))
+        case "rhr": days.filter { $0.restingHR != nil }
+        case "steps": days.filter { ($0.steps ?? 0) > 500 }
+        case "sleep": days.filter { ($0.sleep?.asleep ?? 0) > 3 * 3600 }
+        default: []
+        }
+    }
+
+    private static func sameMeasurementSource(for factor: String, recent: [DayMetrics], previous: [DayMetrics],
+                                              allowExampleData: Bool) -> Bool {
+        let series: MetricSeries
+        switch factor {
+        case "vo2": series = .vo2max
+        case "rhr": series = .restingHR
+        case "steps": series = .steps
+        case "sleep": series = .sleep
+        default: return false
+        }
+        let measurements = (recent + previous).map { $0.origins?[series] ?? [] }
+        if allowExampleData, measurements.allSatisfy(\.isEmpty) { return true }
+        guard let origin = measurements.first?.first, origin.device != nil else { return false }
+        return measurements.allSatisfy { $0 == [origin] }
     }
 
     private static func combine(age: Double, sum: Double) -> Double {
@@ -277,7 +328,7 @@ enum BodyAge {
                 value: strengthPerWeek, displayRange: 0...120, referenceRange: 0...0,
                 coverage: "Trainings aus dieser App und aus Google Health",
                 years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
-                explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Ob mehr noch mehr bringt, ist nicht geklärt. Annahmen von Health: 14 % ab 30 min/Woche, darüber kein weiterer Bonus. Nicht aufgezeichnetes Training zählt als 0.",
+                explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Annahmen von Health: 14 % ab 30 min/Woche. Health wertet deine erfassten Trainingsminuten aus.",
                 source: "Momma et al., Br J Sports Med 2022"))
         }
 
@@ -328,33 +379,32 @@ enum BodyAge {
         ("Gurven et al.: Unterschiede der Verdopplungszeit zwischen Bevölkerungen", "https://pmc.ncbi.nlm.nih.gov/articles/PMC6121812/")
     ]
 
-    /// Krafttraining pro Woche: Forma-Trainings plus Krafttrainings aus Google Health,
-    /// die sich zeitlich nicht mit einem Forma-Training überschneiden (keine Doppelzählung, Codex R-01-08).
+    /// Krafttraining pro Woche aus beiden Quellen. Überlappende Minuten zählen einmal.
     static func strengthMinutes(days: [DayMetrics], formaSessions: [(start: Date, minutes: Double)], now: Date = .now) -> StrengthMinutes {
+        let calendar = Calendar.forma
+        let imported = days.flatMap(\.workouts).filter(\.isStrength)
+        let local = formaSessions.filter { $0.minutes.isFinite && (0...1440).contains($0.minutes) && $0.minutes > 0 }.map {
+            WorkoutSummary(name: "Krafttraining", start: $0.start, duration: $0.minutes * 60, energy: nil, isStrength: true)
+        }
+        let workouts = imported + local
         func perWeek(from start: Date, until end: Date) -> (minutes: Double, hasRecord: Bool) {
-            let numberOfDays = Calendar.forma.dateComponents([.day], from: start, to: end).day ?? 0
+            let numberOfDays = calendar.dateComponents([.day], from: start, to: end).day ?? 0
             guard numberOfDays > 0 else { return (0, false) }
-            let window = days.filter { $0.date >= start && $0.date < end }
-            var total = formaSessions.filter { $0.start >= start && $0.start < end && $0.minutes.isFinite }
-                .reduce(0) { $0 + max(0, $1.minutes) }
-            for day in window {
-                for w in day.workouts where w.isStrength {
-                    let wEnd = w.start.addingTimeInterval(w.duration)
-                    let overlaps = formaSessions.contains { s in
-                        let sEnd = s.start.addingTimeInterval(s.minutes * 60)
-                        return s.start < wEnd && w.start < sEnd
-                    }
-                    if !overlaps { total += w.duration / 60 }
-                }
-            }
+            let total = WorkoutSummary.totalDuration(workouts, from: start, until: end) / 60
             return (total / (Double(numberOfDays) / 7), total > 0)
         }
         let end = now.startOfDay
         let split = end.adding(days: -30)
         let long = days.first.map { perWeek(from: $0.date, until: end.adding(days: 1)) } ?? (minutes: 0, hasRecord: false)
+        let recorded = workouts.filter { $0.start >= (days.first?.date ?? end) && $0.start <= now }
         let recent = perWeek(from: split, until: end)
         let previous = perWeek(from: end.adding(days: -60), until: split)
         return StrengthMinutes(perWeek: long.minutes, recentPerWeek: recent.minutes, previousPerWeek: previous.minutes,
-                               hasRecord: long.hasRecord, recentHasRecord: recent.hasRecord, previousHasRecord: previous.hasRecord)
+                               hasRecord: long.hasRecord, recentHasRecord: recent.hasRecord, previousHasRecord: previous.hasRecord,
+                               trainingWeeks: trainingWeeks(recorded, calendar: calendar))
+    }
+
+    private static func trainingWeeks(_ workouts: [WorkoutSummary], calendar: Calendar) -> Int {
+        Set(workouts.compactMap { calendar.dateInterval(of: .weekOfYear, for: $0.start)?.start }).count
     }
 }

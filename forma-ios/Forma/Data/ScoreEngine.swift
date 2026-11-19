@@ -40,10 +40,12 @@ enum ScoreEngine {
         guard let night, night.asleep > 0 else { return 0 }
         let duration = min(1, night.asleep / max(need, 1)) * 60
         let efficiency = clamp((night.efficiency - 0.75) / 0.2) * 20
-        // Ohne gemessene Phasen neutral werten statt mit 0 bestrafen (Codex R-01-06).
-        // Tief und REM als *gemeinsame* Vereinigung: überlappende Phasen zählen nur einmal (Codex R-02-09).
-        let restorativeTime = SleepNight.unionLength(night.segments.filter { $0.stage == .deep || $0.stage == .rem })
-        let restorative = night.hasStages ? clamp((min(1, restorativeTime / night.asleep) - 0.25) / 0.2) * 20 : 10
+        let phased = night.resolvingStages()
+        guard phased.hasCompleteStages else {
+            return Int(((duration + efficiency) / 0.8).rounded()).clamped(1, 100)
+        }
+        let restorativeTime = phased.total(.deep) + phased.total(.rem)
+        let restorative = clamp((min(1, restorativeTime / night.asleep) - 0.25) / 0.2) * 20
         return Int((duration + efficiency + restorative).rounded()).clamped(1, 100)
     }
 
@@ -60,7 +62,7 @@ enum ScoreEngine {
     /// Belastung: aktive Energie und Trainingszeit, gesättigt gegen 100.
     static func strain(_ day: DayMetrics) -> Int {
         let kcal = day.activeEnergy ?? 0
-        let workoutMinutes = day.workouts.reduce(0) { $0 + $1.duration / 60 }
+        let workoutMinutes = WorkoutSummary.totalDuration(day.workouts) / 60
         let load = kcal + workoutMinutes * 4
         return Int((100 * (1 - exp(-load / 1100))).rounded()).clamped(0, 100)
     }
@@ -78,7 +80,8 @@ enum ScoreEngine {
     }
 
     static func sleepDebt(history: [DayMetrics], base: TimeInterval = 7.75 * 3600) -> TimeInterval {
-        let nights = history.suffix(7).compactMap { $0.sleep?.asleep }
+        let nights = history.suffix(7).compactMap { $0.sleep?.asleep }.filter { $0 > 0 }
+        guard nights.count >= 4 else { return 0 }
         return nights.reduce(0) { $0 + max(0, base - $1) } / 3
     }
 
@@ -88,14 +91,28 @@ enum ScoreEngine {
                   debt: sleepDebt(history: Array(history.dropLast())))
     }
 
+    static func hasSleepHistory(_ history: [DayMetrics]) -> Bool {
+        history.suffix(7).filter { ($0.sleep?.asleep ?? 0) > 0 }.count >= 4
+    }
+
+    static func measuredNeedForLastNight(on day: Date, history: [DayMetrics]) -> TimeInterval? {
+        let prior = history.filter { $0.date < day }.sorted { $0.date < $1.date }
+        guard let yesterday = prior.last, yesterday.date.startOfDay == day.startOfDay.adding(days: -1),
+              yesterday.activeEnergy != nil || !yesterday.workouts.isEmpty else { return nil }
+        let firstNight = yesterday.date.startOfDay.adding(days: -7)
+        let basis = prior.filter { $0.date >= firstNight }
+        guard hasSleepHistory(Array(basis.dropLast())) else { return nil }
+        return sleepNeedForLastNight(history: basis)
+    }
+
     static func scores(today: DayMetrics, history: [DayMetrics], now: Date = .now) -> DayScores {
         let debt = sleepDebt(history: history)
         let strainValue = strain(today)
         let need = sleepNeed(strain: strainValue, debt: debt)
         // Die vergangene Nacht wird am Bedarf von *gestern* gemessen – sonst ändert sich ihr Wert,
         // nur weil du heute trainierst (Codex R-02-09/A-13).
-        let nightNeed = sleepNeedForLastNight(history: history)
-        let sleepValue = sleepScore(today.sleep, need: nightNeed)
+        let sleepValue = measuredNeedForLastNight(on: today.date, history: history)
+            .map { sleepScore(today.sleep, need: $0) } ?? 0
         let rec = recovery(today: today, history: history, sleepScore: sleepValue)
         let hour = Double(Calendar.forma.component(.hour, from: now))
         let dayFatigue = max(0, hour - 8) * 1.4

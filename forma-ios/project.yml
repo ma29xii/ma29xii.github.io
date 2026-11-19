@@ -20,6 +20,9 @@ targets:
     platform: iOS
     sources:
       - path: Forma
+        excludes:
+          - coach-keys.json
+          - "**/coach-keys.json"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ma29xii.forma

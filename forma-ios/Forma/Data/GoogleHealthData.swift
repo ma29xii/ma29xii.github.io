@@ -189,7 +189,7 @@ struct GoogleHealthPage: Sendable {
             let id = workoutID(entry["name"] as? String ?? "\(type)/\(start)/\(end)/\(source.title)")
             return .workout(.init(id: id, name: name.isEmpty ? "Training" : name, start: start,
                                   duration: end.timeIntervalSince(start), energy: number(summary?["caloriesKcal"]),
-                                  isStrength: strength), source: source)
+                                  isStrength: strength, activityType: type.isEmpty ? nil : type), source: source)
         case .pulse:
             let sample = payload["sampleTime"] as? [String: Any]
             guard let time = date(sample?["physicalTime"]), let value = number(payload["beatsPerMinute"]),

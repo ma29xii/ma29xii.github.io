@@ -1,7 +1,9 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ImageIO
 import NaturalLanguage
+import Synchronization
 import UniformTypeIdentifiers
 
 enum CoachProviders {
@@ -24,7 +26,20 @@ enum CoachProviders {
     // https://developers.openai.com/api/docs/models/gpt-6-luna
     static let openAIModel = "gpt-6-luna"
     static let consentKey = "forma.coach.externalConsent.v1"
+    static let photoConsentKey = "forma.coach.photoConsent.v1"
     static let maxImagesPerMessage = 4
+    private static let conversation = Mutex(UUID())
+    @MainActor private static var activeReplies: [UUID: Task<String, any Error>] = [:]
+    @MainActor private static var credentialSignature: [Data?]?
+
+    static var conversationID: UUID { conversation.withLock { $0 } }
+
+    @MainActor
+    static func invalidateConversation() {
+        conversation.withLock { $0 = UUID() }
+        for task in activeReplies.values { task.cancel() }
+        activeReplies.removeAll()
+    }
     // Vorbereitet für eine spätere Freigabe. Kein Schlüssel, Endpunkt oder Routing für Gemini.
     private static let geminiEnabled = false
 
@@ -44,6 +59,10 @@ enum CoachProviders {
         UserDefaults.standard.bool(forKey: consentKey)
     }
 
+    static func allowsCoachReply(withPhotos: Bool, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: consentKey) && (!withPhotos || defaults.bool(forKey: photoConsentKey))
+    }
+
     @MainActor
     static func externalCredentials() throws -> (anthropic: String?, openAI: String?) {
         try checkConsent(allowsExternalData)
@@ -56,14 +75,56 @@ enum CoachProviders {
         return (anthropic, openAI)
     }
 
-    /// Bilder gehören zur letzten Nachricht. Aufrufer zeigen die Einwilligung und brechen beim Widerruf den Task ab.
+    /// Bilder gehören zur letzten Nachricht und brauchen eine eigene Einwilligung.
     @MainActor
     static func reply(context: String, history: [ChatMessage], images: [Data] = []) async throws -> String {
         let keys = try externalCredentials()
-        return try await reply(
-            context: context, history: history, images: images,
-            anthropicKey: keys.anthropic, openAIKey: keys.openAI, maySend: allowsExternalData
+        let signature = signature(for: keys)
+        if let credentialSignature, credentialSignature != signature { invalidateConversation() }
+        credentialSignature = signature
+        let needsPhotoConsent = !images.isEmpty
+        return try await replyInCurrentConversation(
+            context: context, history: history, images: images, anthropicKey: keys.anthropic,
+            openAIKey: keys.openAI, maySend: {
+                allowsCoachReply(withPhotos: needsPhotoConsent)
+                    && signature == Self.signature(for: storedCredentials())
+            }
         )
+    }
+
+    private static func storedCredentials() -> (anthropic: String?, openAI: String?) {
+        (Keychain.get(BundledKeys.anthropicAccount), Keychain.get(BundledKeys.openAIAccount))
+    }
+
+    private static func signature(for keys: (anthropic: String?, openAI: String?)) -> [Data?] {
+        [keys.anthropic, keys.openAI].map { $0.map { Data(SHA256.hash(data: Data($0.utf8))) } }
+    }
+
+    @MainActor
+    static func replyInCurrentConversation(
+        context: String, history: [ChatMessage], images: [Data] = [], anthropicKey: String?, openAIKey: String?,
+        maySend: @Sendable @escaping () -> Bool, send: @escaping Transport = fetch
+    ) async throws -> String {
+        let current = conversationID
+        guard history.last?.conversationID == current else { throw CancellationError() }
+        try checkConsent(maySend)
+        let eligible = history.filter { $0.conversationID == current }
+        let id = UUID()
+        let task = Task {
+            try await reply(
+                context: context, history: eligible, images: images, anthropicKey: anthropicKey,
+                openAIKey: openAIKey, maySend: { conversationID == current && maySend() }, send: send
+            )
+        }
+        activeReplies[id] = task
+        defer { activeReplies.removeValue(forKey: id) }
+        let answer = try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        try checkConsent { conversationID == current && maySend() }
+        return answer
     }
 
     static func anthropicModel(for question: String) -> AnthropicModel {
@@ -385,7 +446,7 @@ enum CoachProviders {
         let output: [Output]
     }
 
-    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
+    final class NoRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(
             _ session: URLSession, task: URLSessionTask,
             willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,

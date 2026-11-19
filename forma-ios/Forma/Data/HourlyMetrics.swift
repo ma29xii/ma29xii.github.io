@@ -13,6 +13,9 @@ struct HourlyMetrics: Identifiable, Equatable, Codable, Sendable {
     var heartRateOrigin: GoogleMetricOrigin? = nil
 
     var id: Date { start }
+    var hasMeasurement: Bool {
+        steps != nil || activeEnergy != nil || heartRate != nil || hrv != nil || restingHR != nil
+    }
 
     static func samples(for day: DayMetrics) -> [Self] {
         let fractions = [0.03, 0.03, 0.1, 0.06, 0.05, 0.32, 0.14, 0.05, 0.22]
@@ -36,6 +39,7 @@ struct HourlyEstimate: Identifiable, Sendable {
     var id: Date { at }
 
     static func timeline(hours: [HourlyMetrics], today: DayMetrics, history: [DayMetrics]) -> [Self] {
+        // Der importierte Tagespuls ist kein Ruhepuls und liefert weder Stress noch Energie.
         let hasHRVBaseline = ScoreEngine.baseline(history.compactMap(\.hrv)) != nil
         let hasRestingHRBaseline = ScoreEngine.baseline(history.compactMap(\.restingHR)) != nil
         var accumulatedEnergy: Double?
