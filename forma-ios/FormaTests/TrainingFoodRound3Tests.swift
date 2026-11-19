@@ -98,6 +98,42 @@ final class TrainingFoodRound3Tests: XCTestCase {
         }
     }
 
+    // MARK: #12 Entwürfe ab der 31. Übung
+
+    @MainActor
+    func testDraftWith31ExercisesSurvivesRestart() throws {
+        defer { LiveWorkout.clearSaved() }
+        let exercises = (1...31).map { i in
+            LiveExercise(name: "Übung \(i)", muscle: "Brust", restSeconds: 90, sets: [LiveSet(weight: 50, reps: 8, isWarmup: false)])
+        }
+        let w = LiveWorkout(title: "Groß", exercises: exercises)
+        w.select(exercise: 30, set: 0)
+        w.completeCurrentSet()
+        let restored = try XCTUnwrap(LiveWorkout.restore())
+        XCTAssertEqual(restored.exercises.count, 31)
+        XCTAssertEqual(restored.exercises[30].name, "Übung 31")
+        XCTAssertEqual(restored.exercises[30].sets[0].done, true)
+    }
+
+    @MainActor
+    func testAddingStopsAtLimit() {
+        defer { LiveWorkout.clearSaved() }
+        let w = LiveWorkout.empty()
+        for i in 0..<(LiveWorkout.maxExercises + 3) { w.addExercise(name: "Ü\(i)", muscle: "Arme") }
+        XCTAssertEqual(w.exercises.count, LiveWorkout.maxExercises)
+    }
+
+    // MARK: #13 Texte ohne Einheit
+
+    func testProgressionNoteHasNoUnit() throws {
+        let plan = Progression.plan(targetReps: 8, routineWeight: 60, lastWorkSets: [(70, 8, 2), (70, 8, 3)])
+        XCTAssertEqual(plan.weight, 70 + Progression.step)
+        let note = try XCTUnwrap(plan.note)
+        XCTAssertFalse(note.contains("kg"))
+        XCTAssertEqual(Format.weight(77.5, unit: .lb), "170,9")
+        XCTAssertEqual(Format.weight(Progression.step, unit: .lb), "5,5")
+    }
+
     // MARK: #16 Tippflächen der Muskelkarte
 
     func testMuscleHitAreasAreGenerous() {

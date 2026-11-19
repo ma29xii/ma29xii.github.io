@@ -88,8 +88,6 @@ struct LiveSet: Identifiable, Equatable, Codable {
     var done = false
     /// Gewicht aus dem Plan. Nur unveränderte Folgesätze übernehmen das Gewicht des letzten Satzes (Codex R-01-26).
     var plannedWeight: Double? = nil
-    /// Was du beim letzten Mal in diesem Satz geschafft hast, z. B. „72,5 × 8“.
-    var previous: String? = nil
 }
 
 struct LiveExercise: Identifiable, Equatable, Codable {
@@ -98,10 +96,11 @@ struct LiveExercise: Identifiable, Equatable, Codable {
     var muscle: String
     var restSeconds: Int
     var sets: [LiveSet]
-    var lastTime: String?
-    /// Vorschlag aus dem letzten Training (progressive Steigerung). Wird erst nach „Übernehmen“ wirksam (Codex R-02-12).
+    /// Vorschlag aus dem letzten Training (progressive Steigerung), ohne Einheit. Wird erst nach „Übernehmen“ wirksam (Codex R-02-12).
     var progression: String? = nil
     var suggestedWeight: Double? = nil
+    /// Übernommenes Gewicht in kg; die Anzeige rechnet in die gewählte Einheit um (Gegenprüfung 02 #13).
+    var appliedWeight: Double? = nil
 }
 
 /// Steigerungsregel: Wurden letztes Mal alle Arbeitssätze mit dem Ziel an Wiederholungen
@@ -109,6 +108,8 @@ struct LiveExercise: Identifiable, Equatable, Codable {
 /// Bei Reserve 0 und verfehlten Wiederholungen bleibt das Gewicht. Sonst gleiches Gewicht wie zuletzt.
 enum Progression {
     struct Plan: Equatable { var weight: Double; var note: String?; var increased = false }
+    /// Steigerung in kg. Texte nennen keine Einheit, die Anzeige rechnet um.
+    static let step = 2.5
 
     /// - Parameter plannedSets: Wie viele Arbeitssätze die Routine vorsieht. Eine Steigerung gibt es nur,
     ///   wenn letztes Mal mindestens so viele Sätze am Topgewicht geschafft **und** alle mit Reserve erfasst wurden (Codex A-17/A-18).
@@ -121,7 +122,7 @@ enum Progression {
         let complete = atTop.count >= plannedSets
         let meanRIR = rirs.isEmpty ? nil : Double(rirs.reduce(0, +)) / Double(rirs.count)
         if allReps, complete, allRecorded, let meanRIR, meanRIR >= 2 {
-            return Plan(weight: top + 2.5, note: "+2,5 kg: Letztes Mal alle \(targetReps) Wdh. mit Reserve geschafft", increased: true)
+            return Plan(weight: top + step, note: "Letztes Mal alle \(targetReps) Wdh. mit Reserve geschafft", increased: true)
         }
         if !allReps, let meanRIR, meanRIR < 1 {
             return Plan(weight: top, note: "Gewicht halten: Letztes Mal am Limit")
@@ -224,8 +225,9 @@ final class LiveWorkout: Identifiable {
         }
         let draftID = snap.draftID ?? UUID()
         if alreadySaved(draftID) { clearSaved(); return nil }
-        // Grenzen wie bei der Eingabe: höchstens 30 Übungen à 50 Sätze, Gewicht 0–1000, Wdh 1–100.
-        let exercises = snap.exercises.prefix(30).map { ex -> LiveExercise in
+        // Grenzen wie bei der Eingabe (Start aus Routine und Hinzufügen sind gleich gedeckelt), damit nie ein
+        // gültiger Entwurf gekürzt wird (Gegenprüfung 02 #12): höchstens maxExercises Übungen à 50 Sätze, Gewicht 0–1000, Wdh 1–100.
+        let exercises = snap.exercises.prefix(maxExercises).map { ex -> LiveExercise in
             var ex = ex
             ex.sets = ex.sets.prefix(50).map { s in
                 var s = s
@@ -249,8 +251,11 @@ final class LiveWorkout: Identifiable {
         return w
     }
 
+    /// Obergrenze für Übungen pro Training – gilt beim Start, beim Hinzufügen und beim Wiederherstellen gleich.
+    static let maxExercises = 60
+
     static func from(_ routine: Routine, history: [WorkoutSession], adjustment: TrainingAdjustment?) -> LiveWorkout {
-        let items = routine.sortedItems
+        let items = Array(routine.sortedItems.prefix(maxExercises))
         let exercises = items.enumerated().map { index, item -> LiveExercise in
             var setCount = item.sets
             let lastSession = history.first { $0.sets.contains { $0.exerciseName == item.exerciseName } }
@@ -261,22 +266,15 @@ final class LiveWorkout: Identifiable {
             var weight = plan.increased ? plan.weight - 2.5 : plan.weight
             if adjustment == .minusOneSet { setCount = max(1, setCount - 1) }
             if adjustment == .plusWeight && index == 0 { weight += 2.5 }
-            let previousSets = (lastSession?.workSets ?? []).filter { $0.exerciseName == item.exerciseName }.sorted { $0.order < $1.order }
-            var sets = (0..<setCount).map { i in
-                LiveSet(weight: weight, reps: item.reps, isWarmup: false, plannedWeight: weight,
-                        previous: previousSets.indices.contains(i) ? "\(Format.number(previousSets[i].weight, decimals: previousSets[i].weight.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) × \(previousSets[i].reps)" : nil)
+            // Vorwerte und „Letztes Mal“ berechnet die Ansicht numerisch aus dem Verlauf, in der gewählten Einheit.
+            var sets = (0..<setCount).map { _ in
+                LiveSet(weight: weight, reps: item.reps, isWarmup: false, plannedWeight: weight)
             }
             if index == 0 && weight >= 40 {
                 sets.insert(LiveSet(weight: (weight * 0.55 / 2.5).rounded() * 2.5, reps: 10, isWarmup: true), at: 0)
             }
-            let last = history.first { $0.sets.contains { $0.exerciseName == item.exerciseName } }
-            let lastText = last.map { session -> String in
-                let work = session.workSets.filter { $0.exerciseName == item.exerciseName }
-                let top = work.max { $0.weight < $1.weight }
-                return "Letztes Mal \(work.count) × \(top?.reps ?? 0) · \(Format.number(top?.weight ?? 0, decimals: (top?.weight ?? 0).truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) kg"
-            }
             return LiveExercise(name: item.exerciseName, muscle: item.muscle, restSeconds: max(15, item.restSeconds), sets: sets,
-                                lastTime: lastText, progression: plan.note,
+                                progression: plan.note,
                                 suggestedWeight: plan.increased && !(adjustment == .plusWeight && index == 0) ? plan.weight : nil)
         }
         return LiveWorkout(title: routine.name, exercises: exercises, adjustment: adjustment)
@@ -335,7 +333,8 @@ final class LiveWorkout: Identifiable {
             exercises[exercise].sets[i].plannedWeight = w
         }
         exercises[exercise].suggestedWeight = nil
-        exercises[exercise].progression = "Übernommen: \(Format.number(w, decimals: w.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1)) kg"
+        exercises[exercise].appliedWeight = w
+        exercises[exercise].progression = "Übernommen"
         persist()
     }
 
@@ -398,6 +397,7 @@ final class LiveWorkout: Identifiable {
     }
 
     func addExercise(name: String, muscle: String) {
+        guard exercises.count < Self.maxExercises else { return }
         exercises.append(LiveExercise(name: name, muscle: muscle, restSeconds: 90,
                                       sets: (0..<3).map { _ in LiveSet(weight: 20, reps: 10, isWarmup: false) }))
         if currentSet == nil || currentSet?.done == true { selectFirstOpen() }

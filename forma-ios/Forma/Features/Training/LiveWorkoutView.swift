@@ -97,7 +97,7 @@ struct LiveWorkoutView: View {
             }
             .padding(.top, Space.s6)
             Text(lastTimeText(exercise.name) ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
-            if let progression = exercise.progression {
+            if let progression = progressionText(exercise) {
                 HStack(spacing: Space.s2) {
                     Label(progression, systemImage: exercise.suggestedWeight != nil ? "arrow.up.right" : "equal")
                         .font(.formaCaptionStrong)
@@ -134,6 +134,15 @@ struct LiveWorkoutView: View {
             }
             .padding(.top, Space.s4)
         }
+    }
+
+    /// Steigerungshinweis mit Gewicht in der gewählten Einheit (z. B. „+5,5 lb: …“).
+    private func progressionText(_ exercise: LiveExercise) -> String? {
+        guard let note = exercise.progression else { return nil }
+        let unit = app.weightUnit
+        if let applied = exercise.appliedWeight { return "\(note): \(Format.weight(applied, unit: unit)) \(unit.rawValue)" }
+        if exercise.suggestedWeight != nil { return "+\(Format.weight(Progression.step, unit: unit)) \(unit.rawValue): \(note)" }
+        return note
     }
 
     private func lastWorkSets(_ name: String) -> [SetRecord] {
