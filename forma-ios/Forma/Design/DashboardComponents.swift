@@ -208,7 +208,8 @@ struct DashboardRing: View {
                 VStack(spacing: Space.s2) {
                     LevelCapsule(value: displayed, color: tint, height: size, missing: value == nil,
                                  band: band.map { Double($0.lowerBound)...Double($0.upperBound) },
-                                 suffix: kind == .sleep ? "%" : "", numberSize: expanded ? 44 : 28)
+                                 suffix: kind == .sleep ? "%" : "", numberSize: expanded ? 44 : 28,
+                                 ticks: expanded ? 10 : 4)
                     if expanded { Text(name).formaLabelStyle() }
                 }
             }

@@ -142,8 +142,9 @@ struct TodayView: View {
     }
 
     /// Schlafschuld als kurze Zeile unter der Schlaf-Kapsel, erst ab 15 Minuten.
+    /// Kurz und einzeilig unter SLEEP, z. B. „−1:19 h“; VoiceOver liest die Langform.
     nonisolated static func debtNote(_ debt: TimeInterval) -> String? {
-        debt >= 15 * 60 ? "Schuld \(Format.duration(debt))" : nil
+        debt >= 15 * 60 ? "−\(RingDetailView.clock(debt)) h" : nil
     }
 
     // MARK: Kopf
@@ -194,8 +195,8 @@ struct TodayView: View {
                         .font(.formaMicro)
                         .monospacedDigit()
                         .foregroundStyle(Theme.textTertiary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
             }
             .padding(.top, typeSize >= .xxLarge ? 0 : Space.s5)
@@ -240,12 +241,16 @@ struct TodayView: View {
                     }
                 }
             }
-            .padding(.horizontal, Space.s4)
-            .frame(minHeight: 40)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.top, Space.s1)
+        .background {
+            Theme.backgroundTop.ignoresSafeArea(edges: .top)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.hairline).frame(height: 0.5)
+        }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tageswerte")

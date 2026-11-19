@@ -33,7 +33,7 @@ final class DesignTodayTests: XCTestCase {
     func testSleepDebtNoteOnlyFromFifteenMinutes() {
         XCTAssertNil(TodayView.debtNote(0))
         XCTAssertNil(TodayView.debtNote(14 * 60))
-        XCTAssertEqual(TodayView.debtNote(79 * 60), "Schuld 1 h 19 min")
+        XCTAssertEqual(TodayView.debtNote(79 * 60), "−1:19 h")
     }
 
     // MARK: Satz zum Tag

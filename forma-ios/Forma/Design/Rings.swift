@@ -156,6 +156,8 @@ struct LevelCapsule: View, Animatable {
     var band: ClosedRange<Double>? = nil
     var suffix = ""
     var numberSize: CGFloat = 28
+    /// Feine Skalenstriche (Abschnitte); geben der Kapsel ohne Füllfarbe Halt.
+    var ticks = 4
 
     nonisolated var animatableData: Double {
         get { value }
@@ -187,6 +189,12 @@ struct LevelCapsule: View, Animatable {
                     Rectangle()
                         .fill(LinearGradient(colors: [color, color.opacity(0.7)], startPoint: .top, endPoint: .bottom))
                         .frame(height: height * bounded / 100)
+                }
+                ForEach(1..<max(2, ticks), id: \.self) { index in
+                    Rectangle()
+                        .fill(Color.white.opacity(index * 2 == ticks ? 0.22 : 0.12))
+                        .frame(width: width * (index * 2 == ticks ? 0.42 : 0.26), height: 1)
+                        .offset(y: -height * Double(index) / Double(ticks))
                 }
                 if let band {
                     Rectangle()
