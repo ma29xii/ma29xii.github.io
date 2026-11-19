@@ -11,7 +11,11 @@ struct ProfileView: View {
     @AppStorage("forma.birthYear") private var birthYear = 0
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
     @AppStorage("forma.bodyWeightKg") private var weightKg = 0.0
-    @AppStorage(CoachNotifier.wakeKey) private var wakeStored = 0
+    /// Außerhalb 0–1439 heißt „nicht gesetzt“ (dann gilt die Standard-Weckzeit); 00:00 ist ein gültiger Wert.
+    @AppStorage(CoachNotifier.wakeKey) private var wakeStored = -1
+    @AppStorage(BackgroundRefresh.plannedKey) private var refreshPlanned = 0.0
+    @AppStorage(BackgroundRefresh.errorKey) private var refreshError = ""
+    @AppStorage(BackgroundRefresh.attemptKey) private var refreshAttempt = 0.0
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoError: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -102,7 +106,6 @@ struct ProfileView: View {
     }
 
     /// Weckzeit als Uhrzeit. Gespeichert werden Minuten nach Mitternacht.
-    /// shortcut: 00:00 ist als „nicht gesetzt“ reserviert und wird als 00:01 gespeichert, bis die Logik beides trennt.
     private var wakeTime: Binding<Date> {
         Binding(
             get: {
@@ -111,7 +114,7 @@ struct ProfileView: View {
             },
             set: { date in
                 let parts = Calendar.forma.dateComponents([.hour, .minute], from: date)
-                wakeStored = max(1, (parts.hour ?? 0) * 60 + (parts.minute ?? 0))
+                wakeStored = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
                 Task { await CoachNotifier.scheduleBedtimeReminder(hub) }
             }
         )
@@ -207,6 +210,16 @@ struct ProfileView: View {
                 Text(detail)
                     .font(.formaCaption)
                     .foregroundStyle(status.tone == .problem ? Theme.warning : Theme.textSecondary)
+            }
+
+            if case .connected = hub.google, let plan = ProfileText.backgroundPlan(
+                planned: refreshPlanned > 0 ? Date(timeIntervalSince1970: refreshPlanned) : nil,
+                error: refreshError,
+                attempt: refreshAttempt > 0 ? Date(timeIntervalSince1970: refreshAttempt) : nil) {
+                Text(plan.text)
+                    .font(.formaCaption)
+                    .foregroundStyle(plan.isProblem ? Theme.warning : Theme.textSecondary)
+                    .accessibilityIdentifier("profile.refresh.plan")
             }
 
             switch hub.google {
@@ -309,6 +322,17 @@ enum ProfileText {
     }
 
     /// „heute, 08:15“, „gestern, 22:40“ oder „17.11., 08:15“.
+    /// Zeile zur Hintergrund-Aktualisierung: geplanter Zeitpunkt oder Fehler samt Uhrzeit der Anfrage.
+    /// `nil`, solange noch nie ein Termin angefragt wurde.
+    static func backgroundPlan(planned: Date?, error: String?, attempt: Date?, now: Date = .now) -> (text: String, isProblem: Bool)? {
+        if let error, !error.isEmpty {
+            let when = attempt.map { " (\(stamp($0, now: now)))" } ?? ""
+            return ("Hintergrund-Abruf nicht geplant\(when): \(error)", true)
+        }
+        guard let planned else { return nil }
+        return ("Nächster Hintergrund-Abruf frühestens \(stamp(planned, now: now)). iOS entscheidet, wann er wirklich läuft.", false)
+    }
+
     static func stamp(_ date: Date, now: Date = .now) -> String {
         let calendar = Calendar.forma
         let day: String

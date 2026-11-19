@@ -16,7 +16,7 @@ struct CoachView: View {
     /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
     @AppStorage(CoachProviders.consentKey) private var externalConsent = false
     /// Eigene Zustimmung für Fotos: Wer nur Text freigegeben hat, wird vor dem ersten Foto noch einmal gefragt.
-    @AppStorage("forma.coach.photoConsent.v1") private var photoConsent = false
+    @AppStorage(CoachProviders.photoConsentKey) private var photoConsent = false
     @State private var photosLoading = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
@@ -333,7 +333,10 @@ struct CoachView: View {
 
     /// Wie viele frühere Online-Nachrichten der nächste Versand mitnimmt (Obergrenze steht in `CoachProviders`).
     private var historyCountForNextRequest: Int {
-        min(11, messages.filter { !$0.localOnly && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)
+        let current = CoachProviders.conversationID
+        return min(11, messages.filter {
+            $0.conversationID == current && !$0.localOnly && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count)
     }
 
     private func answerLocally(_ text: String) {

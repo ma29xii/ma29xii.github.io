@@ -26,6 +26,20 @@ final class PlusCoachTests: XCTestCase {
         XCTAssertEqual(PlusLogic.nextRoutineIndex(lastUsed: [nil, nil]), 0, "Bei Gleichstand gewinnt die erste")
     }
 
+    // MARK: Hintergrund-Plan im Profil
+
+    func testBackgroundPlanTextShowsErrorWithTimeAndPlannedTime() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        XCTAssertNil(ProfileText.backgroundPlan(planned: nil, error: nil, attempt: nil, now: now))
+        XCTAssertNil(ProfileText.backgroundPlan(planned: nil, error: "", attempt: now, now: now))
+        let ok = ProfileText.backgroundPlan(planned: now.addingTimeInterval(2700), error: nil, attempt: now, now: now)
+        XCTAssertEqual(ok?.isProblem, false)
+        XCTAssertTrue(ok?.text.hasPrefix("Nächster Hintergrund-Abruf frühestens heute") == true)
+        let failed = ProfileText.backgroundPlan(planned: now, error: "Hintergrundaktualisierung ist für Health aus.", attempt: now, now: now)
+        XCTAssertEqual(failed?.isProblem, true)
+        XCTAssertTrue(failed?.text.contains("nicht geplant (heute") == true)
+    }
+
     // MARK: Maskottchen
 
     func testMascotMoodPriority() {

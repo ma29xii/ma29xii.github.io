@@ -137,11 +137,34 @@ struct RootView: View {
 @MainActor
 enum BackgroundRefresh {
     static let identifier = "com.ma29xii.forma.refresh"
+    /// Ergebnis der letzten Terminanfrage für das Profil: frühester Zeitpunkt (Sekunden), Fehlertext, Zeitpunkt der Anfrage.
+    static let plannedKey = "forma.refresh.planned"
+    static let errorKey = "forma.refresh.error"
+    static let attemptKey = "forma.refresh.attempt"
 
     static func schedule(earliest: TimeInterval = 45 * 60) {
         guard !FormaApp.isUITest else { return }
         let request = BGAppRefreshTaskRequest(identifier: identifier)
-        request.earliestBeginDate = Date.now.addingTimeInterval(earliest)
-        try? BGTaskScheduler.shared.submit(request)
+        let start = Date.now.addingTimeInterval(earliest)
+        request.earliestBeginDate = start
+        let defaults = UserDefaults.standard
+        defaults.set(Date.now.timeIntervalSince1970, forKey: attemptKey)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            defaults.set(start.timeIntervalSince1970, forKey: plannedKey)
+            defaults.removeObject(forKey: errorKey)
+        } catch {
+            defaults.removeObject(forKey: plannedKey)
+            defaults.set(message(for: error), forKey: errorKey)
+        }
+    }
+
+    private static func message(for error: any Error) -> String {
+        switch (error as? BGTaskScheduler.Error)?.code {
+        case .notPermitted: "Hintergrundaktualisierung ist für Health aus (iOS-Einstellungen)."
+        case .unavailable: "Auf diesem Gerät nicht verfügbar."
+        case .tooManyPendingTaskRequests: "iOS hat schon zu viele Termine vorgemerkt."
+        default: "iOS hat den Termin abgelehnt."
+        }
     }
 }
