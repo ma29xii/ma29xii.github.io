@@ -31,6 +31,12 @@ struct ProfileView: View {
                         SettingsRow(title: "Body", systemImage: "figure.stand", detail: bodySummary)
                     }
                     .accessibilityIdentifier("Body")
+                    NavigationLink {
+                        AchievementsView(healthScope: hub.achievementHealthScope, isSample: hub.isSample)
+                    } label: {
+                        SettingsRow(title: "Erfolge", systemImage: "seal")
+                    }
+                    .accessibilityIdentifier("profile.achievements")
                 }
                 .listRowBackground(Theme.card)
 

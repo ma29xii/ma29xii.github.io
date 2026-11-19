@@ -141,6 +141,8 @@ struct RootView: View {
             if phase == .background && !app.isDemo { BackgroundRefresh.schedule() }
             if phase == .active { Task { await hub.syncAndNotify(background: false) } }
         }
+        // Ganz am Ende: Der Tracker liegt so auch in den hier gezeigten Sheets (Profil, Zusammenfassung) im Environment.
+        .achievementTracking(healthScope: hub.achievementHealthScope)
     }
 }
 
