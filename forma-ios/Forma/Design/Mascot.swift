@@ -4,11 +4,11 @@ import SwiftUI
 enum MascotMood: String, CaseIterable, Sendable {
     /// Ruhig: das Licht atmet langsam.
     case calm
-    /// Denkt nach: ein Glanz wandert über den Körper, die Lichtpunkte schauen nach oben.
+    /// Denkt nach: das Licht atmet schneller, feine Ringe laufen nach außen.
     case thinking
-    /// Freut sich: ein kurzer Hüpfer, das Innenleuchten wird heller.
+    /// Freut sich: ein kurzes Aufleuchten mit einem Ring, ein kleiner Auftrieb.
     case happy
-    /// Hat einen Hinweis: neigt sich zur Seite.
+    /// Hat einen Hinweis: ein kleiner Lichtpunkt umkreist ihn.
     case hint
 
     var accessibilityText: String {
@@ -30,13 +30,13 @@ enum CoachMascotLogic {
         return .calm
     }
 
-    /// Farbe des Innenleuchtens: die Recovery-Farbe von heute. Ohne Wert ein ruhiges, kühles Weiß.
+    /// Farbe des Lichts: die Recovery-Farbe von heute. Ohne Wert ein ruhiges, kühles Weiß.
     static func tint(recovery: Int?) -> Color {
         guard let recovery else { return Color(hex: 0xC9D3E3) }
         return Theme.recovery(recovery)
     }
 
-    /// Höhe des Hüpfers von 0 bis 1 nach `elapsed` Sekunden: zwei kleine Sprünge, die abklingen.
+    /// Höhe des Auftriebs von 0 bis 1 nach `elapsed` Sekunden: zwei kleine Wellen, die abklingen.
     /// Danach (und davor) 0.
     static func hopHeight(elapsed: TimeInterval, duration: TimeInterval = 0.9) -> Double {
         guard elapsed >= 0, elapsed < duration else { return 0 }
@@ -45,12 +45,13 @@ enum CoachMascotLogic {
     }
 }
 
-/// „Lumo“: ein Körper aus dunklem Glas mit weichem Innenleuchten in der Recovery-Farbe und zwei Lichtpunkten
-/// als Blick. Komplett in SwiftUI gezeichnet. Bei „Bewegung reduzieren“ (oder `animated == false`) steht er still.
+/// „Lumo“: ein ruhiger, atmender Lichtpunkt ohne Gesicht. Eine Kugel in der Tagesfarbe mit weichem Schein.
+/// Beim Nachdenken atmet er schneller und sendet feine Ringe aus. Komplett in SwiftUI gezeichnet.
+/// Bei „Bewegung reduzieren“ (oder `animated == false`) steht er still.
 struct Mascot: View {
     var mood: MascotMood = .calm
     var size: CGFloat = 96
-    var tint: Color = Theme.recoveryHigh
+    var tint: Color = Theme.accent
     var animated = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hopStart: Date?
@@ -61,10 +62,10 @@ struct Mascot: View {
         Group {
             if moves {
                 TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                    figure(now: context.date, animatedFrame: true)
+                    figure(now: context.date)
                 }
             } else {
-                figure(now: nil, animatedFrame: false)
+                figure(now: nil)
             }
         }
         .frame(width: size, height: size * 1.1)
@@ -76,129 +77,81 @@ struct Mascot: View {
 
     // MARK: Zeichnung
 
-    private func figure(now: Date?, animatedFrame: Bool) -> some View {
-        let d = size * 0.78
+    private func figure(now: Date?) -> some View {
+        let d = size * 0.46
         let t = now?.timeIntervalSinceReferenceDate ?? 0
-        var breath: CGFloat = 1
-        if animatedFrame && mood != .happy { breath = 1 + 0.03 * CGFloat(sin(t * 2 * .pi / 4.2)) }
-        var hop: CGFloat = 0
-        var squash: CGFloat = 1
+        let animatedFrame = now != nil
+        let period: Double = mood == .thinking ? 2.2 : 4.2
+        // 0…1 im Takt des Atmens; im Standbild die Mitte.
+        let pulse: Double = animatedFrame ? 0.5 + 0.5 * sin(t * 2 * .pi / period) : 0.5
+        let breath = CGFloat(1 + 0.06 * (pulse - 0.5))
+
+        var lift = 0.0
+        var rise: CGFloat = 0
+        var happyRing: Double?
         if let now, let hopStart {
             let elapsed = now.timeIntervalSince(hopStart)
-            hop = CGFloat(CoachMascotLogic.hopHeight(elapsed: elapsed))
-            if elapsed >= 0 && elapsed < 0.9 { squash = 1 - 0.05 * (1 - hop) }
+            lift = CoachMascotLogic.hopHeight(elapsed: elapsed)
+            rise = CGFloat(lift)
+            if elapsed >= 0 && elapsed < 1.2 { happyRing = elapsed / 1.2 }
         }
-        let tilt: Double = mood == .hint ? 8 + (animatedFrame ? 1.5 * sin(t * 2.2) : 0) : 0
-        // 0…1, im Takt des Atmens; im Standbild die Mitte.
-        let pulse: Double = animatedFrame ? 0.5 + 0.5 * sin(t * 2 * .pi / 4.2) : 0.5
-        let lift: Double = mood == .happy ? 0.16 : (mood == .thinking ? 0.07 : 0)
+        let glow = 0.34 + 0.14 * pulse + 0.18 * lift + (mood == .thinking ? 0.06 : 0)
 
-        return ZStack(alignment: .bottom) {
-            // Lichtschein um den Körper
+        return ZStack {
+            // Schein
             Circle()
-                .fill(RadialGradient(colors: [tint.opacity(0.2 + lift * 0.6 + 0.04 * pulse), .clear],
-                                     center: .center, startRadius: d * 0.3, endRadius: d * 0.85))
-                .frame(width: d * 1.7, height: d * 1.7)
-                .offset(y: -size * 0.1)
-            // Farbiges Licht auf dem Boden statt grauem Schatten
-            Ellipse()
-                .fill(tint.opacity(0.3 - 0.1 * Double(hop)))
-                .frame(width: d * 0.6 * (1 - 0.25 * hop), height: d * 0.09)
-                .blur(radius: d * 0.04)
-            orb(d: d, t: t, pulse: pulse, lift: lift, animatedFrame: animatedFrame)
-                .scaleEffect(x: breath / squash, y: breath * squash, anchor: .bottom)
-                .rotationEffect(.degrees(tilt), anchor: .bottom)
-                .offset(y: -size * 0.06 - hop * size * 0.12)
-        }
-        .frame(width: size, height: size * 1.1, alignment: .bottom)
-    }
-
-    private func orb(d: CGFloat, t: Double, pulse: Double, lift: Double, animatedFrame: Bool) -> some View {
-        ZStack {
-            // Körper: dunkles Glas mit feinem Verlauf
-            Circle()
-                .fill(LinearGradient(colors: [Color(hex: 0x30343B), Color(hex: 0x0C0D10)], startPoint: .top, endPoint: .bottom))
-            // Innenleuchten, von unten aufsteigend
-            Circle()
-                .fill(RadialGradient(colors: [tint.opacity(0.6 + 0.14 * pulse + lift), tint.opacity(0.16), .clear],
-                                     center: UnitPoint(x: 0.5, y: 0.82), startRadius: 0, endRadius: d * 0.66))
-            // Warmer Kern im Leuchten
-            Circle()
-                .fill(RadialGradient(colors: [Color.white.opacity(0.32 + 0.1 * pulse), .clear],
-                                     center: UnitPoint(x: 0.5, y: 0.84), startRadius: 0, endRadius: d * 0.22))
-            // Spiegelung oben: das Fenster im Glas
-            Ellipse()
-                .fill(LinearGradient(colors: [Color.white.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom))
-                .frame(width: d * 0.6, height: d * 0.27)
-                .blur(radius: d * 0.012)
-                .offset(y: -d * 0.34)
-            if mood == .thinking && animatedFrame {
-                sweep(d: d, t: t)
+                .fill(RadialGradient(colors: [tint.opacity(glow), .clear],
+                                     center: .center, startRadius: d * 0.25, endRadius: d * 1.05))
+                .frame(width: d * 2.1, height: d * 2.1)
+            // Ringe: beim Nachdenken zwei versetzt, bei Freude einer
+            if animatedFrame && mood == .thinking {
+                ring(d: d, progress: (t / 2.4).truncatingRemainder(dividingBy: 1))
+                ring(d: d, progress: ((t + 1.2) / 2.4).truncatingRemainder(dividingBy: 1))
             }
-            lights(d: d, t: t, animatedFrame: animatedFrame)
-                .offset(y: -d * 0.05)
-            // Lichtkante: oben hell, unten in der Tagesfarbe
-            Circle()
-                .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.7), Color.white.opacity(0.1), tint.opacity(0.55)],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing),
-                              lineWidth: max(1, d * 0.014))
+            if let happyRing { ring(d: d, progress: happyRing) }
+            // Hinweis: ein kleiner Lichtpunkt auf der Bahn
+            if mood == .hint {
+                let angle = animatedFrame ? t * 2 * .pi / 6 : -.pi / 4
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: d * 0.12, height: d * 0.12)
+                    .shadow(color: tint.opacity(0.9), radius: d * 0.08)
+                    .offset(x: d * 0.78 * CGFloat(cos(angle)), y: d * 0.78 * CGFloat(sin(angle)))
+            }
+            orb(d: d)
+                .scaleEffect(breath)
         }
-        .frame(width: d, height: d)
-        .clipShape(Circle())
+        .offset(y: -size * 0.05 * rise)
+        .frame(width: size, height: size * 1.1)
     }
 
-    /// Wandernder Glanz beim Nachdenken.
-    private func sweep(d: CGFloat, t: Double) -> some View {
-        let p = t.truncatingRemainder(dividingBy: 2.6) / 2.6
-        return LinearGradient(colors: [.clear, Color.white.opacity(0.28), .clear], startPoint: .leading, endPoint: .trailing)
-            .frame(width: d * 0.34, height: d * 1.4)
-            .rotationEffect(.degrees(20))
-            .offset(x: d * (p * 1.7 - 0.85))
-            .frame(width: d, height: d)
-            .clipShape(Circle())
-            .allowsHitTesting(false)
-    }
-
-    /// Zwei Lichtpunkte statt gezeichneter Augen. Sie wandern, wenn Lumo nachdenkt, und blinzeln selten.
-    private func lights(d: CGFloat, t: Double, animatedFrame: Bool) -> some View {
-        let dot = d * 0.082 * (mood == .happy ? 1.2 : 1)
-        let gap = d * (mood == .happy ? 0.17 : 0.2)
-        var look = CGSize.zero
-        switch mood {
-        case .thinking:
-            look = CGSize(width: d * 0.03 + (animatedFrame ? d * 0.025 * CGFloat(sin(t * 0.9)) : 0), height: -d * 0.05)
-        case .hint:
-            look = CGSize(width: d * 0.05, height: 0)
-        case .happy:
-            look = CGSize(width: 0, height: -d * 0.02)
-        case .calm:
-            break
-        }
-        // Blinzeln: alle 4,6 s kurz zu.
-        let cycle = t.truncatingRemainder(dividingBy: 4.6)
-        let open: CGFloat = animatedFrame && cycle > 4.45 ? max(0.15, CGFloat(abs(cycle - 4.525) / 0.075)) : 1
-
-        return HStack(spacing: gap) {
-            light(dot: dot, open: open)
-            light(dot: dot, open: open)
-        }
-        .offset(look)
-    }
-
-    private func light(dot: CGFloat, open: CGFloat) -> some View {
+    /// Kugel: Tagesfarbe, oben links ein weicher Lichtfleck, am Rand etwas Tiefe.
+    private func orb(d: CGFloat) -> some View {
         Circle()
-            .fill(Color.white)
-            .frame(width: dot, height: dot)
-            .scaleEffect(y: open)
-            .shadow(color: Color.white.opacity(0.85), radius: dot * 0.6)
-            .shadow(color: tint.opacity(0.6), radius: dot * 1.6)
-            .frame(width: dot * 1.2, height: dot * 1.2)
+            .fill(tint)
+            .overlay(
+                Circle().fill(RadialGradient(colors: [Color.white.opacity(0.6), .clear],
+                                             center: UnitPoint(x: 0.36, y: 0.3), startRadius: 0, endRadius: d * 0.55))
+            )
+            .overlay(
+                Circle().fill(RadialGradient(colors: [.clear, Color.black.opacity(0.32)],
+                                             center: .center, startRadius: d * 0.22, endRadius: d * 0.52))
+            )
+            .frame(width: d, height: d)
+            .shadow(color: tint.opacity(0.5), radius: d * 0.3)
+    }
+
+    /// Feiner Ring, der sich ausdehnt und dabei verblasst.
+    private func ring(d: CGFloat, progress: Double) -> some View {
+        Circle()
+            .strokeBorder(tint.opacity((1 - progress) * 0.5), lineWidth: 1.2)
+            .frame(width: d * (1 + 0.9 * CGFloat(progress)), height: d * (1 + 0.9 * CGFloat(progress)))
     }
 }
 
 /// Dezenter Lichtpunkt neben der letzten Coach-Antwort, in der Tagesfarbe. Kein Gesicht, für VoiceOver unsichtbar.
 struct MascotBadge: View {
-    var tint: Color = Theme.recoveryHigh
+    var tint: Color = Theme.accent
     var body: some View {
         Circle()
             .fill(RadialGradient(colors: [Color.white.opacity(0.9), tint, tint.opacity(0.5)],

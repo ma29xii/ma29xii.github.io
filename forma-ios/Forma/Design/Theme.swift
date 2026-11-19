@@ -4,18 +4,19 @@ import SwiftUI
 /// Dunkles, kühl-neutrales Graphit mit sanftem Verlauf nach oben (kein sichtbares Blau),
 /// ruhige matte Karten (Radius 20), Glas nur für Bedienung. Farbe kommt aus den Daten.
 enum Theme {
-    // Grund: Graphit, oben etwas heller. Blau-Anteil nur +2–3 über Rot, damit es kühl wirkt, aber nicht blau.
-    static let backgroundTop = Color(hex: 0x222325)
-    static let backgroundMid = Color(hex: 0x161719)
-    static let background = Color(hex: 0x0D0E0F)
+    /// Gewähltes Design (Profil → Design). Wer `Theme.background`, `.accent` usw. liest, wird beim Wechsel neu gezeichnet.
+    static var current: AppTheme { ThemeStore.shared.current }
+
+    // Grund: je nach Design. Standard ist Graphit, oben etwas heller (Blau-Anteil nur +2–3 über Rot, kein sichtbares Blau).
+    static var backgroundTop: Color { current.top }
+    static var backgroundMid: Color { current.mid }
+    static var background: Color { current.bottom }
     /// Verlauf für ganze Seiten.
-    static var screenGradient: LinearGradient {
-        LinearGradient(stops: [
-            .init(color: backgroundTop, location: 0),
-            .init(color: backgroundMid, location: 0.32),
-            .init(color: background, location: 0.72)
-        ], startPoint: .top, endPoint: .bottom)
-    }
+    static var screenGradient: LinearGradient { current.gradient }
+    /// Akzentfarbe des Designs (Auswahl, Schalter, kleine Hervorhebungen). Ringfarben bleiben davon unberührt.
+    static var accent: Color { current.accent }
+    /// Farbe des weichen Scheins oben; `nil` beim Standard-Design, dort kommt der Schein aus den Daten.
+    static var glow: Color? { current.glows.first }
 
     // Text
     static let textPrimary = Color(hex: 0xF5F5F7)
@@ -25,8 +26,8 @@ enum Theme {
 
     // Flächen und Linien
     /// Kartenfläche: deckend, damit Karten auf dem Verlauf überall gleich aussehen.
-    static let card = Color(hex: 0x1D1E20)
-    static let cardRaised = Color(hex: 0x26272A)
+    static var card: Color { current.card }
+    static var cardRaised: Color { current.cardRaised }
     static let plate = Color.white.opacity(0.05)
     static let plateEdge = Color.white.opacity(0.07)
     static let hairline = Color.white.opacity(0.08)
@@ -157,31 +158,31 @@ private struct NumberTransition: ViewModifier {
     }
 }
 
-/// Graphit-Verlauf mit optionalem weichem Farbschein oben.
-/// Auf „Today“ und in den Ring-Details nimmt der Schein die Farbe des Werts an.
+/// Seitenhintergrund des gewählten Designs mit weichem Farbschein oben.
+/// Beim Standard-Design nimmt der Schein auf „Today“ und in den Ring-Details die Farbe des Werts an (`tint`),
+/// alle anderen Designs bringen ihre eigenen Farben mit.
 struct ScreenBackground: View {
     var tint: Color? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Gelb wirkt auf Graphit schnell schmutzig (oliv): dort schwächer leuchten.
-    private var strength: Double {
-        guard let tint else { return 0 }
-        return tint == Theme.recoveryMid ? 0.07 : 0.11
-    }
 
     var body: some View {
+        let theme = Theme.current
+        let layers = theme.glowLayers(tint: tint)
         ZStack(alignment: .top) {
-            Theme.screenGradient
-            if let tint {
+            theme.gradient
+            ForEach(Array(layers.enumerated()), id: \.offset) { index, layer in
+                let x: CGFloat = layers.count == 1 ? 0.5 : (index == 0 ? 0.2 : 0.8)
                 RadialGradient(
-                    colors: [tint.opacity(strength), .clear],
-                    center: .top, startRadius: 0, endRadius: 320
+                    colors: [layer.color.opacity(layer.opacity), .clear],
+                    center: UnitPoint(x: x, y: 0), startRadius: 0, endRadius: layers.count == 1 ? 320 : 260
                 )
-                .scaleEffect(x: 1.6, y: 1, anchor: .top)
+                .scaleEffect(x: layers.count == 1 ? 1.6 : 1, y: 1, anchor: .top)
                 .frame(height: 520)
             }
         }
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: tint)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.5), value: theme)
     }
 }
 

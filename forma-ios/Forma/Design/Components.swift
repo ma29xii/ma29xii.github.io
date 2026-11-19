@@ -116,6 +116,7 @@ struct MetricRow<Trailing: View>: View {
     var value: String? = nil
     var unit: String? = nil
     var valueColor: Color = Theme.textPrimary
+    /// Bleibt aus Kompatibilität, wird nicht mehr gezeichnet: keine Pfeile in Listen (Feedback A1). Antippen geht trotzdem.
     var showsChevron: Bool = false
     @ViewBuilder var trailing: Trailing
 
@@ -137,11 +138,6 @@ struct MetricRow<Trailing: View>: View {
                 }
             }
             trailing
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.textQuaternary)
-            }
         }
         .padding(.horizontal, Space.s4)
         .padding(.vertical, 10)

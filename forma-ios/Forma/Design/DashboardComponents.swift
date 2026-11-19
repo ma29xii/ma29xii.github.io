@@ -5,7 +5,7 @@ extension View {
         self
             .scrollContentBackground(.hidden)
             .foregroundStyle(Theme.textPrimary)
-            .background { Theme.screenGradient.ignoresSafeArea() }
+            .background { ThemeGradient().ignoresSafeArea() }
     }
 }
 
@@ -99,6 +99,7 @@ struct ComparisonRow: View {
     let value: Double?
     let baseline: Double?
     let format: (Double) -> String
+    /// Bleibt aus Kompatibilität, wird nicht mehr gezeichnet (Feedback A1).
     var showsChevron = false
 
     /// +1 über, −1 unter dem Vergleich, 0 wenn gleich (nach Rundung) oder ohne Vergleich.
@@ -133,12 +134,6 @@ struct ComparisonRow: View {
                 .foregroundStyle(Theme.textSecondary)
                 .opacity(delta == 0 ? 0 : 1)
                 .accessibilityHidden(true)
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(.caption, weight: .semibold))
-                    .foregroundStyle(Theme.textQuaternary)
-                    .accessibilityHidden(true)
-            }
         }
         .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s2)
@@ -152,19 +147,9 @@ struct ComparisonRow: View {
     }
 }
 
+/// Die ▲▼-Legende „Heute vs. dein 30-Tage-Schnitt“ entfällt überall (Feedback A2). Aufrufer bleiben gültig.
 struct ComparisonFooter: View {
-    var body: some View {
-        HStack(spacing: Space.s1) {
-            Image(systemName: "arrowtriangle.up.fill")
-            Image(systemName: "arrowtriangle.down.fill")
-            Text("Heute vs. dein 30-Tage-Schnitt")
-        }
-        .font(.formaMicro)
-        .foregroundStyle(Theme.textTertiary)
-        .padding(.leading, Space.s1)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Pfeile zeigen, ob ein Wert über oder unter deinem 30-Tage-Schnitt liegt")
-    }
+    var body: some View { EmptyView() }
 }
 
 /// Anzeige eines Tageswerts in der eigenen Form-Sprache: Recovery als offener Bogen, Strain und Sleep als Kapseln.

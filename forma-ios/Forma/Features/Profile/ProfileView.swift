@@ -43,6 +43,14 @@ struct ProfileView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                Section {
+                    ThemePicker()
+                        .listRowInsets(EdgeInsets())
+                } header: {
+                    Text("Design").formaLabelStyle()
+                }
+                .listRowBackground(Theme.card)
+
                 sourceSection
 
                 consentSection
