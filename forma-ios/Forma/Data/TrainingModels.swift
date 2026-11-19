@@ -21,6 +21,8 @@ final class Routine {
     var name: String
     var createdAt: Date
     var lastUsed: Date?
+    /// Ordner zum Gruppieren, z. B. „Kraft“ oder „Reha“. nil = ohne Ordner. (Neues optionales Feld: leichte Migration.)
+    var folder: String?
     @Relationship(deleteRule: .cascade, inverse: \RoutineItem.routine) var items: [RoutineItem]
 
     init(name: String, items: [RoutineItem] = []) {
@@ -31,6 +33,44 @@ final class Routine {
 
     var sortedItems: [RoutineItem] { items.sorted { $0.order < $1.order } }
     var totalSets: Int { items.reduce(0) { $0 + $1.sets } }
+    /// Kopie mit allen Übungen und gleichem Ordner, Name „… Kopie“ (bzw. „… Kopie 2“).
+    @discardableResult
+    func duplicate(in context: ModelContext, existingNames: [String]) -> Routine {
+        let copy = Routine(name: Routine.copyName(name, existing: existingNames))
+        copy.folder = folder
+        context.insert(copy)
+        for item in sortedItems {
+            let c = RoutineItem(order: item.order, exerciseName: item.exerciseName, muscle: item.muscle, sets: item.sets,
+                                reps: item.reps, weight: item.weight, restSeconds: item.restSeconds)
+            context.insert(c)
+            c.routine = copy
+        }
+        return copy
+    }
+
+    static func copyName(_ name: String, existing: [String]) -> String {
+        let base = "\(name) Kopie"
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
+    }
+
+    /// Routinen nach Ordner: zuerst ohne Ordner, dann Ordner alphabetisch. Reihenfolge innerhalb bleibt.
+    static func grouped(_ routines: [Routine]) -> [(folder: String?, routines: [Routine])] {
+        let loose = routines.filter { $0.folder == nil }
+        let names = Set(routines.compactMap(\.folder)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var result: [(folder: String?, routines: [Routine])] = loose.isEmpty ? [] : [(folder: nil, routines: loose)]
+        for name in names { result.append((folder: name, routines: routines.filter { $0.folder == name })) }
+        return result
+    }
+
+    /// Ordnernamen bereinigt: leer oder nur Leerzeichen = kein Ordner.
+    static func cleanFolder(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : String(t.prefix(40))
+    }
+
     var muscleSummary: String {
         var seen: [String] = []
         for m in sortedItems.map(\.muscle) where !seen.contains(m) { seen.append(m) }

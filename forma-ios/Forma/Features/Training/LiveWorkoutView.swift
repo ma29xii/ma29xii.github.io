@@ -16,6 +16,7 @@ struct LiveWorkoutView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var notificationStatus: UNAuthorizationStatus = .authorized
     @State private var guide: LiveExercise?
+    @State private var record: RecordMoment?
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,22 @@ struct LiveWorkoutView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { dock }
+            .overlay(alignment: .top) {
+                if let record {
+                    RecordToast(moment: record, unit: app.weightUnit)
+                        .id(record.id)
+                        .padding(.horizontal, Space.page)
+                        .padding(.top, Space.s2)
+                        .transition(.opacity)
+                        .onTapGesture { withAnimation { self.record = nil } }
+                }
+            }
+            .task(id: record?.id) {
+                guard record != nil else { return }
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(.smooth) { record = nil }
+            }
+            .sensoryFeedback(.levelChange, trigger: record?.id) { _, new in new != nil }
             .formaScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -143,6 +160,18 @@ struct LiveWorkoutView: View {
         if let applied = exercise.appliedWeight { return "\(note): \(Format.weight(applied, unit: unit)) \(unit.rawValue)" }
         if exercise.suggestedWeight != nil { return "+\(Format.weight(Progression.step, unit: unit)) \(unit.rawValue): \(note)" }
         return note
+    }
+
+    /// Bestwert-Moment: nur wenn es die Übung schon einmal gab und der Satz alles Bisherige übertrifft,
+    /// auch frühere Sätze dieses Trainings (so feiert die App jede Verbesserung genau einmal).
+    private func checkRecord(name: String, weight: Double, reps: Int, setID: UUID) {
+        let historyBest = history.map { $0.bestOneRepMax(for: name) }.max() ?? 0
+        guard historyBest > 0 else { return }
+        let earlier = workout.exercises.filter { $0.name == name }.flatMap(\.sets)
+            .filter { $0.done && !$0.isWarmup && $0.id != setID }
+            .map { OneRepMax.epley(weight: $0.weight, reps: $0.reps) }.max() ?? 0
+        guard PersonalRecord.isNew(weight: weight, reps: reps, previousBest: max(historyBest, earlier)) else { return }
+        withAnimation(.smooth) { record = RecordMoment(exercise: name, oneRepMax: OneRepMax.epley(weight: weight, reps: reps)) }
     }
 
     private func lastWorkSets(_ name: String) -> [SetRecord] {
@@ -336,10 +365,13 @@ struct LiveWorkoutView: View {
             }
             Button(set?.isWarmup == true ? "Aufwärmsatz abschließen" : "Satz \(workout.workSetNumber(exercise: workout.exerciseIndex, set: workout.setIndex)) abschließen") {
                 // An die angezeigte Satz-ID gebunden: Doppeltipp schließt nicht zwei Sätze ab (Codex A-06).
-                guard let id = set?.id else { return }
+                guard let id = set?.id, let done = set, let name = workout.currentExercise?.name else { return }
                 var accepted = false
                 withAnimation(.snappy) { accepted = workout.completeCurrentSet(id: id) }
-                if accepted { completedCount += 1 }
+                if accepted {
+                    completedCount += 1
+                    if !done.isWarmup { checkRecord(name: name, weight: done.weight, reps: done.reps, setID: id) }
+                }
             }
             .buttonStyle(PrimaryButtonStyle())
         }

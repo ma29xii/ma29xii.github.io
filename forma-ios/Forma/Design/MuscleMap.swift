@@ -56,30 +56,40 @@ struct MuscleMapView: View {
                         .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(FlipTransition()))
                 }
                 .frame(maxWidth: .infinity)
-                // Leiser Umschalter: zwei Wörter, das aktive hell. Kein zweites Segment-Steuerelement auf dem Bildschirm.
-                HStack(spacing: Space.s4) {
-                    ForEach(BodySide.allCases) { s in
-                        Button {
-                            withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.5)) { side = s }
-                        } label: {
-                            Text(s.title)
-                                .font(.formaLabel).tracking(Tracking.label).textCase(.uppercase)
-                                .foregroundStyle(side == s ? Theme.textPrimary : Theme.textTertiary)
-                                .frame(minWidth: 64, minHeight: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Ansicht \(s.title.lowercased())")
-                        .accessibilityAddTraits(side == s ? .isSelected : [])
-                    }
-                }
-                .sensoryFeedback(.selection, trigger: side)
+                QuietSegments(options: BodySide.allCases.map { ($0, $0.title) }, selection: $side,
+                              animation: reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.5))
             }
         }
     }
 
     private func figure(_ side: BodySide) -> some View {
         MuscleFigure(side: side, intensity: intensity, selected: selected, tint: tint, onSelect: onSelect)
+    }
+}
+
+/// Leiser Umschalter: Wörter in Großbuchstaben, das aktive hell. Ersetzt ein zweites Segment-Steuerelement.
+struct QuietSegments<Value: Hashable>: View {
+    let options: [(Value, String)]
+    @Binding var selection: Value
+    var animation: Animation = .smooth(duration: 0.35)
+
+    var body: some View {
+        HStack(spacing: Space.s4) {
+            ForEach(options, id: \.0) { option in
+                Button {
+                    withAnimation(animation) { selection = option.0 }
+                } label: {
+                    Text(option.1)
+                        .font(.formaLabel).tracking(Tracking.label).textCase(.uppercase)
+                        .foregroundStyle(selection == option.0 ? Theme.textPrimary : Theme.textTertiary)
+                        .frame(minWidth: 64, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == option.0 ? .isSelected : [])
+            }
+        }
+        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 

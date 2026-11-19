@@ -56,46 +56,10 @@ struct ExerciseDetailView: View {
     }
 
     @ViewBuilder private func history(_ pts: [(Date, Double)]) -> some View {
-        let best = pts.map(\.1).max()
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(best.map { Format.weight($0, unit: app.weightUnit) } ?? "–").font(.formaDisplay)
-                Text(app.weightUnit.rawValue).font(.formaBody).foregroundStyle(Theme.textSecondary)
-            }
-            Text("bestes geschätztes Maximum (Epley)").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+        let lifts = sessions.map { s in
+            (date: s.start, sets: s.workSets.filter { $0.exerciseName == exercise.name }.map { (weight: $0.weight, reps: $0.reps) })
         }
-        .padding(.top, Space.s5)
-
-        if pts.count >= 2 {
-            Plate {
-                Chart {
-                    ForEach(pts, id: \.0) { p in
-                        LineMark(x: .value("Datum", p.0), y: .value("1RM", p.1 * (app.weightUnit == .kg ? 1 : 2.20462)))
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(Theme.textPrimary)
-                        PointMark(x: .value("Datum", p.0), y: .value("1RM", p.1 * (app.weightUnit == .kg ? 1 : 2.20462)))
-                            .foregroundStyle(Theme.textPrimary)
-                            .symbolSize(18)
-                    }
-                }
-                .chartYScale(domain: .automatic(includesZero: false))
-                .chartYAxis {
-                    AxisMarks(position: .trailing) { _ in
-                        AxisGridLine().foregroundStyle(Theme.hairline)
-                        AxisValueLabel().foregroundStyle(Theme.textTertiary)
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks { _ in AxisValueLabel(format: .dateTime.day().month(.abbreviated)).foregroundStyle(Theme.textTertiary) }
-                }
-                .frame(height: 200)
-                .padding(Space.s4)
-            }
-            .padding(.top, Space.s4)
-        } else {
-            Text("Nach zwei Trainings mit dieser Übung siehst du hier deinen Verlauf.")
-                .font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, Space.s4)
-        }
+        ExerciseProgressSection(series: ExerciseProgressPoint.series(lifts), records: ExerciseRecords.from(lifts), unit: app.weightUnit)
 
         let recent = sessions.reversed().filter { $0.sets.contains { $0.exerciseName == exercise.name } }.prefix(6)
         if !recent.isEmpty {
@@ -115,6 +79,104 @@ struct ExerciseDetailView: View {
 }
 
 // MARK: - Bausteine
+
+/// Fortschritt einer Übung: eine große Zahl, ein ruhiges Diagramm (geschätztes Maximum oder Volumen), Bestwerte.
+private struct ExerciseProgressSection: View {
+    enum Metric: Hashable { case oneRepMax, volume }
+    let series: [ExerciseProgressPoint]
+    let records: ExerciseRecords?
+    let unit: WeightUnit
+    @State private var metric = Metric.oneRepMax
+
+    private var factor: Double { unit == .kg ? 1 : 2.20462 }
+    private func kg(_ p: ExerciseProgressPoint) -> Double { metric == .oneRepMax ? p.oneRepMax : p.volume }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            hero.padding(.top, Space.s5)
+            if series.count >= 2 {
+                chart.padding(.top, Space.s4)
+                QuietSegments(options: [(Metric.oneRepMax, "Maximum"), (Metric.volume, "Volumen")], selection: $metric)
+                    .frame(maxWidth: .infinity)
+            } else {
+                Text("Nach zwei Trainings mit dieser Übung siehst du hier deinen Verlauf.")
+                    .font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, Space.s4)
+            }
+            if let records { recordList(records) }
+        }
+    }
+
+    private var hero: some View {
+        let value = metric == .oneRepMax ? records?.bestOneRepMax : series.last?.volume
+        let first = series.first.map(kg), last = series.last.map(kg)
+        let delta = (first != nil && last != nil && series.count >= 2) ? last! - first! : nil
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value.map { Format.weight($0, unit: unit) } ?? "–")
+                    .font(.formaDisplay)
+                    .contentTransition(.numericText())
+                Text(unit.rawValue).font(.formaBody).foregroundStyle(Theme.textSecondary)
+            }
+            Text(metric == .oneRepMax ? "Geschätztes Maximum, bester Wert" : "Volumen im letzten Training")
+                .font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            if let delta, let start = series.first?.date, abs(delta) >= 0.05 {
+                Text("\(delta > 0 ? "+" : "−")\(Format.weight(abs(delta), unit: unit)) \(unit.rawValue) seit \(start.formatted(Date.FormatStyle(locale: .german).day().month(.abbreviated)))")
+                    .font(.formaCaptionStrong).foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .animation(.smooth, value: metric)
+    }
+
+    private var chart: some View {
+        Chart(series) { p in
+            AreaMark(x: .value("Datum", p.date), y: .value("Wert", kg(p) * factor))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(LinearGradient(colors: [Theme.textPrimary.opacity(0.14), Theme.textPrimary.opacity(0)],
+                                                startPoint: .top, endPoint: .bottom))
+            LineMark(x: .value("Datum", p.date), y: .value("Wert", kg(p) * factor))
+                .interpolationMethod(.monotone)
+                .foregroundStyle(Theme.textPrimary)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+            if p.id == series.last?.id {
+                PointMark(x: .value("Datum", p.date), y: .value("Wert", kg(p) * factor))
+                    .foregroundStyle(Theme.textPrimary)
+                    .symbolSize(40)
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
+                AxisGridLine().foregroundStyle(Theme.hairline)
+                AxisValueLabel().foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisValueLabel(format: .dateTime.day().month(.abbreviated)).foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .frame(height: 180)
+        .animation(.smooth, value: metric)
+        .accessibilityLabel(metric == .oneRepMax ? "Verlauf des geschätzten Maximums" : "Verlauf des Volumens")
+    }
+
+    private func recordList(_ r: ExerciseRecords) -> some View {
+        FormaSection(title: "Bestwerte") {
+            Plate {
+                MetricRow(title: "Geschätztes Maximum",
+                          subtitle: r.bestOneRepMaxDate?.formatted(Date.FormatStyle(locale: .german).day().month(.wide).year()),
+                          value: Format.weight(r.bestOneRepMax, unit: unit), unit: unit.rawValue)
+                RowDivider()
+                MetricRow(title: "Schwerstes Gewicht", subtitle: "× \(r.heaviestReps) Wdh.",
+                          value: Format.weight(r.heaviest, unit: unit), unit: unit.rawValue)
+                RowDivider()
+                MetricRow(title: "Meiste Wiederholungen", value: "\(r.mostReps)", unit: "Wdh.")
+                RowDivider()
+                MetricRow(title: "Volumen in einem Training", value: Format.weight(r.bestSessionVolume, unit: unit), unit: unit.rawValue)
+            }
+        }
+    }
+}
 
 /// Muskelkarte einer Übung, frei auf dem Hintergrund. Darunter nur Typografie:
 /// Hauptmuskeln hell, Gerät und mithelfende Muskeln leise.
@@ -247,6 +309,7 @@ struct ExerciseGuideSheet: View {
 struct MuscleExercisesSheet: View {
     let muscle: Muscle
     var weeklySets: Double? = nil
+    var recovery: RecoveryState? = nil
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Exercise.name) private var exercises: [Exercise]
 
@@ -265,6 +328,9 @@ struct MuscleExercisesSheet: View {
                         .listRowBackground(Color.clear)
                     if let weeklySets {
                         LabeledContent("Sätze, letzte 7 Tage", value: MuscleVolume.text(weeklySets))
+                    }
+                    if let recovery {
+                        LabeledContent("Zustand", value: recovery.title)
                     }
                 }
                 if !direct.isEmpty {

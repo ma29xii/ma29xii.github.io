@@ -24,6 +24,13 @@ struct WorkoutSummaryView: View {
                     }
                     .padding(.top, Space.s3)
 
+                    let records = session.exerciseNames.filter { name in
+                        PersonalRecord.isNew(weight: session.bestOneRepMax(for: name), reps: 1, previousBest: bestBefore(name))
+                    }
+                    if !records.isEmpty {
+                        RecordHero(names: records).padding(.top, Space.s5)
+                    }
+
                     Plate {
                         Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                             GridRow {
@@ -48,7 +55,7 @@ struct WorkoutSummaryView: View {
                                 MetricRow(title: name,
                                           subtitle: before > 0 ? (now > before ? "Neuer Bestwert · +\(Format.weight(now - before, unit: app.weightUnit)) \(app.weightUnit.rawValue)" : "Bestwert \(Format.weight(before, unit: app.weightUnit)) \(app.weightUnit.rawValue)") : "erstes Mal erfasst",
                                           value: now > 0 ? Format.weight(now, unit: app.weightUnit) : "–", unit: app.weightUnit.rawValue,
-                                          valueColor: now > before && before > 0 ? Theme.recoveryHigh : Theme.textPrimary)
+                                          valueColor: now > before && before > 0 ? Theme.record : Theme.textPrimary)
                             }
                         }
                     }

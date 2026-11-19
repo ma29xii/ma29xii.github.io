@@ -5,6 +5,7 @@ struct RoutineEditorView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @Query private var allRoutines: [Routine]
     @Environment(\.dismiss) private var dismiss
     @Bindable var routine: Routine
     @State private var showPicker = false
@@ -46,6 +47,24 @@ struct RoutineEditorView: View {
                 .disabled(routine.items.isEmpty)
             }
             Section {
+                TextField("Ohne Ordner", text: Binding(get: { routine.folder ?? "" },
+                                                      set: { routine.folder = $0.isEmpty ? nil : String($0.prefix(40)) }))
+                let others = Set(allRoutines.compactMap(\.folder)).subtracting([routine.folder ?? ""]).sorted()
+                if !others.isEmpty {
+                    Menu("Vorhandenen Ordner wählen") {
+                        ForEach(others, id: \.self) { folder in Button(folder) { routine.folder = folder } }
+                        if routine.folder != nil { Button("Ohne Ordner") { routine.folder = nil } }
+                    }
+                }
+            } header: {
+                Text("Ordner")
+            }
+            Section {
+                Button("Routine duplizieren") {
+                    routine.duplicate(in: context, existingNames: allRoutines.map(\.name))
+                    try? context.save()
+                    dismiss()
+                }
                 Button("Routine löschen", role: .destructive) { confirmDelete = true }
             }
         }
@@ -76,7 +95,10 @@ struct RoutineEditorView: View {
                 try? context.save()
             }
         }
-        .onDisappear { try? context.save() }
+        .onDisappear {
+            routine.folder = routine.folder.flatMap(Routine.cleanFolder)
+            try? context.save()
+        }
     }
 
     private func renumber() {

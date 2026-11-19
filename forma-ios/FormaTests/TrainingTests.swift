@@ -137,4 +137,96 @@ final class TrainingTests: XCTestCase {
         XCTAssertEqual(MuscleVolume.text(4.5), "4,5")
         XCTAssertEqual(MuscleVolume.text(12), "12")
     }
+
+    // MARK: Runde 5 – Bestwerte
+
+    func testPersonalRecord() {
+        XCTAssertFalse(PersonalRecord.isNew(weight: 100, reps: 5, previousBest: 0), "erstes Mal ist kein Rekord")
+        XCTAssertTrue(PersonalRecord.isNew(weight: 100, reps: 5, previousBest: 110))     // 116,7 > 110
+        XCTAssertFalse(PersonalRecord.isNew(weight: 100, reps: 1, previousBest: 100), "gleich ist kein Rekord")
+        XCTAssertFalse(PersonalRecord.isNew(weight: 0, reps: 10, previousBest: 50))
+    }
+
+    func testExerciseRecordsAndSeries() throws {
+        let d1 = now.addingTimeInterval(-7 * 86_400), d2 = now
+        let lifts: [(date: Date, sets: [LiftSet])] = [
+            (date: d2, sets: [(weight: 80, reps: 8), (weight: 85, reps: 5)]),
+            (date: d1, sets: [(weight: 75, reps: 12), (weight: 75, reps: 10)]),
+            (date: now.addingTimeInterval(-3 * 86_400), sets: [])
+        ]
+        let r = try XCTUnwrap(ExerciseRecords.from(lifts))
+        XCTAssertEqual(r.heaviest, 85)
+        XCTAssertEqual(r.heaviestReps, 5)
+        XCTAssertEqual(r.mostReps, 12)
+        XCTAssertEqual(r.bestSessionVolume, 75 * 12 + 75 * 10)
+        XCTAssertEqual(r.bestOneRepMax, 75 * (1 + 12.0 / 30), accuracy: 0.001)   // 105 schlägt 80 × 8 (≈ 101,3)
+        XCTAssertEqual(r.bestOneRepMaxDate, d1)
+
+        let series = ExerciseProgressPoint.series(lifts)
+        XCTAssertEqual(series.map(\.date), [d1, d2], "sortiert, leere Trainings fehlen")
+        XCTAssertEqual(series[1].volume, 80 * 8 + 85 * 5)
+        XCTAssertNil(ExerciseRecords.from([(date: now, sets: [])]))
+    }
+
+    // MARK: Runde 5 – Muskel-Erholung
+
+    func testRecoveryDecaysOver72Hours() {
+        let fresh: [(exercise: String, date: Date)] = Array(repeating: ("Bankdrücken", now), count: 3)
+        let load = MuscleRecovery.load(fresh, now: now)
+        XCTAssertEqual(load[.chest], 3)
+        XCTAssertEqual(load[.triceps], 1.5)
+        XCTAssertEqual(MuscleRecovery.state(load[.chest] ?? 0), .recovering)
+
+        let heavy: [(exercise: String, date: Date)] = Array(repeating: ("Bankdrücken", now), count: 6)
+        XCTAssertEqual(MuscleRecovery.state(MuscleRecovery.load(heavy, now: now)[.chest] ?? 0), .loaded)
+
+        let half: [(exercise: String, date: Date)] = [("Kniebeuge", now.addingTimeInterval(-36 * 3600))]
+        XCTAssertEqual(MuscleRecovery.load(half, now: now)[.quads] ?? 0, 0.5, accuracy: 0.001)
+
+        let old: [(exercise: String, date: Date)] = [("Kniebeuge", now.addingTimeInterval(-73 * 3600)), ("Kniebeuge", now.addingTimeInterval(3600))]
+        XCTAssertTrue(MuscleRecovery.load(old, now: now).isEmpty, "älter als 72 h und Zukunft zählen nicht")
+        XCTAssertEqual(MuscleRecovery.state(0), .fresh)
+        XCTAssertEqual(MuscleRecovery.level(0.5), 0)
+        XCTAssertEqual(MuscleRecovery.level(20), 1)
+    }
+
+    // MARK: Runde 5 – Kalender und Serie
+
+    func testCalendarGridStartsOnMonday() {
+        // 1. November 2026 ist ein Sonntag → 6 Lücken bei Wochenstart Montag, 30 Tage.
+        let grid = TrainingCalendar.grid(for: now)
+        XCTAssertEqual(grid.prefix(6).filter { $0 == nil }.count, 6)
+        XCTAssertNotNil(grid[6])
+        XCTAssertEqual(grid.compactMap { $0 }.count, 30)
+        XCTAssertEqual(Calendar.forma.component(.day, from: grid[6]!), 1)
+    }
+
+    func testWeekStreak() {
+        let day: TimeInterval = 86_400
+        let thisWeek = now                                  // Do 19.11.
+        let lastWeek = now.addingTimeInterval(-7 * day)     // Do 12.11.
+        let twoAgo = now.addingTimeInterval(-14 * day)      // Do 5.11.
+        let fourAgo = now.addingTimeInterval(-28 * day)
+        XCTAssertEqual(TrainingCalendar.weekStreak([thisWeek, lastWeek, twoAgo, fourAgo], now: now), 3)
+        XCTAssertEqual(TrainingCalendar.weekStreak([lastWeek, twoAgo], now: now), 2, "laufende Woche bricht die Serie nicht")
+        XCTAssertEqual(TrainingCalendar.weekStreak([twoAgo], now: now), 0)
+        XCTAssertEqual(TrainingCalendar.weekStreak([], now: now), 0)
+        XCTAssertEqual(TrainingCalendar.days([now, now.addingTimeInterval(60)]).count, 1)
+    }
+
+    // MARK: Runde 5 – Routinen
+
+    func testRoutineCopyNamesAndFolders() {
+        XCTAssertEqual(Routine.copyName("Push", existing: ["Push"]), "Push Kopie")
+        XCTAssertEqual(Routine.copyName("Push", existing: ["Push", "Push Kopie"]), "Push Kopie 2")
+        XCTAssertEqual(Routine.copyName("Push", existing: ["Push Kopie", "Push Kopie 2"]), "Push Kopie 3")
+        XCTAssertNil(Routine.cleanFolder("   "))
+        XCTAssertEqual(Routine.cleanFolder("  Kraft "), "Kraft")
+
+        let a = Routine(name: "A"), b = Routine(name: "B"), c = Routine(name: "C")
+        b.folder = "Reha"; c.folder = "Kraft"
+        let groups = Routine.grouped([a, b, c])
+        XCTAssertEqual(groups.map(\.folder), [nil, "Kraft", "Reha"])
+        XCTAssertEqual(groups[0].routines.map(\.name), ["A"])
+    }
 }

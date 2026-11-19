@@ -47,6 +47,9 @@ struct TrainingView: View {
     @State private var editingTiles = false
     @State private var path: [TrainingRoute] = []
     @State private var tappedMuscle: Muscle?
+    @State private var muscleMode = MuscleMode.week
+
+    private enum MuscleMode: Hashable { case week, recovery }
 
     private var next: Routine? { routines.min { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) } }
 
@@ -83,7 +86,9 @@ struct TrainingView: View {
                 case .history: HistoryView()
                 }
             }
-            .sheet(item: $tappedMuscle) { m in MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0) }
+            .sheet(item: $tappedMuscle) { m in
+                MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0, recovery: MuscleRecovery.state(recoveryLoad[m] ?? 0))
+            }
         }
     }
 
@@ -94,12 +99,26 @@ struct TrainingView: View {
         case .routines:
             WidgetCard(title: tile.title, systemImage: tile.systemImage) {
                 if routines.isEmpty { MetricRow(title: "Noch keine Routine") }
-                ForEach(Array(routines.enumerated()), id: \.element.id) { index, routine in
-                    if index > 0 { RowDivider() }
-                    Button { path.append(.routine(routine.persistentModelID)) } label: {
-                        MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)", showsChevron: true)
+                ForEach(Array(Routine.grouped(routines).enumerated()), id: \.offset) { groupIndex, group in
+                    if let folder = group.folder {
+                        Text(folder)
+                            .formaLabelStyle(Theme.textTertiary)
+                            .padding(.horizontal, Space.s4)
+                            .padding(.top, groupIndex == 0 ? Space.s2 : Space.s5)
+                            .padding(.bottom, Space.s1)
+                    } else if groupIndex > 0 {
+                        RowDivider()
                     }
-                    .buttonStyle(.plain)
+                    ForEach(Array(group.routines.enumerated()), id: \.element.id) { index, routine in
+                        if index > 0 { RowDivider() }
+                        Button { path.append(.routine(routine.persistentModelID)) } label: {
+                            MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)", showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Duplizieren", systemImage: "plus.square.on.square") { duplicate(routine) }
+                        }
+                    }
                 }
                 RowDivider()
                 Button(action: addRoutine) {
@@ -116,9 +135,9 @@ struct TrainingView: View {
                     Button { app.finishedSession = session } label: { SessionRow(session: session) }
                         .buttonStyle(.plain)
                 }
-                if sessions.count > 5 {
+                if !sessions.isEmpty {
                     RowDivider()
-                    Button { path.append(.history) } label: { MetricRow(title: "Alle Trainings", showsChevron: true) }
+                    Button { path.append(.history) } label: { MetricRow(title: "Kalender und alle Trainings", showsChevron: true) }
                         .buttonStyle(.plain)
                 }
             }
@@ -182,24 +201,47 @@ struct TrainingView: View {
         Calendar.forma.date(byAdding: .day, value: -6, to: Calendar.forma.startOfDay(for: now)) ?? now
     }
 
+    /// Arbeitssätze ab einem Zeitpunkt (Zeit = Trainingsbeginn) und die Gruppen eigener Übungen.
+    private func entries(since cutoff: Date) -> [(exercise: String, date: Date)] {
+        sessions.filter { $0.start >= cutoff }.flatMap { s in s.workSets.map { (exercise: $0.exerciseName, date: s.start) } }
+    }
+
+    private var exerciseGroups: [String: String] {
+        let library = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
+        return Dictionary(library.map { ($0.name, $0.muscle) }, uniquingKeysWith: { a, _ in a })
+    }
+
     /// Sätze je Muskel der letzten 7 Tage (primär 1, sekundär ½).
     private var weeklyVolume: [Muscle: Double] {
-        let cutoff = Self.weekCutoff()
-        let entries = sessions.filter { $0.start >= cutoff }.flatMap { s in s.workSets.map { (exercise: $0.exerciseName, date: s.start) } }
-        let library = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
-        let groups = Dictionary(library.map { ($0.name, $0.muscle) }, uniquingKeysWith: { a, _ in a })
-        return MuscleVolume.lastSevenDays(entries, groups: groups)
+        MuscleVolume.lastSevenDays(entries(since: Self.weekCutoff()), groups: exerciseGroups)
+    }
+
+    /// Restbelastung je Muskel aus den letzten 72 h.
+    private var recoveryLoad: [Muscle: Double] {
+        MuscleRecovery.load(entries(since: Date.now.addingTimeInterval(-MuscleRecovery.window)), groups: exerciseGroups)
     }
 
     private func weeklyMuscles(_ volume: [Muscle: Double]) -> some View {
         let ranked = volume.filter { $0.value > 0 }.sorted { $0.value > $1.value }
         let untrained = Muscle.allCases.filter { (volume[$0] ?? 0) == 0 }
+        let load = recoveryLoad
         return VStack(alignment: .leading, spacing: 0) {
-            MuscleMapView(intensity: volume.mapValues(MuscleVolume.level), showsBoth: true) { tappedMuscle = $0 }
-                .frame(height: 250)
-                .padding(.horizontal, Space.s4)
-                .padding(.vertical, Space.s3)
-            if ranked.isEmpty {
+            Group {
+                if muscleMode == .week {
+                    MuscleMapView(intensity: volume.mapValues(MuscleVolume.level), showsBoth: true) { tappedMuscle = $0 }
+                } else {
+                    MuscleMapView(intensity: load.mapValues(MuscleRecovery.level), showsBoth: true, tint: Theme.older) { tappedMuscle = $0 }
+                }
+            }
+            .frame(height: 250)
+            .padding(.horizontal, Space.s4)
+            .padding(.top, Space.s3)
+            .animation(.smooth, value: muscleMode)
+            QuietSegments(options: [(MuscleMode.week, "7 Tage"), (MuscleMode.recovery, "Erholung")], selection: $muscleMode)
+                .frame(maxWidth: .infinity)
+            if muscleMode == .recovery {
+                recoveryRows(load)
+            } else if ranked.isEmpty {
                 Text("Nach deinem ersten Training färbt sich hier jeder Muskel nach seinen Sätzen der letzten 7 Tage.")
                     .font(.formaBody).foregroundStyle(Theme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,6 +274,37 @@ struct TrainingView: View {
         }
     }
 
+    /// Belastete und sich erholende Muskeln der letzten 72 h; der Rest ist frisch.
+    @ViewBuilder private func recoveryRows(_ load: [Muscle: Double]) -> some View {
+        let byState = Dictionary(grouping: Muscle.allCases) { MuscleRecovery.state(load[$0] ?? 0) }
+        VStack(alignment: .leading, spacing: Space.s2) {
+            ForEach([RecoveryState.loaded, .recovering], id: \.self) { state in
+                if let muscles = byState[state], !muscles.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                        Circle().fill(Theme.older.opacity(state == .loaded ? 1 : 0.5)).frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                        Text(state.title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+                        Text(muscles.map(\.name).joined(separator: ", ")).font(.formaCaption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            let fresh = byState[.fresh]?.count ?? 0
+            Text(fresh == Muscle.allCases.count ? "Alle Muskeln sind frisch." : "\(fresh) von \(Muscle.allCases.count) Muskeln sind frisch.")
+                .font(.formaCaption).foregroundStyle(Theme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Space.s4)
+        .padding(.bottom, Space.s4)
+    }
+
+    private func duplicate(_ routine: Routine) {
+        let copy = routine.duplicate(in: context, existingNames: routines.map(\.name))
+        try? context.save()
+        path.append(.routine(copy.persistentModelID))
+    }
+
     private func addRoutine() {
         let routine = Routine(name: "Neue Routine")
         context.insert(routine)
@@ -259,17 +332,28 @@ struct SessionRow: View {
 struct HistoryView: View {
     @Environment(AppState.self) private var app
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @State private var selectedDay: Date?
 
     var body: some View {
+        let shown = selectedDay.map { day in sessions.filter { Calendar.forma.isDate($0.start, inSameDayAs: day) } } ?? sessions
         ScrollView {
-            Plate {
-                ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                    if index > 0 { RowDivider() }
-                    Button { app.finishedSession = session } label: { SessionRow(session: session) }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 0) {
+                Plate {
+                    TrainingCalendarCard(dates: sessions.map(\.start), selectedDay: $selectedDay)
+                        .padding(Space.s4)
                 }
+                .padding(.top, Space.s3)
+                FormaSection(title: selectedDay.map { $0.formatted(Date.FormatStyle(locale: .german).weekday(.wide).day().month(.wide)) } ?? "Alle Trainings") {
+                    Plate {
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, session in
+                            if index > 0 { RowDivider() }
+                            Button { app.finishedSession = session } label: { SessionRow(session: session) }.buttonStyle(.plain)
+                        }
+                    }
+                }
+                Color.clear.frame(height: Space.s7)
             }
             .padding(.horizontal, Space.page)
-            .padding(.top, Space.s3)
         }
         .formaScreen()
         .navigationTitle("Verlauf")
