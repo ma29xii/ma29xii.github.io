@@ -94,47 +94,23 @@ final class ScreenTour: XCTestCase {
 
     func testTour() {
         sleep(2)
-        let steps = app.buttons["today.steps"]
-        XCTAssertTrue(steps.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
         let edit = app.buttons["tiles.edit"]
         shot("01 Today")
 
-        let nextDay = app.buttons["dashboard.right"]
-        let dayLabel = app.staticTexts["dashboard.date"]
-        XCTAssertTrue(dayLabel.exists)
-        let today = dayLabel.label
-        XCTAssertFalse(nextDay.isEnabled)
-        app.buttons["dashboard.left"].tap()
-        XCTAssertTrue(nextDay.isEnabled)
-        XCTAssertNotEqual(dayLabel.label, today)
-        shot("02 Today Vortag")
-        nextDay.tap()
-        XCTAssertEqual(dayLabel.label, today)
-
-        captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
-        captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
-        if reveal(app.staticTexts["today.stress.title"]) {
-            shot("08d Stress Monitor")
-        } else {
-            XCTFail("Stress Monitor fehlt")
-        }
-        if reveal(app.staticTexts["today.activities.title"]) {
-            shot("03 Mein Tag")
-        } else {
-            XCTFail("Die Aktivitäten fehlen")
-        }
-
+        // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
         for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
-            if kind == "sleep" {
-                app.buttons["today.tab.overview"].tap()
-                let ring = app.buttons["ring.sleep"]
-                XCTAssertTrue(ring.waitForExistence(timeout: 3) && ring.isHittable)
-                ring.tap()
+            app.swipeDown(); app.swipeDown()
+            let ring = app.buttons["ring.\(kind)"]
+            guard ring.waitForExistence(timeout: 3) else { XCTFail("Anzeige \(kind) fehlt"); continue }
+            ring.tap()
+            if app.descendants(matching: .any)["ring.detail.\(kind)"].firstMatch.waitForExistence(timeout: 4) {
+                shot(name)
+                if kind == "strain" { break }   // Strain-Detail bleibt offen für den Trend-Teil
+                back()
             } else {
-                app.buttons["today.tab.\(kind)"].tap()
+                XCTFail("Die Detailseite \(kind) fehlt")
             }
-            XCTAssertTrue(app.descendants(matching: .any)["ring.detail.\(kind)"].firstMatch.waitForExistence(timeout: 3))
-            shot(name)
         }
 
         let ranges = app.segmentedControls["trend.range"]
@@ -158,6 +134,13 @@ final class ScreenTour: XCTestCase {
         } else {
             XCTFail("Die Trend-Zeiträume fehlen")
         }
+
+        back()
+        app.swipeDown(); app.swipeDown()
+        captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
+        if reveal(app.staticTexts["today.stress.title"]) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
+        if reveal(app.staticTexts["today.activities.title"]) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
+        captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 
         tab("Training")
         shot("09 Training")

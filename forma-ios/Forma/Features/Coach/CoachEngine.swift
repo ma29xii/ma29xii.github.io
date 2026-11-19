@@ -74,7 +74,7 @@ enum CoachEngine {
             return "Für heute fehlen Herzwerte mit Vergleich. Ich gebe dir erst eine Empfehlung, wenn Messwerte da sind – trag deine Uhr auch nachts."
         }
         if c.trainedToday {
-            let sleepLine = c.sleepNeed.map { "Geh gegen \(bedtime(s)) ins Bett." } ?? "Schlafbedarf: keine Messung."
+            let sleepLine = c.sleepNeed.map { _ in "Geh gegen \(bedtime(s)) ins Bett." } ?? "Schlafbedarf: keine Messung."
             // Gleiche Logik wie der Zielbogen am Belastungsring (Codex R-01-05).
             if s.strain < s.target.lowerBound {
                 return "Gut trainiert. Bis zur Untergrenze deines Zielbereichs fehlen noch \(s.target.lowerBound - s.strain) Punkte – etwas lockere Bewegung reicht."
