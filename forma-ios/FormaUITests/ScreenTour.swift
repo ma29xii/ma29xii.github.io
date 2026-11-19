@@ -97,6 +97,46 @@ final class ScreenTour: XCTestCase {
         edit.tap()
     }
 
+    /// Schließt ein Blatt: erst ein sichtbarer Knopf, sonst nach unten wischen.
+    private func dismissSheet() {
+        for label in ["Fertig", "Schließen", "Abbrechen"] {
+            let b = app.buttons[label].firstMatch
+            if b.exists && b.isHittable { b.tap(); sleep(1); return }
+        }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        sleep(1)
+    }
+
+    /// Plus-Menü und Essen: nur Bilder für die Design-Prüfung, scheitert nicht.
+    func testTourPlus() {
+        sleep(2)
+        let plus = app.buttons["tab.plus"]
+        guard plus.waitForExistence(timeout: 6) else { return }
+        plus.tap()
+        shot("30 Plus-Menü")
+        dismissSheet()
+        for (title, name) in [("Ernährung heute", "31 Ernährung heute"), ("Essen planen", "32 Essen planen"),
+                              ("Essen suchen", "33 Essen suchen"), ("Wasser", "34 Wasser"),
+                              ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht")] {
+            plus.tap()
+            guard tapButton(beginningWith: title) else { dismissSheet(); continue }
+            sleep(1)
+            shot(name)
+            if title == "Ernährung heute" { app.swipeUp(); shot("31b Ernährung unten"); app.swipeDown() }
+            if title == "Essen planen" {
+                let shopping = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Einkauf")).firstMatch
+                if shopping.waitForExistence(timeout: 2) { shopping.tap(); sleep(1); shot("32b Einkaufsliste") }
+            }
+            dismissSheet(); dismissSheet()
+        }
+        let profile = app.buttons["Profil und Einstellungen"].firstMatch
+        if profile.waitForExistence(timeout: 3) {
+            profile.tap()
+            if tapButton(beginningWith: "Erfolge") { sleep(1); shot("37 Erfolge") }
+        }
+    }
+
     func testTour() {
         sleep(2)
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
