@@ -71,7 +71,7 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var app = app
-        TabView(selection: $app.selectedTab) {
+        TabView(selection: Binding(get: { app.selectedTab }, set: { app.selectTab($0) })) {
             Tab("Today", systemImage: "circle.circle", value: AppTab.today) {
                 TodayView().scrollEdgeEffectStyle(.soft, for: .all)
             }
@@ -91,12 +91,6 @@ struct RootView: View {
                 Color.clear
             }
             .accessibilityIdentifier("tab.plus")
-        }
-        // Der Plus-Tab springt sofort zurück und öffnet stattdessen das Menü.
-        .onChange(of: app.selectedTab) { old, new in
-            guard new == .add else { return }
-            app.selectedTab = old == .add ? .today : old
-            app.showPlus = true
         }
         // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)

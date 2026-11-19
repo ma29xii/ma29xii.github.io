@@ -65,6 +65,8 @@ final class Runde11TrainingTests: XCTestCase {
         // Seitliche Schulter liegt über der vorderen: Tippen auf den äußeren Rand trifft sie.
         XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 157, y: 104), side: .front, in: rect), .sideDelts)
         XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 120, y: 100), side: .front, in: rect), .chest)
+        XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 80, y: 100), side: .front, in: rect), .chest)
         XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 120, y: 250), side: .back, in: rect), .glutes)
+        XCTAssertNil(MuscleArt.muscle(at: CGPoint(x: 12, y: 100), side: .front, in: rect))
     }
 }

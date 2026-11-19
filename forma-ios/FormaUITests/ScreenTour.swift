@@ -113,23 +113,27 @@ final class ScreenTour: XCTestCase {
     private func openPlus(_ title: String) -> Bool {
         let plus = el("tab.plus")
         guard plus.waitForExistence(timeout: 4) else { return false }
-        plus.tap()
-        sleep(1)
+        if !el("plus.track").exists {
+            plus.tap()
+            sleep(1)
+        }
         let exact = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
         if exact.waitForExistence(timeout: 3) { exact.tap(); sleep(1); return true }
         return tapButton(beginningWith: title)
     }
 
-    /// Plus-Menü und Essen: nur Bilder für die Design-Prüfung, scheitert nicht.
+    /// Prüft den Wechsel vom offenen Plus-Menü nach Food und erstellt Bildschirmfotos.
     func testTourPlus() {
         sleep(2)
         let plus = el("tab.plus")
         guard plus.waitForExistence(timeout: 6) else { XCTFail("Plus fehlt"); return }
         plus.tap()
-        sleep(1)
+        let track = el("plus.track")
+        XCTAssertTrue(track.waitForExistence(timeout: 4))
         shot("30 Plus-Menü")
-        dismissSheet()
         tab("Food")
+        XCTAssertTrue(app.navigationBars["Food"].waitForExistence(timeout: 4))
+        XCTAssertFalse(track.exists, "Beim Wechsel zu Food schließt sich das Plus-Menü.")
         shot("31 Food")
         app.swipeUp(); shot("31b Food unten"); app.swipeDown(); app.swipeDown()
         for (title, name) in [("Nährwerte tracken", "33 Nährwerte tracken"), ("Essen planen", "32 Essen planen"),
@@ -154,22 +158,7 @@ final class ScreenTour: XCTestCase {
     func testTour() {
         sleep(2)
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
-        let edit = app.buttons["tiles.edit"]
         shot("01 Today")
-
-        // Kopf-Variante „Ringe“ zeigen, danach zurück auf „Kapseln“.
-        func headerStyle(_ label: String) {
-            guard reveal(edit) else { return }
-            edit.tap(); sleep(1)
-            app.swipeDown(); app.swipeDown()
-            let option = app.buttons[label].firstMatch
-            if option.waitForExistence(timeout: 2) { option.tap() }
-            finishEditing()
-            app.swipeDown(); app.swipeDown()
-        }
-        headerStyle("Ringe")
-        shot("01b Today Ringe")
-        headerStyle("Kapseln")
 
         // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
         for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
@@ -276,6 +265,7 @@ final class ScreenTour: XCTestCase {
 
         tab("Coach")
         shot("16 Coach")
+        XCTAssertFalse(el("coach.mascot").exists)
         if tapButton(beginningWith: "Wann soll ich") { sleep(1); shot("17 Coach Antwort") }
 
         tab("Today")

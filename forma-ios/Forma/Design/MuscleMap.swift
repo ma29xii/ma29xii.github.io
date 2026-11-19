@@ -29,7 +29,7 @@ struct MuscleMapView: View {
 
     /// Füllfarbe eines Muskels: gedämpfte Akzentfarbe, Stärke nach Stufe (0 = neutral grau).
     static func fill(_ level: Double, tint: Color = Theme.strain) -> Color {
-        level > 0 ? tint.mix(with: Color(white: 0.62), by: 0.3).opacity(0.08 + 0.92 * level) : Color.white.opacity(0.05)
+        level > 0 ? tint.mix(with: Color(white: 0.62), by: 0.18).opacity(0.12 + 0.88 * level) : Color.white.opacity(0.035)
     }
 
     /// Die Seite, auf der die meisten markierten Muskeln liegen.
@@ -110,6 +110,7 @@ private struct FlipTransition: Transition {
 
 /// Eine Körperseite mit allen Muskeln.
 private struct MuscleFigure: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let side: BodySide
     let intensity: [Muscle: Double]
     let selected: Muscle?
@@ -121,24 +122,27 @@ private struct MuscleFigure: View {
     var body: some View {
         GeometryReader { geo in
             let rect = CGRect(origin: .zero, size: geo.size)
-            let outline = BodyShape(polygons: MuscleArt.silhouette, head: true)
+            let outline = BodyShape(polygons: MuscleArt.silhouette, isOutline: true)
             ZStack {
-                // Muskeln liegen wie Platten auf dem Körper, getrennt durch feine Konturen, am Umriss beschnitten.
                 ZStack {
-                    Rectangle().fill(Theme.cardRaised)
+                    Rectangle().fill(LinearGradient(colors: [Theme.cardRaised, Theme.card],
+                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
                     ForEach(muscles) { m in
                         let level = intensity[m] ?? 0
                         let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
+                        let fill = MuscleMapView.fill(level, tint: tint)
+                        let edge = level > 0 ? tint.opacity(0.27) : Color.white.opacity(0.12)
                         shape
-                            .fill(MuscleMapView.fill(level, tint: tint))
-                            .overlay { shape.stroke(Color.black.opacity(0.32), lineWidth: 0.8) }
+                            .fill(LinearGradient(colors: [fill, fill.opacity(0.66)],
+                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .overlay { shape.stroke(edge, lineWidth: 0.65) }
                             .overlay { if selected == m { shape.stroke(Theme.textPrimary.opacity(0.9), lineWidth: 1.2) } }
-                            .animation(.smooth(duration: 0.4), value: level)
-                            .animation(.smooth(duration: 0.25), value: selected)
+                            .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: level)
+                            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: selected)
                     }
                 }
                 .clipShape(outline)
-                outline.stroke(Color.white.opacity(0.14), lineWidth: 0.75)
+                outline.stroke(Color.white.opacity(0.23), lineWidth: 0.85)
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
@@ -171,20 +175,36 @@ private struct MuscleFigure: View {
 /// Weiche, geschlossene Formen aus Stützpunkten, rechte Körperhälfte wird gespiegelt.
 struct BodyShape: Shape {
     let polygons: [[CGPoint]]
-    var head = false
+    var isOutline = false
 
     func path(in rect: CGRect) -> Path {
-        let (s, dx, dy) = MuscleArt.layout(in: rect)
-        let map = { (p: CGPoint, mirror: Bool) in MuscleArt.point(p, mirror: mirror, in: rect) }
-        var path = Path()
-        if head {
-            path.addEllipse(in: CGRect(x: dx + 86 * s, y: dy + 8 * s, width: 28 * s, height: 39 * s))
+        if !isOutline {
+            var path = halfPath(in: rect, mirrored: false)
+            path.addPath(halfPath(in: rect, mirrored: true))
+            return path
         }
+        var path = Path()
+        for half in polygons {
+            let right = half.map { MuscleArt.point($0, mirror: false, in: rect) }
+            let left = half.dropFirst().dropLast().reversed().map { MuscleArt.point($0, mirror: true, in: rect) }
+            Self.addSmooth(right + left, to: &path)
+        }
+        return path
+    }
+
+    func contains(_ location: CGPoint, in rect: CGRect) -> Bool {
+        for mirrored in [false, true] {
+            let half = halfPath(in: rect, mirrored: mirrored)
+            if half.boundingRect.contains(location), half.cgPath.contains(location) { return true }
+        }
+        return false
+    }
+
+    private func halfPath(in rect: CGRect, mirrored: Bool) -> Path {
+        var path = Path()
         for poly in polygons {
-            for mirror in [false, true] {
-                // Gespiegelt in umgekehrter Reihenfolge, damit die Drehrichtung gleich bleibt (keine Löcher an der Mittellinie).
-                Self.addSmooth((mirror ? Array(poly.reversed()) : poly).map { map($0, mirror) }, to: &path)
-            }
+            let points = mirrored ? Array(poly.reversed()) : poly
+            Self.addSmooth(points.map { MuscleArt.point($0, mirror: mirrored, in: rect) }, to: &path)
         }
         return path
     }
@@ -228,7 +248,7 @@ enum MuscleArt {
     static func muscle(at location: CGPoint, side: BodySide, in rect: CGRect, tolerance: CGFloat = 22) -> Muscle? {
         let candidates = Muscle.allCases.compactMap { m in polygons(m, side).map { (m, $0) } }
         // Zuletzt gezeichnet liegt oben: von hinten suchen.
-        if let hit = candidates.last(where: { BodyShape(polygons: $0.1).path(in: rect).contains(location) }) {
+        if let hit = candidates.last(where: { BodyShape(polygons: $0.1).contains(location, in: rect) }) {
             return hit.0
         }
         let nearest = candidates
@@ -256,52 +276,56 @@ enum MuscleArt {
 
     private static func poly(_ pts: [(CGFloat, CGFloat)]) -> [CGPoint] { pts.map { CGPoint(x: $0.0, y: $0.1) } }
 
-    /// Ein durchgehender Umriss je Körperhälfte: schlank, Arme leicht abgesetzt, kleine Hände und Füße.
-    /// Ein durchgehender Umriss je Körperhälfte: athletisch-schlank, Arme leicht abgesetzt.
+    // Beide Umrisse beginnen und enden auf der Mittelachse. Die Spiegelung schließt sie ohne Naht.
     static let silhouette: [[CGPoint]] = [
-        poly([(100, 46), (108, 48), (110, 58), (118, 64), (132, 70), (144, 74), (152, 80), (157, 90), (159, 104),
-              (160, 120), (160, 140), (159, 160), (160, 170), (163, 186), (165, 204), (163, 222), (161, 232),
-              (164, 244), (163, 258), (158, 266), (152, 262), (151, 248), (151, 236), (151, 230), (149, 210),
-              (147, 190), (145, 172), (143, 150), (142, 128), (141, 116), (139, 112), (139, 124), (136, 146),
-              (131, 168), (129, 184), (131, 202), (136, 222), (140, 240), (142, 262), (140, 290), (136, 316),
-              (133, 334), (134, 344), (138, 362), (137, 384), (131, 406), (127, 420), (128, 428), (131, 436),
-              (124, 440), (110, 440), (108, 428), (109, 418), (107, 400), (105, 378), (106, 358), (107, 346),
-              (106, 336), (104, 312), (103, 286), (102, 262), (100, 252), (100, 150)])
+        poly([(100, 7), (111, 10), (116, 20), (115, 36), (112, 46), (105, 53), (100, 54)]),
+        poly([(100, 58), (109, 56), (114, 65), (125, 70), (141, 74), (154, 81), (164, 96), (166, 112),
+              (164, 131), (158, 154), (160, 172), (166, 194), (171, 215), (174, 229), (177, 240), (174, 255),
+              (167, 260), (162, 253), (162, 239), (155, 225), (149, 202), (144, 180), (140, 160), (140, 139),
+              (137, 122), (132, 144), (128, 167), (128, 187), (134, 211), (140, 235), (142, 260), (140, 290),
+              (133, 322), (132, 342), (138, 365), (136, 388), (128, 417), (131, 427), (136, 433), (131, 438),
+              (114, 438), (108, 433), (109, 421), (107, 399), (105, 375), (106, 350), (105, 333), (103, 304),
+              (102, 276), (100, 252)])
     ]
 
-    private static let forearm = poly([(145, 174), (159, 171), (164, 190), (165, 212), (162, 230), (152, 232), (148, 212), (146, 192)])
-    private static let sideDelt = poly([(150, 80), (157, 89), (160, 104), (158, 118), (153, 106)])
+    private static let forearm = poly([(145, 172), (155, 171), (162, 189), (167, 212), (165, 230),
+                                       (159, 231), (153, 215), (148, 197)])
+    private static let sideDelt = poly([(149, 82), (157, 87), (164, 98), (164, 110), (158, 123), (153, 113)])
 
     static let front: [Muscle: [[CGPoint]]] = [
-        .chest: [poly([(100, 82), (110, 77), (124, 76), (136, 80), (143, 88), (145, 100), (140, 112), (128, 120), (113, 123), (100, 121)])],
-        .frontDelts: [poly([(137, 78), (148, 78), (153, 86), (156, 100), (155, 114), (148, 118), (143, 106), (140, 90)])],
+        .chest: [poly([(101, 86), (111, 80), (126, 78), (139, 84), (144, 94), (141, 106), (130, 115),
+                      (116, 120), (103, 115)])],
+        .frontDelts: [poly([(138, 77), (147, 79), (153, 90), (155, 105), (150, 115), (143, 107), (145, 94)])],
         .sideDelts: [sideDelt],
-        .biceps: [poly([(142, 120), (152, 118), (160, 126), (161, 146), (158, 166), (150, 170), (144, 160), (142, 138)])],
+        .biceps: [poly([(146, 121), (154, 120), (160, 130), (156, 149), (151, 166), (145, 161), (142, 142)])],
         .forearms: [forearm],
-        .abs: [poly([(100, 125), (114, 125), (116, 142), (100, 143)]),
-               poly([(100, 146), (116, 145), (116, 163), (100, 164)]),
-               poly([(100, 167), (116, 166), (115, 186), (100, 187)]),
-               poly([(100, 190), (115, 189), (113, 206), (106, 222), (100, 226)])],
-        .obliques: [poly([(119, 126), (141, 116), (139, 132), (135, 152), (131, 172), (130, 188), (126, 206), (118, 214), (118, 186), (119, 150)])],
-        .traps: [poly([(107, 57), (118, 63), (134, 70), (145, 75), (134, 77), (118, 74), (109, 67)])],
-        .quads: [poly([(117, 232), (130, 225), (140, 237), (143, 262), (141, 292), (136, 318), (128, 336), (119, 333), (114, 316), (115, 280)]),
-                 poly([(105, 266), (111, 250), (114, 284), (116, 318), (118, 334), (110, 339), (105, 320), (103, 292)])],
-        .calves: [poly([(122, 350), (134, 354), (138, 370), (135, 394), (127, 410), (121, 396), (120, 372)]),
-                  poly([(108, 352), (116, 350), (118, 372), (115, 396), (109, 394), (106, 374)])]
+        .abs: [poly([(101, 124), (110, 120), (117, 124), (119, 143), (118, 165), (115, 188),
+                    (108, 211), (101, 218)])],
+        .obliques: [poly([(121, 124), (136, 115), (133, 137), (128, 156), (126, 177), (128, 194),
+                         (123, 207), (116, 205), (121, 174)])],
+        .traps: [poly([(107, 58), (115, 67), (128, 71), (139, 76), (132, 79), (118, 75), (110, 70)])],
+        .quads: [poly([(117, 222), (129, 216), (136, 233), (138, 255), (136, 282), (131, 306), (123, 330),
+                      (116, 328), (114, 306), (116, 278), (114, 249)]),
+                 poly([(103, 266), (109, 251), (113, 277), (111, 309), (116, 328), (110, 337), (106, 316)])],
+        .calves: [poly([(121, 350), (131, 350), (135, 365), (132, 387), (124, 412), (118, 407), (118, 380)]),
+                  poly([(108, 353), (116, 348), (116, 371), (115, 391), (108, 401), (107, 383)])]
     ]
 
     static let back: [Muscle: [[CGPoint]]] = [
-        .rearDelts: [poly([(138, 80), (149, 78), (154, 86), (156, 100), (155, 114), (147, 112), (141, 98)])],
+        .rearDelts: [poly([(136, 79), (147, 79), (154, 90), (155, 105), (151, 111), (144, 103), (140, 91)])],
         .sideDelts: [sideDelt],
-        .triceps: [poly([(142, 118), (155, 116), (161, 128), (161, 150), (157, 168), (149, 170), (144, 156), (142, 134)])],
+        .triceps: [poly([(145, 113), (154, 114), (160, 126), (157, 145), (152, 162), (146, 169), (143, 155), (142, 134)])],
         .forearms: [forearm],
-        .traps: [poly([(100, 50), (110, 54), (124, 64), (143, 74), (134, 82), (121, 98), (109, 120), (100, 132)])],
-        .lats: [poly([(103, 138), (112, 122), (125, 102), (136, 86), (141, 104), (140, 124), (135, 148), (128, 170), (115, 184), (104, 180)])],
-        .lowerBack: [poly([(100, 184), (114, 190), (129, 182), (131, 200), (133, 218), (118, 223), (100, 224)])],
-        .glutes: [poly([(100, 229), (116, 224), (132, 226), (140, 240), (142, 258), (136, 276), (120, 282), (104, 280), (100, 262)])],
-        .hamstrings: [poly([(122, 287), (138, 283), (141, 300), (137, 322), (130, 338), (122, 334), (119, 310)]),
-                      poly([(102, 291), (117, 287), (117, 312), (120, 336), (110, 340), (104, 320)])],
-        .calves: [poly([(106, 350), (119, 345), (121, 366), (117, 392), (110, 394), (105, 374)]),
-                  poly([(122, 345), (134, 351), (138, 367), (134, 390), (126, 400), (121, 372)])]
+        .traps: [poly([(100, 57), (113, 63), (125, 68), (139, 75), (128, 83), (120, 95), (109, 111), (100, 132)])],
+        .lats: [poly([(105, 136), (115, 116), (125, 100), (136, 86), (140, 99), (138, 118), (133, 140),
+                     (126, 157), (116, 174), (107, 182)])],
+        .lowerBack: [poly([(101, 160), (109, 183), (119, 178), (126, 172), (127, 193), (132, 212),
+                          (121, 218), (109, 216), (101, 211)])],
+        .glutes: [poly([(101, 223), (112, 218), (126, 218), (136, 231), (139, 247), (135, 262), (126, 272),
+                       (111, 271), (105, 262), (101, 248)])],
+        .hamstrings: [poly([(121, 279), (135, 272), (137, 289), (132, 313), (127, 336), (118, 331), (116, 307)]),
+                      poly([(103, 281), (115, 277), (113, 296), (114, 315), (117, 335), (110, 340), (105, 319)])],
+        .calves: [poly([(106, 349), (117, 344), (120, 363), (118, 383), (113, 404), (107, 397), (106, 375)]),
+                  poly([(122, 349), (131, 347), (136, 362), (134, 384), (126, 408), (121, 390), (120, 366)])]
     ]
 }

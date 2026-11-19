@@ -20,13 +20,9 @@ struct CoachView: View {
     @State private var photosLoading = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
-    /// Kurz nach einer Antwort freut sich das Maskottchen.
-    @State private var justReplied = false
     /// Fotos für die nächste Nachricht und die Fotos der bisherigen Nachrichten (nur Vorschau, nur im Speicher).
     @State private var attachments: [CoachPhoto] = []
     @State private var messagePhotos: [UUID: [CoachPhoto]] = [:]
-    @State private var repliedResetTask: Task<Void, Never>?
-    @Environment(\.dynamicTypeSize) private var typeSize
     /// Schlüssel einmal beim Öffnen prüfen (Schlüsselbund-Zugriff nicht bei jedem Neuzeichnen).
     @State private var keyConfigured = false
     private var hasKey: Bool { !hub.isSample && keyConfigured }
@@ -43,20 +39,6 @@ struct CoachView: View {
             isSample: hub.isSample, hour: Calendar.forma.component(.hour, from: .now),
             recoveryAvailable: hub.availability.recovery, strainAvailable: hub.availability.strain,
             history: hub.history)
-    }
-
-    private var hasSuggestion: Bool {
-        guard !hub.isSample, !dismissed, let suggested = CoachEngine.suggestion(context) else { return false }
-        return adjustment != suggested
-    }
-
-    /// Innenleuchten in der Recovery-Farbe von heute; ohne Recovery-Wert neutral.
-    private var mascotTint: Color {
-        CoachMascotLogic.tint(recovery: hub.availability.recovery ? hub.scores.recovery : nil)
-    }
-
-    private var mascotMood: MascotMood {
-        CoachMascotLogic.mood(thinking: thinking, justReplied: justReplied, hasSuggestion: hasSuggestion)
     }
 
     private let suggestions = ["Warum ist meine Erholung so?", "Was soll ich heute trainieren?", "Wann soll ich ins Bett?", "Wie viel Belastung ist heute gut?"]
@@ -87,11 +69,9 @@ struct CoachView: View {
                             bubble(message).id(message.id)
                         }
                         if thinking {
-                            HStack(spacing: Space.s2) {
-                                Mascot(mood: .thinking, size: 36, tint: mascotTint)
-                                    .accessibilityHidden(true)
-                                CoachThinkingLine()
-                            }
+                            Text("Denkt nach …")
+                                .font(.formaCaptionStrong)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -149,39 +129,18 @@ struct CoachView: View {
                 Text(consentMessage(for: pendingConsentText ?? ""))
             }
             .onChange(of: app.coachPrompt) { _, _ in consumePrompt() }
-            .onChange(of: messages.count) { _, _ in
-                guard messages.last?.role == .coach else { return }
-                justReplied = true
-                repliedResetTask?.cancel()
-                repliedResetTask = Task {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    guard !Task.isCancelled else { return }
-                    justReplied = false
-                }
-            }
         }
     }
 
-    /// Maskottchen links, „Heute“ und die Tageszeile rechts (bei großer Schrift untereinander).
     private var header: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.s3))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: Space.s4))
-        return layout {
-            // Beim Warten bewegt sich nur Lumo im Chat; der Kopf steht ruhig.
-            Mascot(mood: thinking ? .calm : mascotMood, size: 88, tint: mascotTint, animated: !thinking)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(mascotMood.accessibilityText)
-                .accessibilityIdentifier("coach.mascot")
-            VStack(alignment: .leading, spacing: Space.s2) {
-                Text("Heute").formaLabelStyle()
-                Text(CoachEngine.dailyLine(context))
-                    .font(.system(.title3, weight: .medium))
-                    .foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Heute").formaLabelStyle()
+            Text(CoachEngine.dailyLine(context))
+                .font(.system(.title3, weight: .medium))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, Space.s3)
         .padding(.bottom, Space.s2)
     }
@@ -243,14 +202,6 @@ struct CoachView: View {
     private func bubble(_ m: ChatMessage) -> some View {
         HStack(alignment: .bottom, spacing: Space.s2) {
             if m.role == .user { Spacer(minLength: 48) }
-            if m.role == .coach {
-                // Nur ein stiller Lichtpunkt an der letzten Antwort; die Spalte bleibt für alle gleich breit.
-                if m.id == messages.last(where: { $0.role == .coach })?.id {
-                    MascotBadge(tint: mascotTint)
-                } else {
-                    Color.clear.frame(width: 14, height: 14)
-                }
-            }
             VStack(alignment: m.role == .user ? .trailing : .leading, spacing: 6) {
                 if let photos = messagePhotos[m.id], !photos.isEmpty { CoachBubblePhotos(photos: photos) }
                 Text(m.text)
@@ -439,14 +390,5 @@ extension Array where Element == ChatMessage {
     mutating func markLocalOnly(_ id: ChatMessage.ID) {
         guard let index = firstIndex(where: { $0.id == id }) else { return }
         self[index].localOnly = true
-    }
-}
-
-/// Wartezeile neben dem Maskottchen. Bewegung gibt es nur dort; der Text bleibt ruhig.
-private struct CoachThinkingLine: View {
-    var body: some View {
-        Text("Denkt nach …")
-            .font(.formaCaptionStrong)
-            .foregroundStyle(Theme.textSecondary)
     }
 }

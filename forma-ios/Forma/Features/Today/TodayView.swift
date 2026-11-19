@@ -12,8 +12,6 @@ struct TodayView: View {
     @State private var compact = false
     /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
     @State private var headerWidth: CGFloat = 358
-    /// Kopf-Variante: Kapseln (Standard) oder drei Ringe; wählbar per langem Druck auf den Kopf.
-    @AppStorage("forma.today.header") private var headerStyle = TodayHeaderStyle.capsules.rawValue
 
     var body: some View {
         let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
@@ -35,29 +33,18 @@ struct TodayView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Space.gap) {
                         sourceStatus
-                        Group {
-                            if headerStyle == TodayHeaderStyle.rings.rawValue {
-                                ringsHeader(snapshot)
-                            } else {
-                                header(snapshot)
+                        header(snapshot)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
+                            .contextMenu {
+                                Button("Aktualisieren", systemImage: "arrow.clockwise") {
+                                    Task { await hub.refresh() }
+                                }
                             }
-                        }
-                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
-                        .contextMenu { headerMenu }
-                        .id(Self.top)
-                        .padding(.bottom, Space.s2)
+                            .id(Self.top)
+                            .padding(.bottom, Space.s2)
                         // Bearbeiten direkt hier: „Anpassen“ steht als Letztes auf der Seite.
                         InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
                             tile(kind, snapshot: snapshot, history: history, stress: stress, period: period)
-                        }
-                        .editHeader {
-                            // T2: Kopf-Variante im Anpassen-Modus wählen (zusätzlich per langem Druck auf den Kopf).
-                            Picker("Kopf", selection: $headerStyle) {
-                                Text("Kapseln").tag(TodayHeaderStyle.capsules.rawValue)
-                                Text("Ringe").tag(TodayHeaderStyle.rings.rawValue)
-                            }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("today.headerStyle")
                         }
                     }
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
@@ -237,57 +224,6 @@ struct TodayView: View {
         .accessibilityValue(DashboardRing.spokenValue(kind: kind, value: snapshot.value(for: kind)))
         .accessibilityHint("Öffnet die Details")
         .accessibilityIdentifier("ring." + kind.rawValue)
-    }
-
-    /// Variante „Ringe“: Recovery groß in der Mitte, Strain und Sleep kleiner, gleiche Breitenregel wie die Kapseln.
-    @ViewBuilder private func ringsHeader(_ snapshot: DashboardDay) -> some View {
-        let stacked = Self.stacksHeader(width: headerWidth, largeText: typeSize >= .xxLarge)
-        let big = stacked ? min(184, headerWidth) : Self.recoverySize(width: headerWidth)
-        let small: CGFloat = 76
-        let strain = gauge(.strain, snapshot) { ringColumn(.strain, snapshot, size: small, delay: 0.08) }
-        let recovery = gauge(.recovery, snapshot) { ringColumn(.recovery, snapshot, size: big, delay: 0) }
-        let sleep = gauge(.sleep, snapshot) { ringColumn(.sleep, snapshot, size: small, delay: 0.16) }
-        if stacked {
-            VStack(spacing: Space.s4) {
-                recovery
-                HStack(alignment: .top, spacing: Space.s4) {
-                    strain
-                    sleep
-                }
-            }
-            .frame(maxWidth: .infinity)
-        } else {
-            HStack(alignment: .center, spacing: 0) {
-                strain
-                recovery.frame(width: big)
-                sleep
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func ringColumn(_ kind: RingKind, _ snapshot: DashboardDay, size: CGFloat, delay: Double) -> some View {
-        VStack(spacing: Space.s2) {
-            HeaderRing(kind: kind, value: snapshot.value(for: kind), size: size, delay: delay)
-            Text(kind.title)
-                .font(.formaLabel)
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-    }
-
-    /// Langer Druck auf den Kopf: Darstellung wählen.
-    @ViewBuilder private var headerMenu: some View {
-        Picker("Darstellung", selection: $headerStyle) {
-            Label("Kapseln", systemImage: "capsule.portrait").tag(TodayHeaderStyle.capsules.rawValue)
-            Label("Ringe", systemImage: "circle.circle").tag(TodayHeaderStyle.rings.rawValue)
-        }
-        Button("Aktualisieren", systemImage: "arrow.clockwise") {
-            Task { await hub.refresh() }
-        }
     }
 
     /// Zwei Zeilen (Recovery oben, Kapseln darunter), sobald nebeneinander keine 80 pt je Kapsel bleiben
@@ -516,11 +452,6 @@ extension TodayView {
         guard entry.kind == .strain else { return nil }
         return sessions.first { abs($0.start.timeIntervalSince(entry.date)) < 1 }
     }
-}
-
-/// Kopf-Variante; gespeichert unter `forma.today.header`.
-enum TodayHeaderStyle: String {
-    case capsules, rings
 }
 
 /// Strich-Halbkreis mit Hochzählen beim Erscheinen.

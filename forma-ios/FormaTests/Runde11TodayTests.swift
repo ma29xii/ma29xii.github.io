@@ -42,10 +42,11 @@ final class Runde11TodayTests: XCTestCase {
         XCTAssertEqual(TodayTile.requiredVisible, [.metrics])
     }
 
-    // T2: Kapseln bleiben Standard, Ringe sind die zweite Variante.
-    func testHeaderStylesAreStable() {
-        XCTAssertEqual(TodayHeaderStyle.capsules.rawValue, "capsules")
-        XCTAssertEqual(TodayHeaderStyle(rawValue: "rings"), .rings)
-        XCTAssertNil(TodayHeaderStyle(rawValue: "unbekannt"))
+    func testCapsuleHeaderReservesRoomForBothSideMetrics() {
+        XCTAssertTrue(TodayView.stacksHeader(width: 291, largeText: false))
+        XCTAssertFalse(TodayView.stacksHeader(width: 292, largeText: false))
+        XCTAssertTrue(TodayView.stacksHeader(width: 400, largeText: true))
+        XCTAssertEqual(TodayView.recoverySize(width: 292), 132)
+        XCTAssertEqual(TodayView.recoverySize(width: 360), 184)
     }
 }

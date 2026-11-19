@@ -122,18 +122,25 @@ private struct PlusMenuOverlay: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottomTrailing) {
                 if app.showPlus {
+                    let tabBarClearance = proxy.safeAreaInsets.bottom + 76
                     Color.black.opacity(0.38)
                         .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture { app.showPlus = false }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                         .transition(.opacity)
-                        .accessibilityElement()
-                        .accessibilityLabel("Plus-Menü schließen")
-                        .accessibilityAddTraits(.isButton)
+                    Button {
+                        app.showPlus = false
+                    } label: {
+                        Color.clear
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Plus-Menü schließen")
+                    .padding(.bottom, tabBarClearance)
                     PlusMenuPanel(onSelect: onSelect)
                         .padding(.trailing, Space.page)
                         // Knapp über der schwebenden Tab-Leiste (Sicherheitsrand unten plus Leiste).
-                        .padding(.bottom, proxy.safeAreaInsets.bottom + 76)
+                        .padding(.bottom, tabBarClearance)
                         .transition(reduceMotion ? .opacity : .scale(scale: 0.12, anchor: .bottomTrailing).combined(with: .opacity))
                         .accessibilityAddTraits(.isModal)
                         .accessibilityAction(.escape) { app.showPlus = false }

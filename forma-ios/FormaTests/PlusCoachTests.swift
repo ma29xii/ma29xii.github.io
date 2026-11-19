@@ -26,6 +26,34 @@ final class PlusCoachTests: XCTestCase {
         XCTAssertEqual(PlusLogic.nextRoutineIndex(lastUsed: [nil, nil]), 0, "Bei Gleichstand gewinnt die erste")
     }
 
+    @MainActor
+    func testPlusTogglesOverCurrentTabAndClosesWhenSelectingFood() {
+        let app = AppState(isDemo: true)
+        app.selectTab(.add)
+        XCTAssertEqual(app.selectedTab, .today)
+        XCTAssertTrue(app.showPlus)
+
+        app.selectTab(.food)
+        XCTAssertEqual(app.selectedTab, .food)
+        XCTAssertFalse(app.showPlus)
+
+        app.selectTab(.add)
+        XCTAssertEqual(app.selectedTab, .food)
+        XCTAssertTrue(app.showPlus)
+        app.selectTab(.add)
+        XCTAssertFalse(app.showPlus)
+    }
+
+    @MainActor
+    func testOpeningCoachClosesPlus() {
+        let app = AppState(isDemo: true)
+        app.selectTab(.add)
+        app.openCoach(with: "Schlaf")
+        XCTAssertEqual(app.selectedTab, .coach)
+        XCTAssertEqual(app.coachPrompt, "Schlaf")
+        XCTAssertFalse(app.showPlus)
+    }
+
     // MARK: Hintergrund-Plan im Profil
 
     func testBackgroundPlanTextShowsErrorWithTimeAndPlannedTime() {
@@ -40,8 +68,6 @@ final class PlusCoachTests: XCTestCase {
         XCTAssertTrue(failed?.text.contains("nicht geplant (heute") == true)
     }
 
-    // MARK: Maskottchen
-
     // MARK: Pause
 
     @MainActor
@@ -55,35 +81,6 @@ final class PlusCoachTests: XCTestCase {
         XCTAssertFalse(workout.canExtendRest)
     }
 
-    func testMascotTintFollowsRecovery() {
-        XCTAssertEqual(CoachMascotLogic.tint(recovery: 90), Theme.recoveryHigh)
-        XCTAssertEqual(CoachMascotLogic.tint(recovery: 50), Theme.recoveryMid)
-        XCTAssertEqual(CoachMascotLogic.tint(recovery: 10), Theme.recoveryLow)
-        XCTAssertNotEqual(CoachMascotLogic.tint(recovery: nil), Theme.recoveryHigh, "Ohne Wert kein Grün vortäuschen")
-    }
-
-    func testMascotMoodPriority() {
-        XCTAssertEqual(CoachMascotLogic.mood(thinking: true, justReplied: true, hasSuggestion: true), .thinking)
-        XCTAssertEqual(CoachMascotLogic.mood(thinking: false, justReplied: true, hasSuggestion: true), .happy)
-        XCTAssertEqual(CoachMascotLogic.mood(thinking: false, justReplied: false, hasSuggestion: true), .hint)
-        XCTAssertEqual(CoachMascotLogic.mood(thinking: false, justReplied: false, hasSuggestion: false), .calm)
-    }
-
-    func testHopIsZeroOutsideTheWindowAndBounded() {
-        XCTAssertEqual(CoachMascotLogic.hopHeight(elapsed: -1), 0)
-        XCTAssertEqual(CoachMascotLogic.hopHeight(elapsed: 0.9), 0)
-        XCTAssertEqual(CoachMascotLogic.hopHeight(elapsed: 5), 0)
-        XCTAssertEqual(CoachMascotLogic.hopHeight(elapsed: 0), 0, accuracy: 0.0001)
-        XCTAssertGreaterThan(CoachMascotLogic.hopHeight(elapsed: 0.9 / 4), 0.5, "Erster Sprung erreicht die Spitze")
-        for step in 0..<90 {
-            let h = CoachMascotLogic.hopHeight(elapsed: Double(step) / 100)
-            XCTAssertTrue((0...1).contains(h))
-        }
-    }
-
-    func testEveryMoodHasText() {
-        for mood in MascotMood.allCases { XCTAssertFalse(mood.accessibilityText.isEmpty) }
-    }
 }
 
 final class CoachPhotoTests: XCTestCase {

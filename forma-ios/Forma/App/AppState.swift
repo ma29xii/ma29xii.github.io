@@ -12,7 +12,7 @@ enum AppTab: Hashable {
 @Observable
 final class AppState {
     let isDemo: Bool
-    var selectedTab: AppTab = .today
+    private(set) var selectedTab: AppTab = .today
     var coachPrompt: String?
     /// Thema der ersten Coach-Antwort (z. B. „schlaf“), damit sie zum Einstieg passt.
     var coachTopic: String = "erholung"
@@ -63,10 +63,19 @@ final class AppState {
 
     var workoutAdjustment: TrainingAdjustment? { isDemo ? nil : TrainingAdjustment.today }
 
+    func selectTab(_ tab: AppTab) {
+        if tab == .add {
+            showPlus.toggle()
+        } else {
+            showPlus = false
+            selectedTab = tab
+        }
+    }
+
     func openCoach(with prompt: String, topic: String = "erholung") {
         coachTopic = topic
         coachPrompt = prompt
-        selectedTab = .coach
+        selectTab(.coach)
     }
 }
 

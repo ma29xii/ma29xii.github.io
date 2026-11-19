@@ -21,8 +21,9 @@ final class Runde11HealthTests: XCTestCase {
     @MainActor
     func testParticlesAreDenserAtTheRim() {
         let particles = AgeOrb.particles
-        XCTAssertEqual(particles.count, 1100)
-        XCTAssertTrue(particles.allSatisfy { (0.38...1).contains($0.radius) })
+        XCTAssertEqual(particles.count, 3200)
+        XCTAssertTrue(particles.allSatisfy { (0.43...0.99).contains($0.radius) })
+        XCTAssertTrue(particles.allSatisfy { (0..<5).contains($0.tone) })
         let outer = particles.filter { $0.radius > 0.8 }.count
         XCTAssertGreaterThan(outer, particles.count / 2)
         // Feste Verteilung: gleiches Bild bei jedem Start.

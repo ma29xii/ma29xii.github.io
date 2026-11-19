@@ -102,32 +102,46 @@ struct HealthAgeDial: View {
     let difference: Double?
     let decimals: Int
     let approximate: Bool
-    var diameter: CGFloat = 292
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var ageSize: CGFloat = 54
 
     var body: some View {
-        ZStack {
-            AgeOrb(mood: OrbMood(difference: difference))
-            VStack(spacing: 4) {
-                Text(bodyAge.map { Format.number($0, decimals: decimals) } ?? "–")
-                    .font(.formaHero)
-                    .foregroundStyle(Theme.textPrimary)
-                    .formaNumberTransition(bodyAge ?? 0)
-                Text("Health Age")
-                    .font(.formaMicro)
-                    .tracking(Tracking.label)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Theme.textSecondary)
-                if let difference {
-                    Text(BodyAgeText.difference(difference, decimals: decimals, approximate: approximate))
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(BodyAgeText.color(difference))
-                        .padding(.top, 2)
+        VStack(spacing: Space.s2) {
+            ZStack {
+                AgeOrb(mood: OrbMood(difference: difference))
+                if !typeSize.isAccessibilitySize {
+                    score
+                        .padding(.horizontal, Space.s7)
                 }
             }
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, diameter * 0.2)
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: 276)
+
+            if typeSize.isAccessibilitySize {
+                score
+            }
         }
-        .frame(width: diameter, height: diameter)
+    }
+
+    private var score: some View {
+        VStack(spacing: Space.s1) {
+            Text(bodyAge.map { Format.number($0, decimals: decimals) } ?? "–")
+                .font(.system(size: min(ageSize, 72), weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(Theme.textPrimary)
+                .formaNumberTransition(bodyAge ?? 0)
+            Text("Health Age")
+                .font(.formaLabel)
+                .tracking(Tracking.label)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.textSecondary)
+            if let difference {
+                Text(BodyAgeText.difference(difference, decimals: decimals, approximate: approximate))
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(BodyAgeText.color(difference))
+                    .padding(.top, Space.s1)
+            }
+        }
+        .multilineTextAlignment(.center)
     }
 }
 

@@ -217,26 +217,6 @@ struct LevelCapsule: View, Animatable {
 
 // MARK: - Runde 11: Ringe-Variante und Schritte-Halbkreis
 
-/// Ring für die wählbare Kopf-Variante „Ringe“: zählt beim Erscheinen hoch, bei Reduce Motion sofort.
-struct HeaderRing: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var displayed = 0.0
-    let kind: RingKind
-    let value: Int?
-    let size: CGFloat
-    var delay: Double = 0
-
-    var body: some View {
-        RingView(value: displayed, color: DashboardRing.tint(kind: kind, value: value), size: size,
-                 lineWidth: kind == .recovery ? 12 : 8, numberSize: size * (kind == .recovery ? 0.3 : 0.28),
-                 missing: value == nil, suffix: kind == .strain ? "" : "%")
-            .onChange(of: value, initial: true) { _, latest in
-                let motion: Animation = .spring(response: kind == .recovery ? 0.9 : 0.75, dampingFraction: 0.85).delay(delay)
-                withAnimation(reduceMotion || latest == nil ? nil : motion) { displayed = Double(latest ?? 0) }
-            }
-    }
-}
-
 /// Halbkreis aus Strichen (wie eine Skala). Gefüllt bis zum Anteil am Ziel; ohne Ziel bleibt er neutral.
 struct TickArc: View, Animatable {
     nonisolated var fraction: Double

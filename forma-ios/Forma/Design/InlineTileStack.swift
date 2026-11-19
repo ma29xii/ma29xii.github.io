@@ -8,15 +8,6 @@ struct InlineTileStack<Kind: TileKind, Content: View>: View {
     @State private var editing = false
     @State private var dropTarget: Kind?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var editHeaderView: AnyView?
-
-    /// Eigene Bedienelemente, die nur im Bearbeitungsmodus über den Kacheln stehen (z. B. eine Umschaltung der Kopf-Variante).
-    /// Bestehende Aufrufer bleiben unverändert: `InlineTileStack<…>(…) { … }.editHeader { … }`.
-    func editHeader<Header: View>(@ViewBuilder _ header: () -> Header) -> Self {
-        var copy = self
-        copy.editHeaderView = AnyView(header())
-        return copy
-    }
 
     init(storageKey: String, @ViewBuilder content: @escaping (Kind) -> Content) {
         self.storageKey = storageKey
@@ -29,7 +20,6 @@ struct InlineTileStack<Kind: TileKind, Content: View>: View {
     var body: some View {
         let shown = arrangement.visible
         VStack(spacing: Space.s3) {
-            if editing, let editHeaderView { editHeaderView }
             if shown.isEmpty && !editing {
                 Text("Alle Kacheln sind ausgeblendet.").foregroundStyle(Theme.textSecondary)
             }
