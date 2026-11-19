@@ -4,11 +4,12 @@ import XCTest
 /// Runde 11: Muskelfigur und Sätze löschen.
 @MainActor
 final class Runde11TrainingTests: XCTestCase {
+    private func sets(_ n: Int = 3) -> [LiveSet] { (0..<n).map { _ in LiveSet(weight: 40, reps: 10, isWarmup: false) } }
+
     private func workout() -> LiveWorkout {
-        let sets = (0..<3).map { _ in LiveSet(weight: 40, reps: 10, isWarmup: false) }
         let w = LiveWorkout(title: "Test", exercises: [
-            LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 60, sets: sets),
-            LiveExercise(name: "Rudern", muscle: "Rücken", restSeconds: 60, sets: sets)
+            LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 60, sets: sets()),
+            LiveExercise(name: "Rudern", muscle: "Rücken", restSeconds: 60, sets: sets())
         ])
         w.isDemo = true
         return w
@@ -33,6 +34,27 @@ final class Runde11TrainingTests: XCTestCase {
         XCTAssertFalse(w.currentSet?.done ?? true)
         w.removeSet(exercise: 9, set: 0)   // ungültig: nichts passiert
         XCTAssertEqual(w.exercises.map(\.sets.count), [2, 3])
+    }
+
+    // Runde 12 (Gegenprüfung 05 #4)
+
+    func testRemovingSelectedSetResetsReserve() {
+        let w = workout()
+        w.select(exercise: 0, set: 1)
+        w.currentRIR = 2
+        w.removeSet(exercise: 0, set: 1)
+        XCTAssertEqual([w.exerciseIndex, w.setIndex], [0, 0], "nächster offener Satz")
+        XCTAssertNil(w.currentRIR, "Reserve gehörte zum gelöschten Satz")
+    }
+
+    func testRemovingLastOpenSetDuringRestEndsRest() {
+        let w = LiveWorkout(title: "Test", exercises: [LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 90, sets: sets(2))])
+        w.isDemo = true
+        w.completeCurrentSet()
+        XCTAssertTrue(w.isResting)
+        w.removeSet(exercise: 0, set: 1)
+        XCTAssertNil(w.restEndsAt, "keine Pause ohne offenen Satz")
+        XCTAssertTrue(w.allDone)
     }
 
     func testFigureCoversEveryMuscleAndHitsTopmost() {
