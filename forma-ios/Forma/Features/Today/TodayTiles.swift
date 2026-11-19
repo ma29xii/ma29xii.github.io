@@ -41,7 +41,7 @@ struct StepsDetail: View {
 
 /// Karten unter dem Today-Kopf. Kopf und Kennzahlen (mit Schritten) bleiben immer sichtbar.
 enum TodayTile: String, TileKind {
-    case coach, healthMonitor, stress, weekly, activities, metrics
+    case coach, healthMonitor, stress, energy, weekly, activities, metrics
 
     var id: String { rawValue }
     var title: String {
@@ -49,9 +49,10 @@ enum TodayTile: String, TileKind {
         case .coach: "Coach"
         case .healthMonitor: "Health Monitor"
         case .stress: "Stress Monitor"
+        case .energy: "Energie"
         case .weekly: "Wochenrückblick"
         case .activities: "Mein Tag"
-        case .metrics: "Kennzahlen"
+        case .metrics: "Schritte"
         }
     }
     var systemImage: String {
@@ -59,6 +60,7 @@ enum TodayTile: String, TileKind {
         case .coach: "sparkle"
         case .healthMonitor: "heart.text.square"
         case .stress: "gauge.with.dots.needle.33percent"
+        case .energy: "bolt.fill"
         case .weekly: "calendar"
         case .activities: "list.bullet"
         case .metrics: "figure.walk"

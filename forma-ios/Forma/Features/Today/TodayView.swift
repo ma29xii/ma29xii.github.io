@@ -10,6 +10,8 @@ struct TodayView: View {
     @State private var compact = false
     /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
     @State private var headerWidth: CGFloat = 358
+    /// Kopf-Variante: Kapseln (Standard) oder drei Ringe; wählbar per langem Druck auf den Kopf.
+    @AppStorage("forma.today.header") private var headerStyle = TodayHeaderStyle.capsules.rawValue
 
     var body: some View {
         let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
@@ -31,15 +33,21 @@ struct TodayView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Space.gap) {
                         sourceStatus
-                        header(snapshot)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
-                            .id(Self.top)
-                            .padding(.bottom, Space.s2)
-                        // Bearbeiten direkt hier: „Anpassen“ steht unter der letzten Karte.
+                        Group {
+                            if headerStyle == TodayHeaderStyle.rings.rawValue {
+                                ringsHeader(snapshot)
+                            } else {
+                                header(snapshot)
+                            }
+                        }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
+                        .contextMenu { headerMenu }
+                        .id(Self.top)
+                        .padding(.bottom, Space.s2)
+                        // Bearbeiten direkt hier: „Anpassen“ steht als Letztes auf der Seite.
                         InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
                             tile(kind, snapshot: snapshot, history: history, stress: stress, period: period)
                         }
-                        updateFooter
                     }
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
                     .padding(.horizontal, Space.page)
@@ -63,7 +71,9 @@ struct TodayView: View {
             }
             .background(alignment: .top) {
                 if let recovery = snapshot.recovery {
+                    // Reicht bis unter die Statusleiste, sonst endet der Schimmer an einer harten Kante.
                     TodayRecoveryGlow(recovery: recovery)
+                        .ignoresSafeArea(edges: .top)
                 }
             }
             .dashboardScreen()
@@ -103,6 +113,8 @@ struct TodayView: View {
         case .stress:
             return AnyView(StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
                                              isLoading: false, history: history))
+        case .energy:
+            return AnyView(EnergyTile(energy: stress.energy))
         case .weekly:
             // Nur im Zeitfenster Sonntagabend bis Montagmittag; sonst nimmt die Karte keinen Platz ein.
             guard let period else { return AnyView(EmptyView()) }
@@ -110,7 +122,7 @@ struct TodayView: View {
         case .activities:
             return AnyView(activities(snapshot.day))
         case .metrics:
-            return AnyView(comparison(snapshot, history: history))
+            return AnyView(steps(snapshot))
         }
     }
 
@@ -130,17 +142,6 @@ struct TodayView: View {
                         .frame(minHeight: 44)
                 }
             }
-        }
-    }
-
-    /// Leise Fußzeile ganz unten: Oben stehen nur die Anzeigen.
-    @ViewBuilder private var updateFooter: some View {
-        if !hub.isSample, hub.todayDataNotice == nil, let updated = hub.lastUpdate {
-            Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))"
-                 : "Abgerufen am \(Format.shortDate(updated))")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textTertiary)
-                .frame(maxWidth: .infinity)
         }
     }
 
@@ -233,6 +234,57 @@ struct TodayView: View {
         .accessibilityIdentifier("ring." + kind.rawValue)
     }
 
+    /// Variante „Ringe“: Recovery groß in der Mitte, Strain und Sleep kleiner, gleiche Breitenregel wie die Kapseln.
+    @ViewBuilder private func ringsHeader(_ snapshot: DashboardDay) -> some View {
+        let stacked = Self.stacksHeader(width: headerWidth, largeText: typeSize >= .xxLarge)
+        let big = stacked ? min(184, headerWidth) : Self.recoverySize(width: headerWidth)
+        let small: CGFloat = 76
+        let strain = gauge(.strain, snapshot) { ringColumn(.strain, snapshot, size: small, delay: 0.08) }
+        let recovery = gauge(.recovery, snapshot) { ringColumn(.recovery, snapshot, size: big, delay: 0) }
+        let sleep = gauge(.sleep, snapshot) { ringColumn(.sleep, snapshot, size: small, delay: 0.16) }
+        if stacked {
+            VStack(spacing: Space.s4) {
+                recovery
+                HStack(alignment: .top, spacing: Space.s4) {
+                    strain
+                    sleep
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            HStack(alignment: .center, spacing: 0) {
+                strain
+                recovery.frame(width: big)
+                sleep
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func ringColumn(_ kind: RingKind, _ snapshot: DashboardDay, size: CGFloat, delay: Double) -> some View {
+        VStack(spacing: Space.s2) {
+            HeaderRing(kind: kind, value: snapshot.value(for: kind), size: size, delay: delay)
+            Text(kind.title)
+                .font(.formaLabel)
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
+    /// Langer Druck auf den Kopf: Darstellung wählen.
+    @ViewBuilder private var headerMenu: some View {
+        Picker("Darstellung", selection: $headerStyle) {
+            Label("Kapseln", systemImage: "capsule.portrait").tag(TodayHeaderStyle.capsules.rawValue)
+            Label("Ringe", systemImage: "circle.circle").tag(TodayHeaderStyle.rings.rawValue)
+        }
+        Button("Aktualisieren", systemImage: "arrow.clockwise") {
+            Task { await hub.refresh() }
+        }
+    }
+
     /// Zwei Zeilen (Recovery oben, Kapseln darunter), sobald nebeneinander keine 80 pt je Kapsel bleiben
     /// oder die Schrift groß ist. 292 = Mindestbogen 132 + 2 × 80.
     nonisolated static func stacksHeader(width: CGFloat, largeText: Bool) -> Bool {
@@ -313,9 +365,6 @@ struct TodayView: View {
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.right")
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textTertiary)
                 }
                 .padding(Space.s4)
                 .frame(minHeight: 56)
@@ -340,52 +389,58 @@ struct TodayView: View {
         return (slots, estimates.compactMap(\.energy).last)
     }
 
-    // MARK: Kennzahlen
+    // MARK: Schritte
 
-    private func comparison(_ snapshot: DashboardDay, history: [DayMetrics]) -> some View {
+    /// Schritte als Halbkreis aus Strichen: gefüllt bis zum Tagesziel vom Coach; ohne Ziel nur der Wert.
+    private func steps(_ snapshot: DashboardDay) -> some View {
         let hours: [HourlyMetrics] = hub.isSample ? HourlyMetrics.samples(for: snapshot.day) : hub.hours
-        let sleepAverage = DashboardTrends.mean(points: DashboardTrends.points(kind: .sleep, days: history,
-            domain: snapshot.day.date.adding(days: -30)...snapshot.day.date.adding(days: -1)))
-        return VStack(alignment: .leading, spacing: Space.s2) {
-            DashboardHeading(title: "Kennzahlen")
+        let goal = hub.stepGoalToday
+        let value = snapshot.day.steps
+        return NavigationLink {
+            StepsDetail(snapshot: snapshot, hours: hours)
+        } label: {
             DashboardCard {
-                NavigationLink {
-                    StepsDetail(snapshot: snapshot, hours: hours)
-                } label: {
-                    ComparisonRow(title: "Schritte", icon: "figure.walk", value: snapshot.day.steps,
-                                  baseline: snapshot.baseline { $0.steps }?.mean, format: { Format.number($0) },
-                                  showsChevron: true)
+                VStack(spacing: Space.s2) {
+                    DashboardHeading(title: "Schritte")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ZStack(alignment: .bottom) {
+                        StepArcView(fraction: Self.stepFraction(steps: value, goal: goal))
+                            .frame(width: 220, height: 110)
+                        VStack(spacing: 0) {
+                            Text(value.map { Format.number($0) } ?? "–")
+                                .font(.formaDisplay)
+                                .foregroundStyle(value == nil ? Theme.textSecondary : Theme.textPrimary)
+                                .formaNumberTransition(value ?? 0)
+                            if let goal {
+                                Text("von \(Format.number(Double(goal)))")
+                                    .font(.formaCaption)
+                                    .monospacedDigit()
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("today.steps")
-                RowDivider()
-                detailRow(.recovery, id: "today.metric.hrv") {
-                    ComparisonRow(title: "HRV", icon: "waveform.path.ecg", value: snapshot.day.hrv,
-                                  baseline: snapshot.baseline { $0.hrv }?.mean, format: MetricKind.hrv.measurement,
-                                  showsChevron: true)
-                }
-                RowDivider()
-                detailRow(.sleep, id: "today.metric.sleep") {
-                    ComparisonRow(title: "Schlafleistung", icon: "moon", value: snapshot.sleepScore.map(Double.init),
-                                  baseline: sleepAverage, format: { Format.number($0) + " %" }, showsChevron: true)
-                }
-                RowDivider()
-                detailRow(.strain, id: "today.metric.energy") {
-                    ComparisonRow(title: "Aktive Kalorien", icon: "flame", value: snapshot.day.activeEnergy,
-                                  baseline: snapshot.baseline { $0.activeEnergy }?.mean,
-                                  format: MetricKind.activeEnergy.measurement, showsChevron: true)
-                }
+                .padding(Space.s4)
+                .contentShape(Rectangle())
             }
-            ComparisonFooter()
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Schritte")
+        .accessibilityValue(Self.spokenSteps(steps: value, goal: goal))
+        .accessibilityIdentifier("today.steps")
     }
 
-    /// Zeile, die die Detailseite des passenden Werts öffnet (ohne Zoom, der gehört dem Kopf).
-    private func detailRow<Row: View>(_ kind: RingKind, id: String, @ViewBuilder label: () -> Row) -> some View {
-        NavigationLink(value: RingRoute(kind: kind)) { label() }
-            .buttonStyle(.plain)
-            .accessibilityHint("Öffnet \(kind.title)")
-            .accessibilityIdentifier(id)
+    /// Anteil am Ziel; ohne Ziel oder ohne Messung kein Fortschritt.
+    nonisolated static func stepFraction(steps: Double?, goal: Int?) -> Double {
+        guard let steps, let goal, goal > 0 else { return 0 }
+        return max(0, steps / Double(goal))
+    }
+
+    nonisolated static func spokenSteps(steps: Double?, goal: Int?) -> String {
+        guard let steps else { return "Keine Messung" }
+        let value = Format.number(steps)
+        return goal.map { "\(value) von \(Format.number(Double($0)))" } ?? value
     }
 
     // MARK: Mein Tag
@@ -396,12 +451,18 @@ struct TodayView: View {
             DashboardHeading(title: "Mein Tag")
                 .accessibilityIdentifier("today.activities.title")
             DashboardCard {
-                if entries.isEmpty { DashboardEmpty(title: "Kein Schlaf oder Training aufgezeichnet") }
+                if entries.isEmpty { DashboardEmpty(title: "Noch nichts aufgezeichnet") }
                 ForEach(entries) { entry in
-                    if entry.id != entries.first?.id { RowDivider() }
-                    NavigationLink(value: RingRoute(kind: entry.kind)) { activityRow(entry) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("today.activity." + entry.id)
+                    if entry.id != entries.first?.id { RowDivider(inset: 60) }
+                    // Nur Schlaf hat ein eigenes Detail; Trainings öffnen nicht mehr pauschal Strain.
+                    if entry.kind == .sleep {
+                        NavigationLink(value: RingRoute(kind: .sleep)) { activityRow(entry) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("today.activity." + entry.id)
+                    } else {
+                        activityRow(entry)
+                            .accessibilityIdentifier("today.activity." + entry.id)
+                    }
                 }
             }
         }
@@ -409,35 +470,54 @@ struct TodayView: View {
 
     private func activityRow(_ entry: DayActivity) -> some View {
         HStack(spacing: Space.s3) {
-            Text(entry.amount)
-                .font(.formaValue)
-                .formaNumberTransition(entry.number)
+            Image(systemName: entry.kind == .sleep ? "moon.fill" : "figure.run")
+                .font(.system(.subheadline, weight: .semibold))
                 .foregroundStyle(entry.tint)
-                .frame(minWidth: 52)
-                .padding(.horizontal, Space.s2)
-                .padding(.vertical, 6)
-                .background(entry.tint.opacity(0.14), in: Capsule())
-            Text(entry.title)
-                .font(.formaLabel)
-                .tracking(Tracking.micro)
-                .textCase(.uppercase)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(entry.clock)
-                .font(.formaCaption)
-                .monospacedDigit()
-                .formaNumberTransition(entry.date.timeIntervalSinceReferenceDate)
-                .foregroundStyle(Theme.textSecondary)
-            Image(systemName: "chevron.right")
-                .font(.system(.caption, weight: .semibold))
-                .foregroundStyle(Theme.textQuaternary)
+                .frame(width: 32, height: 32)
+                .background(entry.tint.opacity(0.16), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title)
+                    .font(.formaRowTitle)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(entry.clock)
+                    .font(.formaCaption)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(entry.amount)
+                .font(.formaNumber)
+                .foregroundStyle(entry.tint)
+                .formaNumberTransition(entry.number)
         }
         .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s2)
-        .frame(minHeight: 52)
+        .padding(.vertical, Space.s3)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.title)
         .accessibilityValue("\(entry.spokenAmount), \(entry.clock)")
+    }
+}
+
+/// Kopf-Variante; gespeichert unter `forma.today.header`.
+enum TodayHeaderStyle: String {
+    case capsules, rings
+}
+
+/// Strich-Halbkreis mit Hochzählen beim Erscheinen.
+private struct StepArcView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = 0.0
+    let fraction: Double
+
+    var body: some View {
+        TickArc(fraction: shown, color: Theme.strain)
+            .onChange(of: fraction, initial: true) { _, latest in
+                withAnimation(reduceMotion ? nil : .spring(response: 0.9, dampingFraction: 0.85)) { shown = latest }
+            }
+            .accessibilityHidden(true)
     }
 }
 

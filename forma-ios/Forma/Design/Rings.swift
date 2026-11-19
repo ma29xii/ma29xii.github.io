@@ -214,3 +214,63 @@ struct LevelCapsule: View, Animatable {
         }
     }
 }
+
+// MARK: - Runde 11: Ringe-Variante und Schritte-Halbkreis
+
+/// Ring für die wählbare Kopf-Variante „Ringe“: zählt beim Erscheinen hoch, bei Reduce Motion sofort.
+struct HeaderRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayed = 0.0
+    let kind: RingKind
+    let value: Int?
+    let size: CGFloat
+    var delay: Double = 0
+
+    var body: some View {
+        RingView(value: displayed, color: DashboardRing.tint(kind: kind, value: value), size: size,
+                 lineWidth: kind == .recovery ? 12 : 8, numberSize: size * (kind == .recovery ? 0.3 : 0.28),
+                 missing: value == nil, suffix: kind == .strain ? "" : "%")
+            .onChange(of: value, initial: true) { _, latest in
+                let motion: Animation = .spring(response: kind == .recovery ? 0.9 : 0.75, dampingFraction: 0.85).delay(delay)
+                withAnimation(reduceMotion || latest == nil ? nil : motion) { displayed = Double(latest ?? 0) }
+            }
+    }
+}
+
+/// Halbkreis aus Strichen (wie eine Skala). Gefüllt bis zum Anteil am Ziel; ohne Ziel bleibt er neutral.
+struct TickArc: View, Animatable {
+    nonisolated var fraction: Double
+    var color: Color
+    var ticks = 41
+    var lineWidth: CGFloat = 3
+
+    nonisolated var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    /// Wie viele Striche bei einem Anteil gefüllt sind (0 bei keinem Fortschritt, alle ab 100 %).
+    nonisolated static func filledTicks(fraction: Double, count: Int) -> Int {
+        guard fraction.isFinite, fraction > 0, count > 0 else { return 0 }
+        return min(count, Int((fraction * Double(count)).rounded(.up)))
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height)
+            let radius = min(size.width / 2, size.height) - lineWidth
+            let filled = Self.filledTicks(fraction: fraction, count: ticks)
+            for index in 0..<ticks {
+                // Von links (180°) über oben nach rechts (360°).
+                let angle = Double.pi * (1 + Double(index) / Double(max(1, ticks - 1)))
+                let long = index % 10 == 0
+                let inner = radius - (long ? 16 : 11)
+                var path = Path()
+                path.move(to: CGPoint(x: center.x + inner * cos(angle), y: center.y + inner * sin(angle)))
+                path.addLine(to: CGPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle)))
+                context.stroke(path, with: .color(index < filled ? color : Color.white.opacity(0.18)),
+                               style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            }
+        }
+    }
+}

@@ -28,9 +28,6 @@ struct InsightLink<Destination: View>: View {
                             .formaNumberTransition(number ?? 0)
                     }
                     Spacer(minLength: Space.s2)
-                    Image(systemName: "chevron.right")
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textTertiary)
                 }
                 .padding(Space.s4)
                 .frame(minHeight: 44)

@@ -13,39 +13,29 @@ struct StressMonitorCard: View {
     var body: some View {
         let measured = slots.filter { $0.value != nil }
         DashboardCard {
-            HStack {
-                DashboardHeading(title: "Stress Monitor")
-                    .accessibilityIdentifier("today.stress.title")
-                Spacer(minLength: Space.s2)
-                Text("Schätzung").font(.formaCaption).foregroundStyle(Theme.textTertiary)
-            }
-            .padding(.horizontal, Space.s4)
-            .padding(.top, Space.s4)
+            DashboardHeading(title: "Stress Monitor")
+                .accessibilityIdentifier("today.stress.title")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Space.s4)
+                .padding(.top, Space.s4)
             NavigationLink {
                 StressDetail(day: day, slots: slots, energy: energy, isLoading: isLoading, history: history)
             } label: {
+                // Skala, Stufe und Zeit in Zonen: alles auf einen Blick, ohne Kurve und ohne Uhrzeit.
                 HStack(spacing: Space.s4) {
-                    if let latest = measured.last, let value = latest.value {
+                    if let value = measured.last?.value {
                         let zone = StressZone(value: value)
-                        StressGauge(value: value, diameter: 64, lineWidth: 4, showsNumber: true)
-                        VStack(alignment: .leading, spacing: 2) {
+                        StressGauge(value: value, diameter: 84, lineWidth: 6, showsNumber: true)
+                        VStack(alignment: .leading, spacing: Space.s2) {
                             Text(zone.title).formaLabelStyle(zone.tint)
-                            Text("Stand \(Format.clock(latest.end))")
-                                .font(.formaCaption)
-                                .foregroundStyle(Theme.textSecondary)
+                            StressZoneBar(slots: slots)
                         }
-                        .fixedSize()
-                        Sparkline(values: measured.compactMap(\.value), color: zone.tint, height: 30)
-                            .frame(minWidth: 40, maxWidth: .infinity)
                     } else {
-                        Text(isLoading ? "Stundenwerte werden geladen …" : "Keine stündlichen Stresswerte")
+                        Text("Keine Messung")
                             .font(.formaBody)
                             .foregroundStyle(Theme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(.caption, weight: .semibold))
-                        .foregroundStyle(Theme.textQuaternary)
                 }
                 .padding(Space.s4)
                 .frame(minHeight: 44)
@@ -84,7 +74,6 @@ struct StressDetail: View {
                     .foregroundStyle(Theme.textSecondary)
                 StressMonitorPanel(day: day, slots: slots, isLoading: isLoading)
                 StressTrendLink(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
-                StressEnergyBar(energy: energy, isLoading: isLoading)
             }
             .padding(.horizontal, Space.page)
             .padding(.vertical, Space.s4)
@@ -92,6 +81,70 @@ struct StressDetail: View {
         .dashboardScreen()
         .navigationTitle("Stress Monitor")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Zeit in den drei Zonen als ein farbiger Balken, nur Stunden mit Messung.
+struct StressZoneBar: View {
+    let slots: [StressSlot]
+
+    var body: some View {
+        let durations = StressZone.allCases.map { $0.duration(in: slots) }
+        let total = durations.reduce(0, +)
+        GeometryReader { geometry in
+            HStack(spacing: 2) {
+                ForEach(StressZone.allCases) { zone in
+                    Capsule()
+                        .fill(zone.tint)
+                        .frame(width: total > 0 ? max(0, geometry.size.width * durations[zone.rawValue] / total - 2) : 0)
+                }
+            }
+        }
+        .frame(height: 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Zeit in Zonen")
+        .accessibilityValue(StressZone.allCases.map { "\($0.title) \(Format.duration($0.duration(in: slots)))" }
+            .joined(separator: ", "))
+    }
+}
+
+/// Eigene Today-Kachel „Energie“: große Zahl in Zustandsfarbe und Segmentbalken.
+struct EnergyTile: View {
+    let energy: Int?
+
+    nonisolated static func tint(_ energy: Int) -> Color {
+        energy >= 67 ? Theme.recoveryHigh : energy >= 34 ? Theme.recoveryMid : Theme.older
+    }
+
+    var body: some View {
+        DashboardCard {
+            VStack(alignment: .leading, spacing: Space.s3) {
+                DashboardHeading(title: "Energie")
+                if let energy {
+                    let tint = Self.tint(energy)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text("\(energy)").font(.formaDisplay).formaNumberTransition(Double(energy))
+                        Text("%").font(.formaBody).foregroundStyle(Theme.textSecondary)
+                    }
+                    .foregroundStyle(Theme.textPrimary)
+                    HStack(spacing: 3) {
+                        ForEach(0..<24, id: \.self) { index in
+                            Capsule()
+                                .fill(Double(index + 1) / 24 <= Double(energy) / 100 ? tint : Theme.track)
+                                .frame(height: 8)
+                        }
+                    }
+                    .accessibilityHidden(true)
+                } else {
+                    Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .padding(Space.s4)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Energie")
+        .accessibilityValue(energy.map { "\($0) Prozent" } ?? "Keine Messung")
+        .accessibilityIdentifier("today.energy")
     }
 }
 
@@ -237,38 +290,6 @@ struct StressMonitorPanel: View {
                 .formaNumberTransition(duration)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// Schmaler Segmentbalken für die geschätzte Energie.
-struct StressEnergyBar: View {
-    let energy: Int?
-    let isLoading: Bool
-
-    var body: some View {
-        DashboardCard {
-            VStack(alignment: .leading, spacing: Space.s2) {
-                HStack {
-                    Label("Energie", systemImage: "bolt.fill").formaLabelStyle()
-                    Spacer()
-                    Text(energy.map { "\($0) %" } ?? (isLoading ? "Wird geladen …" : "Keine Schätzung"))
-                        .font(.formaValue)
-                        .formaNumberTransition(Double(energy ?? 0))
-                }
-                if let energy {
-                    HStack(spacing: 3) {
-                        ForEach(0..<24, id: \.self) { index in
-                            Capsule()
-                                .fill(Double(index + 1) / 24 <= Double(energy) / 100 ? Theme.textPrimary.opacity(0.85) : Theme.track)
-                                .frame(height: 7)
-                        }
-                    }
-                    .accessibilityHidden(true)
-                }
-            }
-            .padding(Space.s4)
-            .accessibilityElement(children: .combine)
-        }
     }
 }
 
