@@ -84,6 +84,8 @@ enum LiveTrainingActivity {
 
     private static func apply(_ state: LiveTrainingAttributes.ContentState, to activity: Training) async {
         guard activity.content.state != state else { return }
-        await activity.update(content(for: state))
+        // Activity ist nicht als Sendable markiert; der Aufruf ist laut ActivityKit threadsicher.
+        nonisolated(unsafe) let target = activity
+        await target.update(content(for: state))
     }
 }
