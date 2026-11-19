@@ -50,6 +50,11 @@ struct CoachView: View {
         return adjustment != suggested
     }
 
+    /// Innenleuchten in der Recovery-Farbe von heute; ohne Recovery-Wert neutral.
+    private var mascotTint: Color {
+        CoachMascotLogic.tint(recovery: hub.availability.recovery ? hub.scores.recovery : nil)
+    }
+
     private var mascotMood: MascotMood {
         CoachMascotLogic.mood(thinking: thinking, justReplied: justReplied, hasSuggestion: hasSuggestion)
     }
@@ -83,7 +88,7 @@ struct CoachView: View {
                         }
                         if thinking {
                             HStack(spacing: Space.s2) {
-                                Mascot(mood: .thinking, size: 36)
+                                Mascot(mood: .thinking, size: 36, tint: mascotTint)
                                     .accessibilityHidden(true)
                                 CoachThinkingLine()
                             }
@@ -163,7 +168,7 @@ struct CoachView: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.s3))
             : AnyLayout(HStackLayout(alignment: .center, spacing: Space.s4))
         return layout {
-            Mascot(mood: mascotMood, size: 88)
+            Mascot(mood: mascotMood, size: 88, tint: mascotTint)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(mascotMood.accessibilityText)
                 .accessibilityIdentifier("coach.mascot")
@@ -238,11 +243,11 @@ struct CoachView: View {
         HStack(alignment: .bottom, spacing: Space.s2) {
             if m.role == .user { Spacer(minLength: 48) }
             if m.role == .coach {
-                // Das Maskottchen steht nur an der letzten Antwort; die Spalte bleibt für alle gleich breit.
+                // Nur ein stiller Lichtpunkt an der letzten Antwort; die Spalte bleibt für alle gleich breit.
                 if m.id == messages.last(where: { $0.role == .coach })?.id {
-                    MascotBadge(size: 26)
+                    MascotBadge(tint: mascotTint)
                 } else {
-                    Color.clear.frame(width: 26, height: 1)
+                    Color.clear.frame(width: 14, height: 14)
                 }
             }
             VStack(alignment: m.role == .user ? .trailing : .leading, spacing: 6) {

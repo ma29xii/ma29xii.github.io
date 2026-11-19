@@ -42,6 +42,13 @@ final class PlusCoachTests: XCTestCase {
 
     // MARK: Maskottchen
 
+    func testMascotTintFollowsRecovery() {
+        XCTAssertEqual(CoachMascotLogic.tint(recovery: 90), Theme.recoveryHigh)
+        XCTAssertEqual(CoachMascotLogic.tint(recovery: 50), Theme.recoveryMid)
+        XCTAssertEqual(CoachMascotLogic.tint(recovery: 10), Theme.recoveryLow)
+        XCTAssertNotEqual(CoachMascotLogic.tint(recovery: nil), Theme.recoveryHigh, "Ohne Wert kein Grün vortäuschen")
+    }
+
     func testMascotMoodPriority() {
         XCTAssertEqual(CoachMascotLogic.mood(thinking: true, justReplied: true, hasSuggestion: true), .thinking)
         XCTAssertEqual(CoachMascotLogic.mood(thinking: false, justReplied: true, hasSuggestion: true), .happy)
