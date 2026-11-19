@@ -194,6 +194,7 @@ final class ScreenTour: XCTestCase {
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
+        captureDetail("health.experiment", title: "Experiment", screenshot: "15b Experiment")
         if reveal(edit) {
             edit.tap()
             XCTAssertFalse(app.sheets.firstMatch.exists)
