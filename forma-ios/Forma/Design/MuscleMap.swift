@@ -121,22 +121,24 @@ private struct MuscleFigure: View {
     var body: some View {
         GeometryReader { geo in
             let rect = CGRect(origin: .zero, size: geo.size)
+            let outline = BodyShape(polygons: MuscleArt.silhouette, head: true)
             ZStack {
-                // Einzeln gefüllt: überlappende Körperteile dürfen sich nicht gegenseitig ausstanzen.
-                ForEach(MuscleArt.silhouette.indices, id: \.self) { i in
-                    BodyShape(polygons: [MuscleArt.silhouette[i]], head: i == 0).fill(Theme.cardRaised)
+                // Muskeln liegen wie Platten auf dem Körper, getrennt durch feine Konturen, am Umriss beschnitten.
+                ZStack {
+                    Rectangle().fill(Theme.cardRaised)
+                    ForEach(muscles) { m in
+                        let level = intensity[m] ?? 0
+                        let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
+                        shape
+                            .fill(MuscleMapView.fill(level, tint: tint))
+                            .overlay { shape.stroke(Color.black.opacity(0.32), lineWidth: 0.8) }
+                            .overlay { if selected == m { shape.stroke(Theme.textPrimary.opacity(0.9), lineWidth: 1.2) } }
+                            .animation(.smooth(duration: 0.4), value: level)
+                            .animation(.smooth(duration: 0.25), value: selected)
+                    }
                 }
-                // Gedämpfte Akzentfarbe in deutlichen Stufen; nur die stärkste Stufe leuchtet leise.
-                ForEach(muscles) { m in
-                    let level = intensity[m] ?? 0
-                    let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
-                    shape
-                        .fill(MuscleMapView.fill(level, tint: tint))
-                        .shadow(color: tint.opacity(level >= 0.9 ? 0.3 : 0), radius: 6)
-                        .overlay { if selected == m { shape.stroke(Theme.textPrimary.opacity(0.85), lineWidth: 1) } }
-                        .animation(.smooth(duration: 0.4), value: level)
-                        .animation(.smooth(duration: 0.25), value: selected)
-                }
+                .clipShape(outline)
+                outline.stroke(Color.white.opacity(0.14), lineWidth: 0.75)
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
@@ -176,7 +178,7 @@ struct BodyShape: Shape {
         let map = { (p: CGPoint, mirror: Bool) in MuscleArt.point(p, mirror: mirror, in: rect) }
         var path = Path()
         if head {
-            path.addEllipse(in: CGRect(x: dx + 85 * s, y: dy + 8 * s, width: 30 * s, height: 42 * s))
+            path.addEllipse(in: CGRect(x: dx + 86 * s, y: dy + 8 * s, width: 28 * s, height: 39 * s))
         }
         for poly in polygons {
             for mirror in [false, true] {
@@ -225,7 +227,8 @@ enum MuscleArt {
     /// so hat auch die schmale Schulter eine unsichtbare Tippfläche von mindestens 44 pt.
     static func muscle(at location: CGPoint, side: BodySide, in rect: CGRect, tolerance: CGFloat = 22) -> Muscle? {
         let candidates = Muscle.allCases.compactMap { m in polygons(m, side).map { (m, $0) } }
-        if let hit = candidates.first(where: { BodyShape(polygons: $0.1).path(in: rect).contains(location) }) {
+        // Zuletzt gezeichnet liegt oben: von hinten suchen.
+        if let hit = candidates.last(where: { BodyShape(polygons: $0.1).path(in: rect).contains(location) }) {
             return hit.0
         }
         let nearest = candidates
@@ -254,46 +257,51 @@ enum MuscleArt {
     private static func poly(_ pts: [(CGFloat, CGFloat)]) -> [CGPoint] { pts.map { CGPoint(x: $0.0, y: $0.1) } }
 
     /// Ein durchgehender Umriss je Körperhälfte: schlank, Arme leicht abgesetzt, kleine Hände und Füße.
+    /// Ein durchgehender Umriss je Körperhälfte: athletisch-schlank, Arme leicht abgesetzt.
     static let silhouette: [[CGPoint]] = [
-        poly([(100, 48), (107, 50), (109, 58), (116, 64), (130, 70), (142, 75), (150, 82), (154, 94),
-              (155, 118), (155, 146), (156, 166), (159, 190), (160, 214), (159, 230), (161, 244), (159, 258),
-              (154, 263), (150, 252), (150, 238), (151, 228), (147, 200), (143, 172), (141, 144), (139, 114),
-              (136, 112), (136, 132), (132, 160), (128, 182), (131, 206), (136, 228), (138, 256), (136, 292),
-              (131, 328), (134, 354), (131, 386), (124, 412), (127, 428), (121, 437), (109, 437), (107, 418),
-              (105, 390), (106, 360), (106, 336), (104, 300), (103, 270), (100, 256), (100, 150)])
+        poly([(100, 46), (108, 48), (110, 58), (118, 64), (132, 70), (144, 74), (152, 80), (157, 90), (159, 104),
+              (160, 120), (160, 140), (159, 160), (160, 170), (163, 186), (165, 204), (163, 222), (161, 232),
+              (164, 244), (163, 258), (158, 266), (152, 262), (151, 248), (151, 236), (151, 230), (149, 210),
+              (147, 190), (145, 172), (143, 150), (142, 128), (141, 116), (139, 112), (139, 124), (136, 146),
+              (131, 168), (129, 184), (131, 202), (136, 222), (140, 240), (142, 262), (140, 290), (136, 316),
+              (133, 334), (134, 344), (138, 362), (137, 384), (131, 406), (127, 420), (128, 428), (131, 436),
+              (124, 440), (110, 440), (108, 428), (109, 418), (107, 400), (105, 378), (106, 358), (107, 346),
+              (106, 336), (104, 312), (103, 286), (102, 262), (100, 252), (100, 150)])
     ]
 
-    private static let forearm = poly([(147, 174), (154, 172), (157, 192), (157, 214), (154, 224), (150, 206), (147, 190)])
-    private static let sideDelt = poly([(149, 82), (153, 92), (154, 106), (151, 113), (149, 98)])
+    private static let forearm = poly([(145, 174), (159, 171), (164, 190), (165, 212), (162, 230), (152, 232), (148, 212), (146, 192)])
+    private static let sideDelt = poly([(150, 80), (157, 89), (160, 104), (158, 118), (153, 106)])
 
     static let front: [Muscle: [[CGPoint]]] = [
-        .traps: [poly([(109, 61), (122, 67), (137, 74), (125, 76), (112, 70)])],
-        .chest: [poly([(102, 85), (115, 80), (129, 80), (138, 85), (141, 94), (137, 104), (126, 113), (112, 117), (102, 115)])],
-        .frontDelts: [poly([(139, 79), (146, 82), (148, 94), (146, 108), (142, 104), (140, 92)])],
+        .chest: [poly([(100, 82), (110, 77), (124, 76), (136, 80), (143, 88), (145, 100), (140, 112), (128, 120), (113, 123), (100, 121)])],
+        .frontDelts: [poly([(137, 78), (148, 78), (153, 86), (156, 100), (155, 114), (148, 118), (143, 106), (140, 90)])],
         .sideDelts: [sideDelt],
-        .biceps: [poly([(143, 118), (150, 115), (153, 131), (152, 152), (148, 162), (144, 150), (142, 132)])],
+        .biceps: [poly([(142, 120), (152, 118), (160, 126), (161, 146), (158, 166), (150, 170), (144, 160), (142, 138)])],
         .forearms: [forearm],
-        .abs: [poly([(102, 120), (113, 119), (114, 136), (102, 137)]),
-               poly([(102, 141), (114, 140), (114, 158), (102, 159)]),
-               poly([(102, 163), (113, 162), (112, 184), (107, 204), (102, 208)])],
-        .obliques: [poly([(118, 122), (131, 118), (133, 138), (129, 164), (122, 186), (118, 164), (118, 140)])],
-        .quads: [poly([(117, 236), (133, 231), (136, 262), (133, 298), (126, 322), (119, 306), (116, 272)]),
-                 poly([(106, 248), (112, 243), (114, 280), (118, 318), (112, 326), (107, 306), (105, 276)])],
-        .calves: [poly([(122, 346), (130, 344), (132, 368), (128, 394), (123, 396), (120, 372)])]
+        .abs: [poly([(100, 125), (114, 125), (116, 142), (100, 143)]),
+               poly([(100, 146), (116, 145), (116, 163), (100, 164)]),
+               poly([(100, 167), (116, 166), (115, 186), (100, 187)]),
+               poly([(100, 190), (115, 189), (113, 206), (106, 222), (100, 226)])],
+        .obliques: [poly([(119, 126), (141, 116), (139, 132), (135, 152), (131, 172), (130, 188), (126, 206), (118, 214), (118, 186), (119, 150)])],
+        .traps: [poly([(107, 57), (118, 63), (134, 70), (145, 75), (134, 77), (118, 74), (109, 67)])],
+        .quads: [poly([(117, 232), (130, 225), (140, 237), (143, 262), (141, 292), (136, 318), (128, 336), (119, 333), (114, 316), (115, 280)]),
+                 poly([(105, 266), (111, 250), (114, 284), (116, 318), (118, 334), (110, 339), (105, 320), (103, 292)])],
+        .calves: [poly([(122, 350), (134, 354), (138, 370), (135, 394), (127, 410), (121, 396), (120, 372)]),
+                  poly([(108, 352), (116, 350), (118, 372), (115, 396), (109, 394), (106, 374)])]
     ]
 
     static let back: [Muscle: [[CGPoint]]] = [
-        .traps: [poly([(100, 56), (110, 60), (136, 74), (124, 84), (112, 106), (100, 124)])],
-        .rearDelts: [poly([(138, 78), (146, 81), (148, 94), (146, 108), (142, 104), (139, 91)])],
+        .rearDelts: [poly([(138, 80), (149, 78), (154, 86), (156, 100), (155, 114), (147, 112), (141, 98)])],
         .sideDelts: [sideDelt],
-        .triceps: [poly([(142, 116), (150, 114), (153, 130), (152, 152), (148, 162), (144, 150), (142, 132)])],
+        .triceps: [poly([(142, 118), (155, 116), (161, 128), (161, 150), (157, 168), (149, 170), (144, 156), (142, 134)])],
         .forearms: [forearm],
-        .lats: [poly([(106, 128), (114, 110), (124, 95), (134, 92), (136, 108), (132, 128), (123, 150), (111, 168), (104, 158), (104, 142)])],
-        .lowerBack: [poly([(101, 176), (110, 172), (118, 186), (118, 204), (110, 210), (101, 210)])],
-        .glutes: [poly([(102, 224), (112, 216), (125, 215), (133, 224), (136, 240), (134, 257), (126, 268), (112, 271), (102, 266)])],
-        .hamstrings: [poly([(122, 278), (133, 276), (134, 300), (129, 322), (122, 320), (120, 298)]),
-                      poly([(106, 280), (116, 278), (117, 300), (119, 322), (112, 324), (106, 302)])],
-        .calves: [poly([(108, 344), (117, 340), (119, 364), (116, 388), (109, 378)]),
-                  poly([(122, 340), (131, 346), (132, 368), (127, 390), (122, 368)])]
+        .traps: [poly([(100, 50), (110, 54), (124, 64), (143, 74), (134, 82), (121, 98), (109, 120), (100, 132)])],
+        .lats: [poly([(103, 138), (112, 122), (125, 102), (136, 86), (141, 104), (140, 124), (135, 148), (128, 170), (115, 184), (104, 180)])],
+        .lowerBack: [poly([(100, 184), (114, 190), (129, 182), (131, 200), (133, 218), (118, 223), (100, 224)])],
+        .glutes: [poly([(100, 229), (116, 224), (132, 226), (140, 240), (142, 258), (136, 276), (120, 282), (104, 280), (100, 262)])],
+        .hamstrings: [poly([(122, 287), (138, 283), (141, 300), (137, 322), (130, 338), (122, 334), (119, 310)]),
+                      poly([(102, 291), (117, 287), (117, 312), (120, 336), (110, 340), (104, 320)])],
+        .calves: [poly([(106, 350), (119, 345), (121, 366), (117, 392), (110, 394), (105, 374)]),
+                  poly([(122, 345), (134, 351), (138, 367), (134, 390), (126, 400), (121, 372)])]
     ]
 }

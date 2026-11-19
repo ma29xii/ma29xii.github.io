@@ -212,6 +212,15 @@ struct LiveWorkoutView: View {
     }
 
     private func setRow(_ exIndex: Int, _ setIndex: Int, _ set: LiveSet) -> some View {
+        setButton(exIndex, setIndex, set)
+            .contextMenu {
+                Button("Satz löschen", systemImage: "trash", role: .destructive) {
+                    withAnimation(.snappy) { workout.removeSet(exercise: exIndex, set: setIndex) }
+                }
+            }
+    }
+
+    private func setButton(_ exIndex: Int, _ setIndex: Int, _ set: LiveSet) -> some View {
         let active = exIndex == workout.exerciseIndex && setIndex == workout.setIndex && !set.done
         let number = set.isWarmup ? "Auf" : "\(workout.workSetNumber(exercise: exIndex, set: setIndex))"
         return Button { workout.select(exercise: exIndex, set: setIndex) } label: {

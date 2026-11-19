@@ -39,9 +39,19 @@ enum TrainingRoute: Hashable {
     case history
 }
 
-struct TrainingView: View {
+/// Bisherige Trainingsseite als eigenständige Ansicht (Runde 11: kein eigener Tab mehr, Plus-Menü öffnet sie).
+/// shortcut: Alias für den alten Tab-Aufruf in FormaApp, entfällt, sobald plus-coach dort umgestellt hat.
+typealias TrainingView = TrainingHomeView
+
+struct TrainingHomeView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    /// Als Blatt geöffnet (Plus-Menü): dann zeigt die Seite Live-Training und Zusammenfassung selbst,
+    /// weil das Hauptfenster nicht über einem offenen Blatt präsentieren kann.
+    @Environment(\.isPresented) private var isPresented
+    @State private var routineToDelete: Routine?
+    @State private var sessionToDelete: WorkoutSession?
     @Query(sort: \Routine.createdAt) private var routines: [Routine]
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var path: [TrainingRoute] = []
@@ -71,9 +81,34 @@ struct TrainingView: View {
             .formaScreen()
             .navigationTitle("Training")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { app.showProfile = true } label: { Image(systemName: "person.crop.circle") }
-                        .accessibilityLabel("Profil und Einstellungen")
+                if isPresented {
+                    ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { app.showProfile = true } label: { Image(systemName: "person.crop.circle") }
+                            .accessibilityLabel("Profil und Einstellungen")
+                    }
+                }
+            }
+            .fullScreenCover(item: isPresented ? Bindable(app).liveWorkout : .constant(nil)) { workout in
+                LiveWorkoutView(workout: workout)
+            }
+            .sheet(item: isPresented ? Bindable(app).finishedSession : .constant(nil)) { session in
+                WorkoutSummaryView(session: session)
+            }
+            .confirmationDialog("„\(routineToDelete?.name ?? "")“ löschen?", isPresented: Binding(get: { routineToDelete != nil }, set: { if !$0 { routineToDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Löschen", role: .destructive) {
+                    if let routine = routineToDelete { context.delete(routine); try? context.save() }
+                    routineToDelete = nil
+                }
+            } message: {
+                Text("Bisherige Trainings bleiben im Verlauf.")
+            }
+            .confirmationDialog("Training löschen?", isPresented: Binding(get: { sessionToDelete != nil }, set: { if !$0 { sessionToDelete = nil } })) {
+                Button("Löschen", role: .destructive) {
+                    if let session = sessionToDelete { context.delete(session); try? context.save() }
+                    sessionToDelete = nil
                 }
             }
             .navigationDestination(for: TrainingRoute.self) { route in
@@ -110,11 +145,12 @@ struct TrainingView: View {
                     ForEach(Array(group.routines.enumerated()), id: \.element.id) { index, routine in
                         if index > 0 { RowDivider() }
                         Button { path.append(.routine(routine.persistentModelID)) } label: {
-                            MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)", showsChevron: true)
+                            MetricRow(title: routine.name, subtitle: "\(routine.items.count) Übungen · \(routine.muscleSummary)")
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button("Duplizieren", systemImage: "plus.square.on.square") { duplicate(routine) }
+                            Button("Löschen", systemImage: "trash", role: .destructive) { routineToDelete = routine }
                         }
                     }
                 }
@@ -132,10 +168,13 @@ struct TrainingView: View {
                     if index > 0 { RowDivider() }
                     Button { app.finishedSession = session } label: { SessionRow(session: session) }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Löschen", systemImage: "trash", role: .destructive) { sessionToDelete = session }
+                        }
                 }
                 if !sessions.isEmpty {
                     RowDivider()
-                    Button { path.append(.history) } label: { MetricRow(title: "Kalender und alle Trainings", showsChevron: true) }
+                    Button { path.append(.history) } label: { MetricRow(title: "Kalender und alle Trainings") }
                         .buttonStyle(.plain)
                 }
             }
@@ -146,12 +185,12 @@ struct TrainingView: View {
         case .library:
             WidgetCard(title: tile.title, systemImage: tile.systemImage) {
                 Button { path.append(.library) } label: {
-                    MetricRow(title: "Übungsbibliothek", subtitle: "Übungen ansehen und eigene anlegen", showsChevron: true)
+                    MetricRow(title: "Übungsbibliothek")
                 }
                 .buttonStyle(.plain)
                 RowDivider()
                 Button { app.liveWorkout = LiveWorkout.empty() } label: {
-                    MetricRow(title: "Freies Training", subtitle: "Ohne Routine starten, Übungen unterwegs hinzufügen", showsChevron: true)
+                    MetricRow(title: "Freies Training")
                 }
                 .buttonStyle(.plain)
             }
@@ -306,7 +345,6 @@ struct TrainingView: View {
                     Text(parts.joined(separator: " · ")).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.formaCaptionStrong).foregroundStyle(Theme.textTertiary)
             }
             .padding(.horizontal, Space.s4)
             .frame(minHeight: 52)
@@ -378,8 +416,6 @@ struct TrainingView: View {
                 let fresh = byState[.fresh]?.count ?? 0
                 Text(fresh == Muscle.allCases.count ? "Alle Muskeln sind frisch." : "\(fresh) von \(Muscle.allCases.count) Muskeln sind frisch.")
                     .font(.formaCaption).foregroundStyle(Theme.textTertiary)
-                Text("Schätzung aus deinen erfassten Sätzen der letzten 72 Stunden.")
-                    .font(.formaCaption).foregroundStyle(Theme.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -413,7 +449,7 @@ struct SessionRow: View {
     var body: some View {
         MetricRow(title: session.title,
                   subtitle: "\(session.start.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))) · \(Format.duration(session.duration)) · \(session.workSets.count) Sätze",
-                  value: Format.weight(session.volume, unit: app.weightUnit), unit: app.weightUnit.rawValue, showsChevron: true)
+                  value: Format.weight(session.volume, unit: app.weightUnit), unit: app.weightUnit.rawValue)
     }
 }
 

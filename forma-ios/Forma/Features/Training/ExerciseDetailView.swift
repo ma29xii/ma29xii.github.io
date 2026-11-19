@@ -330,7 +330,7 @@ struct MuscleExercisesSheet: View {
                         LabeledContent("Sätze, letzte 7 Tage", value: MuscleVolume.text(weeklySets))
                     }
                     if let recovery {
-                        LabeledContent("Zustand (geschätzt)", value: recovery.title)
+                        LabeledContent("Zustand", value: recovery.title)
                     }
                 }
                 if !direct.isEmpty {
