@@ -33,7 +33,6 @@ enum TrainingIntentTarget: String, AppEnum {
 /// Muss in der Haupt-App und in der Erweiterung enthalten sein, damit der Control die App öffnen kann.
 struct StartTrainingIntent: OpenIntent {
     static let title: LocalizedStringResource = "Training starten"
-    static let allowedExecutionTargets: IntentExecutionTargets = .main
 
     @Parameter(title: "Ziel", default: .training)
     var target: TrainingIntentTarget
