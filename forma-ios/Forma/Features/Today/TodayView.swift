@@ -8,6 +8,8 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Namespace private var zoomSpace
     @State private var compact = false
+    /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
+    @State private var headerWidth: CGFloat = 358
 
     var body: some View {
         let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
@@ -30,6 +32,7 @@ struct TodayView: View {
                     VStack(alignment: .leading, spacing: Space.gap) {
                         sourceStatus
                         header(snapshot)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
                             .id(Self.top)
                             .padding(.bottom, Space.s2)
                         // Bearbeiten direkt hier: „Anpassen“ steht unter der letzten Karte.
@@ -162,7 +165,7 @@ struct TodayView: View {
         let strain = side(.strain, snapshot, band: snapshot.recovery.map { ScoreEngine.target(recovery: $0) },
                           note: nil, delay: 0.08)
         let recovery = gauge(.recovery, snapshot) {
-            DashboardRing(kind: .recovery, value: snapshot.recovery, size: 184)
+            DashboardRing(kind: .recovery, value: snapshot.recovery, size: Self.recoverySize(width: headerWidth))
         }
         let sleep = side(.sleep, snapshot, band: nil, note: debt, delay: 0.16)
         if typeSize >= .xxLarge {
@@ -177,7 +180,7 @@ struct TodayView: View {
         } else {
             HStack(alignment: .top, spacing: 0) {
                 strain
-                recovery.frame(width: 184)
+                recovery.frame(width: Self.recoverySize(width: headerWidth))
                 sleep
             }
             .frame(maxWidth: .infinity)
@@ -228,6 +231,11 @@ struct TodayView: View {
         .accessibilityIdentifier("ring." + kind.rawValue)
     }
 
+    /// Recovery bleibt die Hauptsache: bis 184 pt, links und rechts aber immer 80 pt für die Kapseln.
+    nonisolated static func recoverySize(width: CGFloat) -> CGFloat {
+        min(184, max(132, width - 2 * 80))
+    }
+
     /// Ruhige Leiste, sobald der Kopf weggescrollt ist. Tippen springt zurück nach oben.
     private func compactBar(_ snapshot: DashboardDay, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -237,10 +245,13 @@ struct TodayView: View {
                         Circle()
                             .fill(DashboardRing.tint(kind: kind, value: snapshot.value(for: kind)))
                             .frame(width: 6, height: 6)
-                        Text(kind.title)
-                            .font(.formaMicro)
-                            .textCase(.uppercase)
-                            .foregroundStyle(Theme.textSecondary)
+                        // Bei Bedienungshilfe-Größen nur Punkt und Zahl, damit die Leiste einzeilig bleibt.
+                        if !typeSize.isAccessibilitySize {
+                            Text(kind.title)
+                                .font(.formaMicro)
+                                .textCase(.uppercase)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
                         Text(snapshot.value(for: kind).map(String.init) ?? "–")
                             .font(.formaValue)
                             .formaNumberTransition(Double(snapshot.value(for: kind) ?? 0))
@@ -257,7 +268,7 @@ struct TodayView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.hairline).frame(height: 0.5)
         }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Tageswerte")
         .accessibilityValue([RingKind.recovery, .strain, .sleep]

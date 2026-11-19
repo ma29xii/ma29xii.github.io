@@ -36,6 +36,13 @@ final class DesignTodayTests: XCTestCase {
         XCTAssertEqual(TodayView.debtNote(79 * 60), "−1:19 h")
     }
 
+    func testRecoveryArcFollowsAvailableWidth() {
+        XCTAssertEqual(TodayView.recoverySize(width: 398), 184)   // 430er-Gerät: voll
+        XCTAssertEqual(TodayView.recoverySize(width: 343), 183)   // 375er-Gerät
+        XCTAssertEqual(TodayView.recoverySize(width: 300), 140)   // Zoom/Split: Kapseln behalten 80 pt
+        XCTAssertEqual(TodayView.recoverySize(width: 200), 132)   // Untergrenze
+    }
+
     // MARK: Satz zum Tag
 
     func testInsightNamesLowerRestingHeartRate() {
