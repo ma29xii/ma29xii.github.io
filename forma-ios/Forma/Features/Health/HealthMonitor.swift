@@ -167,6 +167,7 @@ private struct HealthMonitorDetail: View {
     let markedNight: Bool
     @Environment(DataHub.self) private var hub
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var showInfo = false
 
     var body: some View {
         let summary = MonitorSummary(readings: readings)
@@ -191,14 +192,16 @@ private struct HealthMonitorDetail: View {
                             .accessibilityIdentifier("health.monitor.outliers")
                     }
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s3),
-                                          count: typeSize.isAccessibilitySize ? 1 : 2),
+                let columns = typeSize.isAccessibilitySize ? 1 : 2
+                // Bei ungerader Zahl steht die letzte Kachel quer über die volle Breite statt allein halbbreit.
+                let paired = columns == 2 && !sorted.count.isMultiple(of: 2) ? Array(sorted.dropLast()) : sorted
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s3), count: columns),
                           alignment: .leading, spacing: Space.s3) {
-                    ForEach(sorted) { tile($0) }
+                    ForEach(paired) { tile($0) }
                 }
-                Text("Der persönliche Bereich nutzt mindestens sieben gemessene Nächte aus den letzten 30 Tagen. Der Ruhepuls ist ein Tageswert.")
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
+                if paired.count < sorted.count, let last = sorted.last {
+                    wideTile(last)
+                }
             }
             .padding(.horizontal, Space.page)
             .padding(.vertical, Space.s4)
@@ -206,49 +209,85 @@ private struct HealthMonitorDetail: View {
         .dashboardScreen()
         .navigationTitle("Health Monitor")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showInfo = true } label: { Image(systemName: "info.circle") }
+                    .accessibilityLabel("Wie der Bereich entsteht")
+                    .popover(isPresented: $showInfo) {
+                        Text("Dein Bereich stammt aus mindestens sieben gemessenen Nächten der letzten 30 Tage. Der Ruhepuls ist ein Tageswert.")
+                            .font(.formaBody)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 280)
+                            .padding(Space.s4)
+                            .presentationCompactAdaptation(.popover)
+                    }
+            }
+        }
     }
 
     private func tile(_ reading: MonitorReading) -> some View {
         DashboardCard {
             VStack(alignment: .leading, spacing: Space.s2) {
-                // Kurzer Titel ohne Großbuchstaben-Trennung („SAUERSTOFFSÄTTI-GUNG“), voller Name leise darunter.
-                VStack(alignment: .leading, spacing: 1) {
-                    Label(reading.shortTitle, systemImage: reading.icon)
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                    if reading.title != reading.shortTitle {
-                        Text(reading.title)
-                            .font(.formaCaption)
-                            .foregroundStyle(Theme.textTertiary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(reading.value.map { reading.formatted($0) } ?? "–")
-                        .font(.formaBigNumber)
-                        .formaNumberTransition(reading.value ?? 0)
-                        .minimumScaleFactor(0.7)
-                    if reading.value != nil {
-                        Text(reading.unit)
-                            .font(.formaCaption)
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                }
+                // Nur der Kurzname: alle Kacheln gleich hoch; der volle Name ist das VoiceOver-Label.
+                tileTitle(reading)
+                tileValue(reading)
                 Spacer(minLength: 0)
-                Label(reading.value == nil ? "Keine Messung" : (reading.rangeText ?? "Noch kein Vergleich"),
-                      systemImage: reading.statusIcon)
-                    .font(.formaCaptionStrong)
-                    .monospacedDigit()
-                    .foregroundStyle(reading.tint)
+                tileStatus(reading)
             }
             .padding(Space.s3)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(reading.title)
             .accessibilityValue(accessibilityValue(reading))
         }
+    }
+
+    /// Querformat für die einzelne letzte Kachel: Name und Wert links, Bereich rechts.
+    private func wideTile(_ reading: MonitorReading) -> some View {
+        DashboardCard {
+            HStack(alignment: .bottom, spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    tileTitle(reading)
+                    tileValue(reading)
+                }
+                Spacer(minLength: Space.s2)
+                tileStatus(reading)
+            }
+            .padding(Space.s3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(reading.title)
+            .accessibilityValue(accessibilityValue(reading))
+        }
+    }
+
+    private func tileTitle(_ reading: MonitorReading) -> some View {
+        Label(reading.shortTitle, systemImage: reading.icon)
+            .font(.formaCaptionStrong)
+            .foregroundStyle(Theme.textSecondary)
+            .lineLimit(1)
+    }
+
+    private func tileValue(_ reading: MonitorReading) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(reading.value.map { reading.formatted($0) } ?? "–")
+                .font(.formaBigNumber)
+                .formaNumberTransition(reading.value ?? 0)
+                .minimumScaleFactor(0.7)
+            if reading.value != nil {
+                Text(reading.unit)
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+    }
+
+    private func tileStatus(_ reading: MonitorReading) -> some View {
+        Label(reading.value == nil ? "Keine Messung" : (reading.rangeText ?? "Noch kein Vergleich"),
+              systemImage: reading.statusIcon)
+            .font(.formaCaptionStrong)
+            .monospacedDigit()
+            .foregroundStyle(reading.tint)
     }
 
     private func accessibilityValue(_ reading: MonitorReading) -> String {
