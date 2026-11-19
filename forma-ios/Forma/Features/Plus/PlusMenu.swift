@@ -151,6 +151,7 @@ private struct PlusFlow: ViewModifier {
             .onChange(of: app.launchReady) { _, _ in routeIntent() }
             .onChange(of: app.showProfile) { _, _ in routeIntent() }
             .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
+            .onChange(of: app.isWorkoutSummaryActive) { _, _ in routeIntent() }
             .onChange(of: app.liveWorkout?.draftID) { _, _ in routeIntent() }
             .onChange(of: destination) { _, _ in routeIntent() }
             .sheet(item: $destination) { action in
@@ -209,11 +210,10 @@ private struct PlusFlow: ViewModifier {
         }
     }
 
-    /// Zwischen Trainingsende und geschlossener Zusammenfassung darf kein weiteres Fenster aufgehen.
-    /// Heute nur die Zusammenfassung selbst; die Lücke von 450 ms davor schließt der Zustand von training-muskeln,
-    /// sobald er da ist. Hier ist die einzige Stelle, an der er ergänzt wird (plus `onChange` oben).
+    /// Zwischen „Training beenden“ und geschlossener Zusammenfassung (inklusive der 450 ms davor)
+    /// darf kein weiteres Fenster aufgehen.
     private var trainingEndBlocksWindows: Bool {
-        app.finishedSession != nil
+        app.isWorkoutSummaryActive
     }
 
     private func menuClosedStart() {
