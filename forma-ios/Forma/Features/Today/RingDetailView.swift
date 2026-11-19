@@ -10,22 +10,24 @@ struct RingDetailView: View {
     var body: some View {
         let value = snapshot.value(for: kind)
         let tint = DashboardRing.tint(kind: kind, value: value)
+        let target = kind == .strain ? Self.strainTarget(strain: value, recovery: snapshot.recovery) : nil
 
         VStack(alignment: .leading, spacing: Space.gap) {
             VStack(spacing: Space.s2) {
-                DashboardRing(kind: kind, value: value, size: kind == .recovery ? 220 : 168, expanded: true,
-                              band: kind == .strain ? snapshot.recovery.map { ScoreEngine.target(recovery: $0) } : nil)
+                hero(value: value, tint: tint, target: target?.range)
                     .accessibilityIdentifier("ring.detail." + kind.rawValue)
-                Text(value == nil ? "Keine Messung" : Format.dayTitle(day.date))
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
+                if let target {
+                    Text("Ziel \(target.range.lowerBound)–\(target.range.upperBound)")
+                        .font(.formaCaptionStrong.monospacedDigit())
+                        .foregroundStyle(tint)
+                        .accessibilityLabel("Tagesziel")
+                        .accessibilityValue("\(target.range.lowerBound) bis \(target.range.upperBound), \(target.status)")
+                        .accessibilityIdentifier("strain.target")
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, Space.s3)
 
-            if kind == .strain, let target = Self.strainTarget(strain: value, recovery: snapshot.recovery) {
-                strainTargetCard(target)
-            }
             // Die gemessene Dauer steht immer da; der Bedarf nur, wenn er aus Messungen berechnet werden kann.
             if kind == .sleep, let night = day.sleep, night.asleep > 0 {
                 sleepSummary(night: night, need: snapshot.sleepNeed)
@@ -34,25 +36,16 @@ struct RingDetailView: View {
                 DashboardHeading(title: "Beiträge")
                 DashboardCard {
                     switch kind {
-                    case .sleep: sleepContributions
-                    case .recovery: recoveryContributions
-                    case .strain: strainContributions
+                    case .sleep: sleepContributions(tint: tint)
+                    case .recovery: recoveryContributions(tint: tint)
+                    case .strain: strainContributions(tint: tint)
                     }
                 }
-                ComparisonFooter()
             }
-            DashboardCard {
-                Text(interpretation(value))
-                    .font(.formaBody)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Space.s4)
-            }
-            .accessibilityIdentifier("ring.detail.summary")
             if kind == .sleep {
-                SleepConsistencyLink(end: day.date, history: history)
+                RingSleepConsistency(end: day.date, history: history)
             } else if kind == .strain {
-                StrainPathLink(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
+                RingStrainPath(end: InsightHistory.lastCompletedDay(for: day.date), history: history, tint: tint)
             }
             if kind == .sleep, let night = day.sleep, night.asleep > 0 {
                 sleepPhases(night)
@@ -61,75 +54,107 @@ struct RingDetailView: View {
         }
     }
 
-    private var sleepContributions: some View {
+    @ViewBuilder
+    private func hero(value: Int?, tint: Color, target: ClosedRange<Int>?) -> some View {
+        if kind == .recovery {
+            DashboardRing(kind: kind, value: value, size: 220, expanded: true)
+        } else {
+            VStack(spacing: Space.s2) {
+                Text(value.map { kind == .sleep ? "\($0)%" : "\($0)" } ?? "–")
+                    .font(.formaDisplay)
+                    .foregroundStyle(value == nil ? Theme.textSecondary : Theme.textPrimary)
+                    .formaNumberTransition(Double(value ?? 0))
+                MetricScale(value: value.map(Double.init), tint: tint, axis: .vertical,
+                            target: target.map { Double($0.lowerBound)...Double($0.upperBound) })
+                    .padding(.horizontal, Space.s3)
+                    .padding(.vertical, Space.s4)
+                    .frame(width: 96, height: 148)
+                    .background(tint.opacity(0.08), in: Capsule())
+                    .overlay { Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 1) }
+                Text(kind.title).formaLabelStyle()
+                if value == nil {
+                    Text("Keine Messung")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(kind.title)
+            .accessibilityValue(DashboardRing.spokenValue(kind: kind, value: value))
+        }
+    }
+
+    private func sleepContributions(tint: Color) -> some View {
         let night = day.sleep.flatMap { $0.asleep > 0 ? $0 : nil }
         let ratio = night.flatMap { night in snapshot.sleepNeed.map { night.asleep / $0 } }
         return Group {
-            row("Stunden vs. Bedarf", icon: "moon", value: ratio,
-                baseline: sleepBaseline { night, prior, date in
-                    ScoreEngine.measuredNeedForLastNight(on: date, history: prior).map { night.asleep / $0 }
-                },
-                format: percent)
+            row("Stunden vs. Bedarf", icon: "moon", value: ratio, tint: tint, format: percent)
             RowDivider()
-            row("Regelmäßigkeit", icon: "clock", value: snapshot.sleepRegularity,
-                baseline: sleepBaseline { night, prior, _ in DashboardDay.sleepRegularity(night, history: prior) }, format: percent)
+            row("Regelmäßigkeit", icon: "clock", value: snapshot.sleepRegularity, tint: tint, format: percent)
             RowDivider()
-            row("Effizienz", icon: "bed.double", value: night?.efficiency,
-                baseline: sleepBaseline { night, _, _ in night.efficiency }, format: percent)
+            row("Effizienz", icon: "bed.double", value: night?.efficiency, tint: tint, format: percent)
             RowDivider()
             row("Tief- und REM-Anteil", icon: "moon.stars", value: night.flatMap(DashboardDay.restorativeFraction),
-                baseline: sleepBaseline { night, _, _ in DashboardDay.restorativeFraction(night) }, format: percent)
+                tint: tint, format: percent)
         }
     }
 
-    private var recoveryContributions: some View {
-        let sleepAverage = DashboardTrends.mean(points: DashboardTrends.points(
-            kind: .sleep, days: history, domain: day.date.adding(days: -30)...day.date.adding(days: -1)))
-        return Group {
-            metric(.hrv, icon: "waveform.path.ecg")
+    private func recoveryContributions(tint: Color) -> some View {
+        Group {
+            metric(.hrv, icon: "waveform.path.ecg", tint: tint)
             RowDivider()
-            metric(.restingHR, icon: "heart")
+            metric(.restingHR, icon: "heart", tint: tint)
             RowDivider()
-            metric(.respiratoryRate, icon: "lungs")
+            metric(.respiratoryRate, icon: "lungs", tint: tint)
             RowDivider()
             row("Schlafleistung", icon: "moon", value: snapshot.sleepScore.map(Double.init),
-                baseline: sleepAverage, format: { Format.number($0) + " %" })
+                tint: tint, format: { Format.number($0) + " %" })
         }
     }
 
-    private var strainContributions: some View {
+    private func strainContributions(tint: Color) -> some View {
         Group {
             row("Trainingszeit", icon: "stopwatch", value: DashboardDay.workoutTime(day),
-                baseline: snapshot.baseline { DashboardDay.workoutTime($0) }?.mean, format: Format.duration)
+                tint: tint, format: Format.duration)
             RowDivider()
             row("Krafttraining", icon: "dumbbell", value: DashboardDay.workoutTime(day, strengthOnly: true),
-                baseline: snapshot.baseline { DashboardDay.workoutTime($0, strengthOnly: true) }?.mean, format: Format.duration)
+                tint: tint, format: Format.duration)
             RowDivider()
-            metric(.steps, icon: "figure.walk")
+            metric(.steps, icon: "figure.walk", tint: tint)
             RowDivider()
-            metric(.activeEnergy, icon: "flame")
+            metric(.activeEnergy, icon: "flame", tint: tint)
         }
     }
 
-    /// Je frühere Nacht mit den Daten davor und ihrem Datum (für den damals gemessenen Bedarf).
-    private func sleepBaseline(_ value: (SleepNight, [DayMetrics], Date) -> Double?) -> Double? {
-        let values = snapshot.history.compactMap { historical -> Double? in
-            guard let night = historical.sleep, night.asleep > 0 else { return nil }
-            let start = historical.date.adding(days: -30)
-            let prior = history.filter { $0.date >= start && $0.date < historical.date }
-            return value(night, prior, historical.date)
+    private func metric(_ kind: MetricKind, icon: String, tint: Color) -> some View {
+        row(kind.title, icon: icon, value: kind.value(day), tint: tint, format: kind.measurement)
+    }
+
+    private func row(_ title: String, icon: String, value: Double?, tint: Color,
+                     format: (Double) -> String) -> some View {
+        let text = value.map(format) ?? "Keine Messung"
+        return HStack(spacing: Space.s3) {
+            Image(systemName: icon)
+                .font(.system(.subheadline, weight: .medium))
+                .foregroundStyle(value == nil ? Theme.textSecondary : tint)
+                .frame(minWidth: 20)
+                .accessibilityHidden(true)
+            Text(title)
+                .formaLabelStyle()
+                .layoutPriority(1)
+            Spacer(minLength: Space.s1)
+            Text(text)
+                .font(value == nil ? .formaCaption : .formaValue)
+                .foregroundStyle(value == nil ? Theme.textSecondary : Theme.textPrimary)
+                .multilineTextAlignment(.trailing)
+                .formaNumberTransition(value ?? 0)
         }
-        return ScoreEngine.baseline(values)?.mean
-    }
-
-    private func metric(_ kind: MetricKind, icon: String) -> some View {
-        row(kind.title, icon: icon, value: kind.value(day),
-            baseline: snapshot.baseline(kind.value)?.mean, format: kind.measurement)
-    }
-
-    private func row(_ title: String, icon: String, value: Double?, baseline: Double?,
-                     format: @escaping (Double) -> String) -> some View {
-        ComparisonRow(title: title, icon: icon, value: value, baseline: baseline, format: format)
+        .padding(.horizontal, Space.s4)
+        .padding(.vertical, Space.s2)
+        .frame(minHeight: 48)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(text)
     }
 
     private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
@@ -142,27 +167,6 @@ struct RingDetailView: View {
         if strain < range.lowerBound { return (range, "Unter dem Ziel") }
         if strain > range.upperBound { return (range, "Über dem Ziel") }
         return (range, "Im Ziel")
-    }
-
-    private func strainTargetCard(_ target: (range: ClosedRange<Int>, status: String)) -> some View {
-        DashboardCard {
-            HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
-                VStack(alignment: .leading, spacing: Space.s1) {
-                    DashboardHeading(title: "Tagesziel")
-                    Text(target.status)
-                        .font(.formaBody)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Spacer(minLength: Space.s2)
-                Text("\(target.range.lowerBound)–\(target.range.upperBound)")
-                    .font(.formaNumber)
-            }
-            .padding(Space.s4)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Tagesziel")
-        .accessibilityValue("\(target.range.lowerBound) bis \(target.range.upperBound), \(target.status)")
-        .accessibilityIdentifier("strain.target")
     }
 
     /// „6:08“ für Kapseln (Stunden:Minuten).
@@ -206,22 +210,6 @@ struct RingDetailView: View {
         .accessibilityValue(Format.duration(value))
     }
 
-    private func interpretation(_ value: Int?) -> String {
-        guard let value else { return "Für diesen Tag fehlen die Daten für eine Einordnung." }
-        switch kind {
-        case .sleep:
-            guard let night = day.sleep, let need = snapshot.sleepNeed else { return "Für diese Nacht liegt eine Schlafmessung vor." }
-            return night.asleep < need ? "Du hast kürzer als dein geschätzter Bedarf geschlafen."
-                : "Deine Schlafdauer hat den geschätzten Bedarf erreicht."
-        case .recovery:
-            return "Deine Messwerte deuten darauf hin, dass du \(Theme.recoveryWord(value).lowercased()) bist."
-        case .strain:
-            if value < 35 { return "Deine aufgezeichnete Tagesbelastung war niedrig." }
-            if value < 67 { return "Deine aufgezeichnete Tagesbelastung war mittel." }
-            return "Deine aufgezeichnete Tagesbelastung war hoch."
-        }
-    }
-
     private func sleepPhases(_ night: SleepNight) -> some View {
         VStack(alignment: .leading, spacing: Space.s2) {
             DashboardHeading(title: "Schlafphasen")
@@ -236,11 +224,6 @@ struct RingDetailView: View {
                 } else {
                     DashboardEmpty(title: "Schlafphasen wurden nicht erfasst")
                 }
-            }
-            if night.hasStages {
-                Text("Anteil an der aufgezeichneten Zeit im Bett")
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
             }
         }
     }
@@ -257,11 +240,14 @@ struct RingDetailView: View {
                     .multilineTextAlignment(.trailing)
                     .formaNumberTransition(duration)
             }
-            ProgressLine(fraction: fraction, color: Theme.sleep.opacity(stage == .awake ? 0.55 : 1), height: 5)
+            MetricScale(value: fraction * 100, tint: Theme.sleep.opacity(stage == .awake ? 0.55 : 1))
+                .frame(height: Space.s3)
                 .accessibilityHidden(true)
         }
         .padding(Space.s4)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(stage.title)
+        .accessibilityValue("\(percent(fraction)) der Zeit im Bett, \(Format.duration(duration))")
     }
 }
 
