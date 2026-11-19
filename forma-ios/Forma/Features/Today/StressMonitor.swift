@@ -259,7 +259,7 @@ struct StressEnergyBar: View {
                     HStack(spacing: 3) {
                         ForEach(0..<24, id: \.self) { index in
                             Capsule()
-                                .fill(Double(index + 1) / 24 <= Double(energy) / 100 ? Theme.younger : Theme.track)
+                                .fill(Double(index + 1) / 24 <= Double(energy) / 100 ? Theme.textPrimary.opacity(0.85) : Theme.track)
                                 .frame(height: 7)
                         }
                     }

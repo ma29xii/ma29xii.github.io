@@ -26,8 +26,9 @@ struct RingDetailView: View {
             if kind == .strain, let target = Self.strainTarget(strain: value, recovery: snapshot.recovery) {
                 strainTargetCard(target)
             }
-            if kind == .sleep, let night = day.sleep, let need = snapshot.sleepNeed {
-                sleepSummary(night: night, need: need)
+            // Die gemessene Dauer steht immer da; der Bedarf nur, wenn er aus Messungen berechnet werden kann.
+            if kind == .sleep, let night = day.sleep, night.asleep > 0 {
+                sleepSummary(night: night, need: snapshot.sleepNeed)
             }
             VStack(alignment: .leading, spacing: Space.s2) {
                 DashboardHeading(title: "Beiträge")
@@ -65,17 +66,19 @@ struct RingDetailView: View {
         let ratio = night.flatMap { night in snapshot.sleepNeed.map { night.asleep / $0 } }
         return Group {
             row("Stunden vs. Bedarf", icon: "moon", value: ratio,
-                baseline: sleepBaseline { night, prior in night.asleep / ScoreEngine.sleepNeedForLastNight(history: prior) },
+                baseline: sleepBaseline { night, prior, date in
+                    ScoreEngine.measuredNeedForLastNight(on: date, history: prior).map { night.asleep / $0 }
+                },
                 format: percent)
             RowDivider()
             row("Regelmäßigkeit", icon: "clock", value: snapshot.sleepRegularity,
-                baseline: sleepBaseline { DashboardDay.sleepRegularity($0, history: $1) }, format: percent)
+                baseline: sleepBaseline { night, prior, _ in DashboardDay.sleepRegularity(night, history: prior) }, format: percent)
             RowDivider()
             row("Effizienz", icon: "bed.double", value: night?.efficiency,
-                baseline: sleepBaseline { night, _ in night.efficiency }, format: percent)
+                baseline: sleepBaseline { night, _, _ in night.efficiency }, format: percent)
             RowDivider()
             row("Tief- und REM-Anteil", icon: "moon.stars", value: night.flatMap(DashboardDay.restorativeFraction),
-                baseline: sleepBaseline { night, _ in DashboardDay.restorativeFraction(night) }, format: percent)
+                baseline: sleepBaseline { night, _, _ in DashboardDay.restorativeFraction(night) }, format: percent)
         }
     }
 
@@ -108,12 +111,13 @@ struct RingDetailView: View {
         }
     }
 
-    private func sleepBaseline(_ value: (SleepNight, [DayMetrics]) -> Double?) -> Double? {
+    /// Je frühere Nacht mit den Daten davor und ihrem Datum (für den damals gemessenen Bedarf).
+    private func sleepBaseline(_ value: (SleepNight, [DayMetrics], Date) -> Double?) -> Double? {
         let values = snapshot.history.compactMap { historical -> Double? in
             guard let night = historical.sleep, night.asleep > 0 else { return nil }
             let start = historical.date.adding(days: -30)
             let prior = history.filter { $0.date >= start && $0.date < historical.date }
-            return value(night, prior)
+            return value(night, prior, historical.date)
         }
         return ScoreEngine.baseline(values)?.mean
     }
@@ -167,17 +171,19 @@ struct RingDetailView: View {
         return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
     }
 
-    private func sleepSummary(night: SleepNight, need: TimeInterval) -> some View {
+    private func sleepSummary(night: SleepNight, need: TimeInterval?) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: Space.s2) {
                 sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
                     .fixedSize(horizontal: true, vertical: false)
-                sleepPill("Schlafbedarf", value: need, tint: Theme.younger)
-                    .fixedSize(horizontal: true, vertical: false)
+                if let need {
+                    sleepPill("Schlafbedarf", value: need, tint: Theme.textSecondary)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
             VStack(alignment: .leading, spacing: Space.s2) {
                 sleepPill("Schlafstunden", value: night.asleep, tint: Theme.sleep)
-                sleepPill("Schlafbedarf", value: need, tint: Theme.younger)
+                if let need { sleepPill("Schlafbedarf", value: need, tint: Theme.textSecondary) }
             }
         }
         .frame(maxWidth: .infinity)

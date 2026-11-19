@@ -264,28 +264,26 @@ struct TodayView: View {
         return Button {
             app.openCoach(with: "Was bedeutet das für meinen Tag? \(sentence)")
         } label: {
-            HStack(spacing: Space.s3) {
-                Image(systemName: "sparkle")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(DashboardRing.tint(kind: .recovery, value: snapshot.recovery))
-                Text(sentence)
-                    .font(.system(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.formaCaptionStrong)
-                    .foregroundStyle(Theme.textTertiary)
+            // Gleiche Kartenform wie alle anderen: eine Form-Sprache auf dem ganzen Bildschirm.
+            DashboardCard {
+                HStack(spacing: Space.s3) {
+                    Image(systemName: "sparkle")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(DashboardRing.tint(kind: .recovery, value: snapshot.recovery))
+                    Text(sentence)
+                        .font(.system(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .padding(Space.s4)
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
             }
-            .padding(Space.s4)
-            .frame(minHeight: 56)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Theme.hairline, lineWidth: 0.75)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Coach")
