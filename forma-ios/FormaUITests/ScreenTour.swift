@@ -108,32 +108,46 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
+    /// Öffnet das Plus-Menü und tippt die Kachel mit genau diesem Titel (sonst die erste, die so beginnt).
+    @discardableResult
+    private func openPlus(_ title: String) -> Bool {
+        let plus = el("tab.plus")
+        guard plus.waitForExistence(timeout: 4) else { return false }
+        plus.tap()
+        sleep(1)
+        let exact = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        if exact.waitForExistence(timeout: 3) { exact.tap(); sleep(1); return true }
+        return tapButton(beginningWith: title)
+    }
+
     /// Plus-Menü und Essen: nur Bilder für die Design-Prüfung, scheitert nicht.
     func testTourPlus() {
         sleep(2)
-        let plus = app.buttons["tab.plus"]
-        guard plus.waitForExistence(timeout: 6) else { return }
+        let plus = el("tab.plus")
+        guard plus.waitForExistence(timeout: 6) else { XCTFail("Plus fehlt"); return }
         plus.tap()
+        sleep(1)
         shot("30 Plus-Menü")
         dismissSheet()
-        for (title, name) in [("Ernährung heute", "31 Ernährung heute"), ("Essen planen", "32 Essen planen"),
-                              ("Essen suchen", "33 Essen suchen"), ("Wasser", "34 Wasser"),
-                              ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht")] {
-            plus.tap()
-            guard tapButton(beginningWith: title) else { dismissSheet(); continue }
-            sleep(1)
+        tab("Food")
+        shot("31 Food")
+        app.swipeUp(); shot("31b Food unten"); app.swipeDown(); app.swipeDown()
+        for (title, name) in [("Nährwerte tracken", "33 Nährwerte tracken"), ("Essen planen", "32 Essen planen"),
+                              ("Wasser", "34 Wasser"), ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht")] {
+            guard openPlus(title) else { dismissSheet(); continue }
             shot(name)
-            if title == "Ernährung heute" { app.swipeUp(); shot("31b Ernährung unten"); app.swipeDown() }
             if title == "Essen planen" {
                 let shopping = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Einkauf")).firstMatch
                 if shopping.waitForExistence(timeout: 2) { shopping.tap(); sleep(1); shot("32b Einkaufsliste") }
             }
             dismissSheet(); dismissSheet()
         }
+        tab("Today")
         let profile = app.buttons["Profil und Einstellungen"].firstMatch
         if profile.waitForExistence(timeout: 3) {
             profile.tap()
-            if tapButton(beginningWith: "Erfolge") { sleep(1); shot("37 Erfolge") }
+            if tapButton(beginningWith: "Erfolge") { sleep(1); shot("37 Erfolge"); back() }
+            if tapButton(beginningWith: "Design") { sleep(1); shot("38 Designs") }
         }
     }
 
@@ -142,6 +156,20 @@ final class ScreenTour: XCTestCase {
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
         let edit = app.buttons["tiles.edit"]
         shot("01 Today")
+
+        // Kopf-Variante „Ringe“ zeigen, danach zurück auf „Kapseln“.
+        func headerStyle(_ label: String) {
+            guard reveal(edit) else { return }
+            edit.tap(); sleep(1)
+            app.swipeDown(); app.swipeDown()
+            let option = app.buttons[label].firstMatch
+            if option.waitForExistence(timeout: 2) { option.tap() }
+            finishEditing()
+            app.swipeDown(); app.swipeDown()
+        }
+        headerStyle("Ringe")
+        shot("01b Today Ringe")
+        headerStyle("Kapseln")
 
         // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
         for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
@@ -186,7 +214,8 @@ final class ScreenTour: XCTestCase {
         if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 
-        tab("Training")
+        // Runde 11: Training liegt im Plus-Menü.
+        XCTAssertTrue(openPlus("Training"), "Training im Plus-Menü fehlt")
         shot("09 Training")
         app.swipeUp()
         shot("09b Training unten")
@@ -215,6 +244,7 @@ final class ScreenTour: XCTestCase {
                 }
             }
         }
+        dismissSheet()
 
         tab("Health")
         XCTAssertTrue(app.navigationBars["Health"].exists)
@@ -234,7 +264,7 @@ final class ScreenTour: XCTestCase {
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
         app.swipeDown(); app.swipeDown(); app.swipeDown()
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
-        captureDetail("health.experiment", title: "Experiment", screenshot: "15b Experiment")
+        captureDetail("health.experiment", title: "Gewohnheit", screenshot: "15b Gewohnheit")
         if reveal(edit) {
             edit.tap()
             XCTAssertFalse(app.sheets.firstMatch.exists)
