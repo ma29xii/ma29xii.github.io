@@ -132,7 +132,15 @@ final class ScoreTests: XCTestCase {
 
     func testMissingSleepDoesNotLowerRecovery() {
         let date = Date.now.startOfDay
-        let history = (1...4).map { DayMetrics(date: date.adding(days: -$0), hrv: 50) }
+        // Seit Kritik 03 braucht ein Schlafwert gemessenen Bedarf: Belastung vom Vortag und vier frühere Nächte.
+        let history = (1...5).map { offset -> DayMetrics in
+            let day = date.adding(days: -offset)
+            var metrics = DayMetrics(date: day, hrv: 50, activeEnergy: 400)
+            let nightStart = day.adding(minutes: -60), nightEnd = day.adding(minutes: 7 * 60)
+            metrics.sleep = SleepNight(start: nightStart, end: nightEnd,
+                                       segments: [.init(stage: .core, start: nightStart, end: nightEnd)])
+            return metrics
+        }.reversed().map { $0 }
         var today = DayMetrics(date: date, hrv: 50)
         let withoutSleep = ScoreEngine.scores(today: today, history: history)
         XCTAssertEqual(withoutSleep.sleep, 0)
