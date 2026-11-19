@@ -65,6 +65,12 @@ final class AchievementTracker {
         if recentUnlock?.id == id { recentUnlock = nil }
     }
 
+    func deleteHealth(scope: AchievementHealthScope) {
+        defaults.removeObject(forKey: scope.storageKey)
+        if healthScope == scope { health.removeAll() }
+        if recentUnlock?.scope == scope { recentUnlock = nil }
+    }
+
     private func merge(_ evidence: [Achievement: Date], key: String, now: Date,
                        calendar: Calendar) -> (unlocked: Set<Achievement>, new: Set<Achievement>) {
         let stored = defaults.stringArray(forKey: key)

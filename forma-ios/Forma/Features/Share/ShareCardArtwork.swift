@@ -13,6 +13,13 @@ struct ShareCardArtwork: View {
     let display: ShareCardContent.Display
     let format: ShareCardFormat
 
+    private var usesMetricRows: Bool { display.metrics.count > 1 }
+
+    private var motifSize: CGFloat {
+        if format == .story { return 208 }
+        return usesMetricRows ? 88 : 124
+    }
+
     private var tint: Color {
         switch display.kind {
         case .today: Color(hex: 0xBDB2FF)
@@ -33,7 +40,7 @@ struct ShareCardArtwork: View {
 
             Spacer(minLength: 12)
             ShareCardMotif(kind: display.kind, tint: tint)
-                .frame(width: format == .story ? 208 : 124, height: format == .story ? 208 : 124)
+                .frame(width: motifSize, height: motifSize)
                 .frame(maxWidth: .infinity)
             Spacer(minLength: 12)
 
@@ -47,7 +54,7 @@ struct ShareCardArtwork: View {
                     .padding(.top, 4)
             }
             if !display.metrics.isEmpty {
-                stats.padding(.top, 18)
+                stats.padding(.top, usesMetricRows ? 14 : 18)
             }
         }
         .padding(.horizontal, 28)
@@ -64,25 +71,40 @@ struct ShareCardArtwork: View {
     }
 
     private var stats: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(tint.opacity(0.43)).frame(height: 1)
-            HStack(alignment: .top, spacing: 10) {
-                ForEach(display.metrics) { metric in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(metric.value)
-                            .font(.system(size: display.metrics.count == 1 ? 28 : 22,
-                                          weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                        Text(metric.label)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xC2C1C7))
+            if usesMetricRows {
+                VStack(spacing: 5) {
+                    ForEach(display.metrics) { metric in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            metricLabel(metric)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            metricValue(metric, size: 22)
+                                .multilineTextAlignment(.trailing)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if let metric = display.metrics.first {
+                VStack(alignment: .leading, spacing: 5) {
+                    metricValue(metric, size: 28)
+                    metricLabel(metric)
                 }
             }
         }
+    }
+
+    private func metricValue(_ metric: ShareCardContent.Metric, size: CGFloat) -> some View {
+        Text(metric.value)
+            .font(.system(size: size, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+    }
+
+    private func metricLabel(_ metric: ShareCardContent.Metric) -> some View {
+        Text(metric.label)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color(hex: 0xC2C1C7))
     }
 }
 

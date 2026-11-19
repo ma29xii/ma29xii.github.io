@@ -12,15 +12,17 @@ extension View {
 @MainActor
 private struct AchievementTracking: ViewModifier {
     @Environment(DataHub.self) private var hub
+    @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \WorkoutSession.start) private var sessions: [WorkoutSession]
-    @State private var tracker = AchievementTracker()
     let healthScope: AchievementHealthScope?
+    private var tracker: AchievementTracker { hub.achievementTracker }
 
     private struct Input: Equatable, Sendable {
         let scope: AchievementHealthScope?
         let isSample: Bool
         let isActive: Bool
+        let generation: Int
         let days: [DayMetrics]
         let person: PersonInfo?
         let workouts: [AchievementWorkout]
@@ -29,6 +31,7 @@ private struct AchievementTracking: ViewModifier {
     func body(content: Content) -> some View {
         let tracksHealth = hub.isSample || healthScope != nil
         let input = Input(scope: healthScope, isSample: hub.isSample, isActive: scenePhase == .active,
+                          generation: hub.generation,
                           days: tracksHealth ? hub.longDays : [], person: tracksHealth ? hub.person : nil,
                           workouts: sessions.map { session in
             var bests: [String: Double] = [:]
@@ -41,6 +44,7 @@ private struct AchievementTracking: ViewModifier {
             return AchievementWorkout(start: session.start, end: session.end, bests: bests)
         })
         let visible = tracker.visibleUnlock(scope: input.scope, isSample: input.isSample)
+        let sampleDay = hub.sampleDay
 
         content
             .overlay(alignment: .top) {
@@ -53,8 +57,13 @@ private struct AchievementTracking: ViewModifier {
                     AccessibilityNotification.Announcement("Erfolg freigeschaltet. \(visible.subtitle)").post()
                 }
             }
+            .task(id: sampleDay) {
+                guard let sampleDay, sampleDay == hub.sampleDay, !Task.isCancelled else { return }
+                SampleData.seedWorkouts(hub.longDays, in: context)
+            }
             .task(id: input) {
-                guard input.isActive, !Task.isCancelled else { return }
+                guard input.isActive, !Task.isCancelled, input.generation == hub.generation,
+                      input.scope == hub.achievementHealthScope else { return }
                 evaluate(input)
             }
             .task(id: visible?.id) {

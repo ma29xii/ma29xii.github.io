@@ -19,6 +19,11 @@ enum GoogleHealthMerge {
         let origin: GoogleMetricOrigin
     }
 
+    private struct NightRecording: Hashable {
+        let start: Date
+        let origin: GoogleMetricOrigin
+    }
+
     static func days(points: [GoogleHealthKind: [GoogleHealthPoint]], from: Date, until: Date,
                      calendar: Calendar, activity: [HourlyMetrics] = []) -> [DayMetrics] {
         let nights = nightsByDay(points[.sleep] ?? [], from: from, until: until, calendar: calendar)
@@ -71,7 +76,8 @@ enum GoogleHealthMerge {
     }
 
     static func hours(steps: [GoogleHealthPoint], energy: [GoogleHealthPoint], pulse: [GoogleHealthPoint] = [],
-                      from: Date, until: Date, calendar: Calendar) -> [HourlyMetrics] {
+                      from: Date, until: Date, calendar: Calendar,
+                      cachedStepOrigins: [Date: GoogleMetricOrigin] = [:]) -> [HourlyMetrics] {
         let stepBuckets = amountBuckets(steps, from: from, until: until, calendar: calendar)
         let energyBuckets = amountBuckets(energy, from: from, until: until, calendar: calendar)
         var pulseBuckets: [Date: [GoogleMetricOrigin: [Date: Double]]] = [:]
@@ -90,7 +96,8 @@ enum GoogleHealthMerge {
                     hour.activeEnergy = nonOverlappingTotal(amounts)
                     hour.energyOrigin = origin
                 }
-            } else if let bySource = energyBuckets[start], let origin = preferred(bySource, family: .appleWatch),
+            } else if let bySource = energyBuckets[start],
+                      let origin = cachedStepOrigins[start] ?? preferred(bySource, family: .appleWatch),
                       let amounts = bySource[origin] {
                 hour.activeEnergy = nonOverlappingTotal(amounts)
                 hour.energyOrigin = origin
@@ -178,24 +185,37 @@ enum GoogleHealthMerge {
 
     private static func nightsByDay(_ points: [GoogleHealthPoint], from: Date, until: Date,
                                     calendar: Calendar) -> [Date: Night] {
-        var result: [Date: Night] = [:]
+        var recordings: [Date: [NightRecording: Night]] = [:]
         for case .sleep(let night, let main, let nap, let updated, let origin) in points {
             guard !nap, night.end >= from, night.end < until else { continue }
-            let key = calendar.startOfDay(for: night.end)
-            if let old = result[key] {
-                if old.origin.family != origin.family {
-                    guard origin.family == .fitbit else { continue }
-                } else if old.main != main {
-                    guard main else { continue }
-                } else if old.value.start == night.start, old.updated != updated {
-                    guard (updated ?? .distantPast) > (old.updated ?? .distantPast) else { continue }
-                } else {
-                    guard night.asleep > old.value.asleep else { continue }
-                }
+            let date = calendar.startOfDay(for: night.end)
+            let key = NightRecording(start: night.start, origin: origin)
+            let candidate = Night(value: night, main: main, updated: updated, origin: origin)
+            if let old = recordings[date]?[key] {
+                let oldRevision = old.updated ?? .distantPast
+                let revision = updated ?? .distantPast
+                if revision != oldRevision {
+                    guard revision > oldRevision else { continue }
+                } else if !preferredNight(candidate, over: old) { continue }
             }
-            result[key] = .init(value: night, main: main, updated: updated, origin: origin)
+            recordings[date, default: [:]][key] = candidate
         }
-        return result
+        return recordings.compactMapValues { daily in
+            // Gerätepriorität gilt nur für Aufzeichnungen in der Größenordnung der längsten Nacht.
+            let longest = daily.values.map { $0.value.asleep }.max() ?? 0
+            return daily.values.filter { $0.value.asleep >= longest * 0.75 }
+                .min { preferredNight($0, over: $1) }
+        }
+    }
+
+    private static func preferredNight(_ lhs: Night, over rhs: Night) -> Bool {
+        if lhs.main != rhs.main { return lhs.main }
+        if lhs.origin.family != rhs.origin.family { return lhs.origin.family == .fitbit }
+        if lhs.value.asleep != rhs.value.asleep { return lhs.value.asleep > rhs.value.asleep }
+        if lhs.updated != rhs.updated { return (lhs.updated ?? .distantPast) > (rhs.updated ?? .distantPast) }
+        if lhs.value.start != rhs.value.start { return lhs.value.start < rhs.value.start }
+        if lhs.value.end != rhs.value.end { return lhs.value.end > rhs.value.end }
+        return comesFirst(lhs.origin, rhs.origin, family: .fitbit)
     }
 
     private static func workoutsByDay(_ points: [GoogleHealthPoint], from: Date, until: Date,

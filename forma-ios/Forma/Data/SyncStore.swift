@@ -119,23 +119,25 @@ enum SyncStore {
 
     enum MergeResult: Equatable {
         case merged([DayMetrics])
-        /// Nichts wurde gelesen (alle Reihen fehlgeschlagen) oder ein verdächtig leerer Abruf: nicht überschreiben.
+        /// Keine Reihe gelesen oder ein Leerstand ohne Bestätigung des Importers.
         case rejectedEmpty
     }
 
     /// Führt einen neuen Abruf mit dem gespeicherten Stand zusammen – pro Messreihe (Codex R-02-01):
     /// - Reihe erfolgreich gelesen → der neue Wert gilt, auch `nil`.
     /// - Reihe fehlgeschlagen → der gespeicherte Wert bleibt.
-    /// - Alle Reihen fehlgeschlagen, oder alles leer obwohl vorher Daten da waren → nichts überschreiben.
+    /// - Alle Reihen fehlgeschlagen oder unbestätigt leer → nichts überschreiben.
     static func merge(old: [DayMetrics], new: [DayMetrics], failed: Set<MetricSeries> = [],
+                      confirmedEmpty: Bool = false,
                       today: Date = Date.now.startOfDay, keepDays: Int = 180, calendar: Calendar = .forma) -> MergeResult {
         if failed.count == MetricSeries.allCases.count { return .rejectedEmpty }
         let oldDays = old.compactMap { $0.onCivilDay(in: calendar) }
         let newDays = new.compactMap { $0.onCivilDay(in: calendar) }
-        let newHasData = new.contains(where: hasData)
-        let oldInWindowHasData = !Set(oldDays.filter(hasData).compactMap(\.civilDay))
-            .isDisjoint(with: newDays.compactMap(\.civilDay))
-        if oldInWindowHasData && !newHasData && failed.isEmpty { return .rejectedEmpty }
+        if !confirmedEmpty && failed.isEmpty && !new.contains(where: hasData) {
+            let oldInWindowHasData = !Set(oldDays.filter(hasData).compactMap(\.civilDay))
+                .isDisjoint(with: newDays.compactMap(\.civilDay))
+            if oldInWindowHasData { return .rejectedEmpty }
+        }
 
         func byCivilDay(_ days: [DayMetrics]) -> [CivilDay: DayMetrics] {
             Dictionary(days.compactMap { day in day.civilDay.map { ($0, day) } },

@@ -37,8 +37,7 @@ private struct TodayWidgetProvider: TimelineProvider {
     }
 
     private func currentEntry(at date: Date) -> TodayWidgetEntry {
-        let snapshot = WidgetSnapshotStore.shared.read()
-        return TodayWidgetEntry(date: date, snapshot: snapshot.flatMap { $0.isCurrent(at: date) ? $0 : nil })
+        TodayWidgetEntry(date: date, snapshot: WidgetSnapshotStore.shared.current(at: date))
     }
 }
 

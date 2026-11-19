@@ -5,15 +5,16 @@ import SwiftData
 enum SampleData {
     static let weightKg = 76.4
 
-    static func person(at date: Date = .now) -> PersonInfo {
-        let birthday = Calendar.forma.date(byAdding: .year, value: -32, to: date)?.adding(days: -42)
+    static func person(at date: Date = .now, calendar: Calendar = .forma) -> PersonInfo {
+        let year = calendar.date(byAdding: .year, value: -32, to: date)
+        let birthday = year.flatMap { calendar.startOfDay(offsetBy: -42, from: $0) }
         return PersonInfo(birthDate: birthday, sex: .male, origin: .assumed)
     }
 
-    static func days(count: Int = 180, endingAt end: Date = .now) -> [DayMetrics] {
-        let today = end.startOfDay
-        return (0..<max(0, count)).reversed().map { index in
-            let date = today.adding(days: -index)
+    static func days(count: Int = 180, endingAt end: Date = .now, calendar: Calendar = .forma) -> [DayMetrics] {
+        let today = calendar.startOfDay(for: end)
+        return (0..<max(0, count)).reversed().compactMap { index in
+            guard let date = calendar.startOfDay(offsetBy: -index, from: today) else { return nil }
             // Der Abstand zu heute hält dieselben Tage auch in kürzeren Vorschauen stabil.
             let t = 29 - Double(index)
             let wave = sin(t * 0.9) * 0.5 + sin(t * 0.37 + 1.3) * 0.5
@@ -23,7 +24,7 @@ enum SampleData {
             let lighterWeek = (36...43).contains(index)
             let lateNight = index % 7 == 4 || index % 7 == 5
 
-            var day = DayMetrics(date: date)
+            var day = DayMetrics(date: date, civilDay: CivilDay(date, in: calendar))
             day.hrv = (56 + wave * 6 + (index == 0 ? 3 : 0)).rounded()
             day.restingHR = (54 - wave * 2.7 - (index == 0 ? 1 : 0)).rounded()
             day.respiratoryRate = ((14.3 + sin(t * 0.5) * 0.3) * 10).rounded() / 10
@@ -48,7 +49,7 @@ enum SampleData {
             }
             if let training, !lighterWeek {
                 let start = date.adding(minutes: 18 * 60)
-                day.workouts = [WorkoutSummary(id: workoutID(on: date), name: training.name, start: start,
+                day.workouts = [WorkoutSummary(id: workoutID(on: date, calendar: calendar), name: training.name, start: start,
                                                duration: (training.minutes + wave * 6) * 60,
                                                energy: training.kcal, isStrength: training.name != "Lauf")]
             }
@@ -60,9 +61,9 @@ enum SampleData {
                 day.steps = 6240
                 day.activeEnergy = 410
                 day.workouts = [
-                    WorkoutSummary(id: workoutID(on: date), name: "Push", start: date.adding(minutes: 7 * 60),
+                    WorkoutSummary(id: workoutID(on: date, calendar: calendar), name: "Push", start: date.adding(minutes: 7 * 60),
                                    duration: 49 * 60, energy: 230, isStrength: true),
-                    WorkoutSummary(id: workoutID(on: date, slot: 1), name: "Spaziergang",
+                    WorkoutSummary(id: workoutID(on: date, calendar: calendar, slot: 1), name: "Spaziergang",
                                    start: date.adding(minutes: 12 * 60 + 10), duration: 34 * 60, energy: 110)
                 ]
             }
@@ -83,19 +84,27 @@ enum SampleData {
         }
     }
 
-    private static func workoutID(on date: Date, slot: UInt8 = 0) -> UUID {
-        let day = CivilDay(date, in: .forma)
+    private static func workoutID(on date: Date, calendar: Calendar, slot: UInt8 = 0) -> UUID {
+        let day = CivilDay(date, in: calendar)
         return UUID(uuid: (0x46, 0x6f, 0x72, 0x6d, 0x61, 0, 0x40, 0, 0x80, 0, 0,
                            UInt8(truncatingIfNeeded: day.year >> 8), UInt8(truncatingIfNeeded: day.year),
                            UInt8(day.month), UInt8(day.day), slot))
     }
 
-    /// Nur der flüchtige Beispiel-Speicher erhält aufgezeichnete Einheiten.
+    /// Aktualisiert die erzeugten Einheiten im flüchtigen Speicher und lässt eigene Vorschautrainings stehen.
     @MainActor
     static func seedWorkouts(_ days: [DayMetrics], in context: ModelContext) {
         guard context.container.configurations.allSatisfy(\.isStoredInMemoryOnly),
-              let count = try? context.fetchCount(FetchDescriptor<WorkoutSession>()), count == 0 else { return }
+              let sessions = try? context.fetch(FetchDescriptor<WorkoutSession>()) else { return }
         let workouts = days.suffix(60).flatMap(\.workouts).filter(\.isStrength)
+        // Die ersten elf Bytes aus workoutID markieren erzeugte Einheiten, die restlichen den Tag und Slot.
+        let seedPrefix = "466F726D-6100-4000-8000-00"
+        let seeded = sessions.filter { $0.draftID?.uuidString.uppercased().hasPrefix(seedPrefix) == true }
+        let existing = Dictionary(seeded.compactMap { session in session.draftID.map { ($0, session.start) } },
+                                  uniquingKeysWith: { first, _ in first })
+        if seeded.count == workouts.count, workouts.allSatisfy({ existing[$0.id] == $0.start }) { return }
+
+        for session in seeded { context.delete(session) }
         for (index, workout) in workouts.enumerated() {
             guard let template = TrainingSeed.routines.first(where: { $0.0 == workout.name }) else { continue }
             let earlierBlocks = Double(max(0, 3 - index / 5))
@@ -109,8 +118,10 @@ enum SampleData {
                                           reps: max(1, reps - (set == count - 1 ? 1 : 0)), rir: set == 0 ? 3 : 2, isWarmup: false))
                 }
             }
-            context.insert(WorkoutSession(title: workout.name, start: workout.start,
-                                          end: workout.start.addingTimeInterval(workout.duration), sets: sets))
+            let session = WorkoutSession(title: workout.name, start: workout.start,
+                                         end: workout.start.addingTimeInterval(workout.duration), sets: sets)
+            session.draftID = workout.id
+            context.insert(session)
         }
         try? context.save()
     }

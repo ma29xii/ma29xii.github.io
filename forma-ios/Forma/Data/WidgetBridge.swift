@@ -8,10 +8,17 @@ enum WidgetBridge {
                        updatedAt: checkedAt, day: dashboard.day.date, calendar: calendar)
     }
 
-    static func publish(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) {
-        let changed = (try? WidgetSnapshotStore.shared.replace(with: snapshot)) == true
-        if changed || invalidateTimeline {
+    static func publish(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) -> Bool {
+        do {
+            let changed = try WidgetSnapshotStore.shared.replace(with: snapshot)
+            if changed || invalidateTimeline {
+                WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshotStore.widgetKind)
+            }
+            return true
+        } catch {
+            // Die Lesefreigabe kann bereits widerrufen sein, auch wenn sich die Datei nicht löschen ließ.
             WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshotStore.widgetKind)
+            return false
         }
     }
 }

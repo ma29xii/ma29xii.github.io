@@ -45,36 +45,74 @@ struct WidgetSnapshotStore: Sendable {
     static let widgetKind = "com.ma29xii.forma.today"
 
     let fileURL: URL?
+    private let accessURL: URL?
+
+    init(fileURL: URL?, accessURL: URL? = nil) {
+        self.fileURL = fileURL
+        self.accessURL = accessURL ?? fileURL?.appendingPathExtension("access")
+    }
 
     static var shared: Self {
         let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID)
         let file = root?.appendingPathComponent("Library/Caches", isDirectory: true)
             .appendingPathComponent("forma-widget-v1.json")
-        return Self(fileURL: file)
+        return Self(fileURL: file, accessURL: root?.appendingPathComponent("forma-widget-v1.access"))
     }
 
     func read() -> WidgetSnapshot? {
-        guard let fileURL, let data = try? Data(contentsOf: fileURL),
+        guard let fileURL, let accessURL, let permit = try? Data(contentsOf: accessURL), !permit.isEmpty,
+              let data = try? Data(contentsOf: fileURL),
               let snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data),
-              snapshot.isValid else { return nil }
+              snapshot.isValid, (try? Data(contentsOf: accessURL)) == permit else { return nil }
+        return snapshot
+    }
+
+    func current(at date: Date) -> WidgetSnapshot? {
+        guard let snapshot = read(), snapshot.isCurrent(at: date) else { return nil }
         return snapshot
     }
 
     /// Ein atomarer Wechsel verhindert halbe Stände beim gleichzeitigen Lesen im Widget.
-    func replace(with snapshot: WidgetSnapshot?) throws -> Bool {
-        guard let fileURL else { return false }
+    func replace(with snapshot: WidgetSnapshot?,
+                 removeSnapshot: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) throws -> Bool {
+        guard let fileURL, let accessURL else { throw CocoaError(.fileNoSuchFile) }
         if let snapshot {
             guard read() != snapshot else { return false }
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } else {
+            try Data(UUID().uuidString.utf8).write(to: accessURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        }
+
+        // Zuerst die Lesefreigabe abziehen. Sie liegt unabhängig von der Cache-Datei im App-Group-Ordner.
+        var revoked = false
+        var revocationError: (any Error)?
+        do {
+            revoked = try removeIfPresent(accessURL) { try FileManager.default.removeItem(at: $0) }
+        } catch {
             do {
-                try FileManager.default.removeItem(at: fileURL)
-            } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
-                return false
+                try Data().write(to: accessURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                revoked = true
+            } catch {
+                revocationError = error
             }
         }
-        return true
+        let removed = try removeIfPresent(fileURL, remove: removeSnapshot)
+        if !removed, let revocationError { throw revocationError }
+        return removed || revoked
+    }
+
+    private func removeIfPresent(_ url: URL, remove: (URL) throws -> Void) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        do {
+            try remove(url)
+            return true
+        } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+            return false
+        }
     }
 }

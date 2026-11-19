@@ -13,6 +13,7 @@ final class DataHub {
     private let notify: (@MainActor (DataHub, CivilDay?, Int) async -> String?)?
     private let manageSystemState: Bool
     private let isUITest: Bool
+    let achievementTracker: AchievementTracker
     private var accountID: String?
     private var connectionFailure: String?
     private var connecting = false
@@ -35,7 +36,12 @@ final class DataHub {
     private var displayTimeZone: TimeZone?
     var longDays: [DayMetrics] {
         let calendar = calendar()
-        guard !isSample, !storedDays.isEmpty, displayTimeZone != calendar.timeZone else { return storedDays }
+        if isSample {
+            let today = calendar.startOfDay(for: now())
+            if storedDays.last?.date == today, displayTimeZone == calendar.timeZone { return storedDays }
+            return SampleData.days(endingAt: today, calendar: calendar)
+        }
+        guard !storedDays.isEmpty, displayTimeZone != calendar.timeZone else { return storedDays }
         return SyncStore.normalized(storedDays, today: calendar.startOfDay(for: now()), calendar: calendar)
     }
     private(set) var hasLoaded = false
@@ -46,11 +52,13 @@ final class DataHub {
     private(set) var lastBackgroundAttempt: Date?
     private var syncWarning: String?
     private var localCopyNote: String?
+    private var widgetCopyNote: String?
+    @ObservationIgnored private var widgetDeletionPending = false
     private(set) var revocationStatus: GoogleRevocation?
     private(set) var lastBackgroundIssue: String?
     private(set) var notificationIssue: String?
     var syncNote: String? {
-        let notes = [localCopyNote, revocationStatus?.notice, syncWarning, notificationIssue, lastBackgroundIssue]
+        let notes = [localCopyNote, widgetCopyNote, revocationStatus?.notice, syncWarning, notificationIssue, lastBackgroundIssue]
             .compactMap { $0 }
         return notes.isEmpty ? nil : notes.joined(separator: " ")
     }
@@ -69,6 +77,7 @@ final class DataHub {
     private var attemptID: UUID?
     private var waiters: Set<UUID> = []
     private var historyTask: Task<Void, Never>?
+    @ObservationIgnored private var sampleRollover: Task<Void, Never>?
 
     var preferredSource: DataSourceKind {
         didSet {
@@ -98,10 +107,12 @@ final class DataHub {
         self.isUITest = isUITest
         self.manageSystemState = manageSystemState
         self.notify = notify
+        achievementTracker = AchievementTracker(defaults: defaults)
         preferredSource = isUITest ? .sample : Self.source(from: defaults.string(forKey: "forma.source"))
         if !isUITest {
             defaults.set(preferredSource.rawValue, forKey: "forma.source")
             if manageSystemState {
+                CoachProviders.monitorConsent()
                 defaults.removeObject(forKey: "forma.healthAuthorized")
                 _ = Keychain.set(nil, for: "fitbit.tokens")
             }
@@ -128,11 +139,14 @@ final class DataHub {
 
     private func showPreferredSource(invalidateWidgetTimeline: Bool = false) {
         defer { publishWidgets(invalidateTimeline: invalidateWidgetTimeline) }
+        sampleRollover?.cancel()
+        sampleRollover = nil
         activeSource = preferredSource
         syncWarning = nil
         resetSnapshot()
         if isSample {
-            storedDays = SampleData.days()
+            storedDays = []
+            refreshSampleData()
             hasLoaded = true
         } else if !defaults.bool(forKey: Self.pendingDeletionKey),
                   let accountID, let cached = SyncStore.load(from: cacheURL),
@@ -211,12 +225,13 @@ final class DataHub {
 
     func disconnectGoogle() {
         guard !isUITest else { return }
+        let disconnectedAccount = accountID
         connectionGeneration += 1
         connecting = false
         accountID = nil
         connectionFailure = nil
         defaults.set(true, forKey: Self.pendingDisconnectKey)
-        clearGoogleCopy()
+        clearGoogleCopy(for: disconnectedAccount)
         retryCredentialDeletion()
     }
 
@@ -251,14 +266,15 @@ final class DataHub {
 
     func deleteLocalHealthCopy() {
         guard !isUITest else { return }
-        clearGoogleCopy()
+        clearGoogleCopy(for: accountID)
     }
 
-    private func clearGoogleCopy() {
+    private func clearGoogleCopy(for account: String?) {
         invalidateRefresh()
-        _ = deleteCache()
+        if let account { achievementTracker.deleteHealth(scope: AchievementHealthScope(accountID: account)) }
         resetSnapshot()
         publishWidgets(invalidateTimeline: true)
+        _ = deleteCache()
         syncWarning = nil
         notificationIssue = nil
         recordBackgroundIssue(nil)
@@ -324,9 +340,34 @@ final class DataHub {
     }
 
     var isSample: Bool { activeSource == .sample }
+
+    /// Auch von der flüchtigen Trainingsvorschau als Aktualisierungsschlüssel verwendbar.
+    var sampleDay: Date? {
+        isSample ? calendar().startOfDay(for: now()) : nil
+    }
+
+    private func refreshSampleData() {
+        guard isSample else { return }
+        let calendar = calendar()
+        let current = now()
+        let today = calendar.startOfDay(for: current)
+        if storedDays.last?.date != today || calendar.timeZone != displayTimeZone {
+            storedDays = SampleData.days(endingAt: today, calendar: calendar)
+            displayTimeZone = calendar.timeZone
+        }
+        sampleRollover?.cancel()
+        guard manageSystemState, let tomorrow = calendar.startOfDay(offsetBy: 1, from: today) else { return }
+        sampleRollover = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0.1, tomorrow.timeIntervalSince(current)))) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.refreshSampleData()
+        }
+    }
+
     /// Erfolge gelten je Google-Konto; mit Beispieldaten werden keine gesammelt.
     var achievementHealthScope: AchievementHealthScope? {
-        guard !isSample, let accountID else { return nil }
+        guard !isSample, !storedDays.isEmpty, let accountID else { return nil }
         return AchievementHealthScope(accountID: accountID)
     }
     var today: DayMetrics { days.last ?? DayMetrics(date: calendar().startOfDay(for: now())) }
@@ -389,11 +430,19 @@ final class DataHub {
                 snapshot = WidgetBridge.snapshot(for: dashboard, checkedAt: checkedAt, calendar: calendar)
             }
         }
-        WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
+        updateWidgetCopy(snapshot, invalidateTimeline: invalidateTimeline)
+    }
+
+    private func updateWidgetCopy(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) {
+        let saved = WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
+        widgetDeletionPending = !saved && (snapshot == nil || widgetDeletionPending)
+        widgetCopyNote = saved ? nil : (snapshot == nil
+            ? "Die Widget-Kopie konnte nicht gelöscht werden. Health versucht es erneut."
+            : "Das Widget konnte nicht aktualisiert werden.")
     }
 
     var person: PersonInfo {
-        if isSample { return SampleData.person() }
+        if isSample { return SampleData.person(at: now(), calendar: calendar()) }
         _ = profileRevision
         let year = defaults.integer(forKey: "forma.birthYear")
         let sex = BiologicalSex(rawValue: defaults.string(forKey: "forma.sex") ?? "") ?? .unknown
@@ -524,7 +573,11 @@ final class DataHub {
 
     @discardableResult
     func syncAndNotify(background: Bool) async -> RefreshResult {
-        if isSample { return .sample }
+        if widgetDeletionPending { updateWidgetCopy(nil) }
+        if isSample {
+            refreshSampleData()
+            return .sample
+        }
         guard !Task.isCancelled, googleService.isConfigured, !loginInFlight,
               !defaults.bool(forKey: Self.pendingDisconnectKey),
               !defaults.bool(forKey: Self.pendingDeletionKey) else { return .unchanged }
@@ -724,16 +777,19 @@ final class DataHub {
                        from: Date, until: Date, through: CivilDay?, gaps: Set<CivilDay>,
                        updatesCurrent: Bool) -> RefreshResult {
         var failed = imported.failed
-        if failed.contains(.steps) { failed.insert(.activeEnergy) }
+        if failed.contains(.steps), imported.unpairedEnergy == nil { failed.insert(.activeEnergy) }
         var retained = failed
         if !failed.contains(.steps) { retained.remove(.activeEnergy) }
         let current = storedDays
+        let energyHours = imported.unpairedEnergy.map {
+            GoogleHealthMerge.hours(steps: [], energy: $0, from: from, until: min(until, now()), calendar: calendar,
+                                    cachedStepOrigins: storedHours.compactMapValues(\.stepOrigin))
+        }
         let hours = mergedHours(imported, from: from, until: until, today: today, calendar: calendar,
-                                energyFailed: failed.contains(.activeEnergy))
-        var new = imported.days.map { $0.sanitized() }
+                                energyHours: energyHours, energyFailed: failed.contains(.activeEnergy))
+        var new = imported.days
         let confirmed = Set(MetricSeries.allCases).subtracting(failed)
-        let confirmedDays = new.filter { day in confirmed.contains(where: { day.hasMeasurement(for: $0) }) }
-        if !failed.contains(.steps), failed.contains(.activeEnergy), imported.hours != nil {
+        if energyHours != nil || (!failed.contains(.steps) && failed.contains(.activeEnergy) && imported.hours != nil) {
             let byDay = Dictionary(grouping: hours.values.filter { $0.activeEnergy != nil }) {
                 calendar.startOfDay(for: $0.start)
             }
@@ -743,23 +799,23 @@ final class DataHub {
                 new[index].setOrigins(activity.compactMap(\.energyOrigin), for: .activeEnergy)
             }
         }
-        let firstDay = CivilDay(from, in: calendar)
-        let endDay = CivilDay(until, in: calendar)
-        let previousInWindow = current.contains {
-            let day = $0.civilDay ?? CivilDay($0.date, in: calendar)
-            return day >= firstDay && day < endDay && SyncStore.hasData($0)
-        }
+        new = new.map { $0.sanitized() }
+        let confirmedDays = new.filter { day in confirmed.contains(where: { day.hasMeasurement(for: $0) }) }
         let pulseFailed = updatesCurrent && imported.pulses == nil
-        if confirmed.isEmpty || (confirmedDays.isEmpty && previousInWindow) {
-            if updatesCurrent {
-                syncWarning = failed.isEmpty && !pulseFailed
-                    ? "Google Health hat gerade keine Messungen geliefert. Du siehst den letzten Stand."
-                    : partialNotice(failed, pulseFailed: pulseFailed)
-            }
+        if confirmed.isEmpty && imported.pulses == nil {
+            if updatesCurrent { syncWarning = partialNotice(failed, pulseFailed: pulseFailed) }
             return .unchanged
         }
-        guard case .merged(let days) = SyncStore.merge(old: current, new: new, failed: retained,
-                                                       today: today, calendar: calendar) else { return .unchanged }
+        let days: [DayMetrics]
+        if confirmed.isEmpty {
+            // Tagesreihen fehlgeschlagen. Der unabhängige Pulsabruf kann trotzdem erfolgreich sein.
+            days = SyncStore.normalized(current, today: today, calendar: calendar)
+        } else if case .merged(let values) = SyncStore.merge(old: current, new: new, failed: retained,
+                                                            confirmedEmpty: true, today: today, calendar: calendar) {
+            days = values
+        } else {
+            return .unchanged
+        }
         let checkTime = now()
         let todayKey = CivilDay(today, in: calendar)
         let hasCurrentMeasurement = confirmedDays.contains { ($0.civilDay ?? CivilDay($0.date, in: calendar)) == todayKey }
@@ -799,22 +855,21 @@ final class DataHub {
             recentFailed = failed
             recentPulseFailed = pulseFailed
             syncWarning = failed.isEmpty && !pulseFailed ? nil : partialNotice(failed, pulseFailed: pulseFailed)
-            if confirmedDays.isEmpty, !pulseFailed, failed.isEmpty { return .unchanged }
         }
         return failed.isEmpty && !pulseFailed ? .updated : .partial(failed)
     }
 
     private func mergedHours(_ imported: GoogleHealthService.Import, from: Date, until: Date, today: Date,
-                             calendar: Calendar, energyFailed: Bool) -> [Date: HourlyMetrics] {
+                             calendar: Calendar, energyHours: [HourlyMetrics]?, energyFailed: Bool) -> [Date: HourlyMetrics] {
         var result = storedHours
-        if let activity = imported.hours {
+        if let activity = imported.hours ?? energyHours {
             let byStart = Dictionary(activity.map { ($0.start, $0) }, uniquingKeysWith: { _, latest in latest })
             let previous = storedHours.keys.filter { $0 >= from && $0 < until }
             for start in Set(previous).union(byStart.keys) {
                 guard var hour = byStart[start] ?? storedHours[start] else { continue }
                 let old = storedHours[start]
-                hour.steps = byStart[start]?.steps
-                hour.stepOrigin = byStart[start]?.stepOrigin
+                hour.steps = imported.hours == nil ? old?.steps : byStart[start]?.steps
+                hour.stepOrigin = imported.hours == nil ? old?.stepOrigin : byStart[start]?.stepOrigin
                 hour.activeEnergy = byStart[start]?.activeEnergy
                 hour.energyOrigin = byStart[start]?.energyOrigin
                 hour.heartRate = old?.heartRate

@@ -6,7 +6,7 @@ struct ReadRecoveryIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let snapshot = WidgetSnapshotStore.shared.read(), snapshot.isCurrent(at: .now),
+        guard let snapshot = WidgetSnapshotStore.shared.current(at: .now),
               let recovery = snapshot.recovery else {
             return .result(dialog: "Für heute liegt keine Erholungsmessung vor.")
         }

@@ -100,6 +100,8 @@ final class GoogleHealthService: GoogleHealthImporting {
         var hours: [HourlyMetrics]?
         var pulses: [HourlyMetrics]?
         var failed: Set<MetricSeries>
+        /// Bei einem Schrittfehler kann Energie trotzdem gegen die gespeicherte Schrittquelle ausgewählt werden.
+        var unpairedEnergy: [GoogleHealthPoint]? = nil
     }
 
     private struct Configuration {
@@ -304,7 +306,8 @@ final class GoogleHealthService: GoogleHealthImporting {
             return Import(days: GoogleHealthMerge.days(points: imported, from: from, until: until,
                                                        calendar: calendar, activity: activity),
                           hours: imported[.steps] == nil ? nil : activity,
-                          pulses: pulses, failed: failed)
+                          pulses: pulses, failed: failed,
+                          unpairedEnergy: imported[.steps] == nil ? imported[.energy] : nil)
         }.value
         try check(generation)
         return result

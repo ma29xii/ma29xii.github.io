@@ -29,8 +29,14 @@ enum CoachProviders {
     static let photoConsentKey = "forma.coach.photoConsent.v1"
     static let maxImagesPerMessage = 4
     private static let conversation = Mutex(UUID())
+    private static let foodPhotoConsent = Mutex((revision: UUID(), allowed: false))
     @MainActor private static var activeReplies: [UUID: Task<String, any Error>] = [:]
     @MainActor private static var credentialSignature: [Data?]?
+    @MainActor private static let consentObserver = NotificationCenter.default.addObserver(
+        forName: UserDefaults.didChangeNotification, object: nil, queue: nil
+    ) { _ in
+        CoachProviders.observeConsentChange()
+    }
 
     static var conversationID: UUID { conversation.withLock { $0 } }
 
@@ -61,6 +67,43 @@ enum CoachProviders {
 
     static func allowsCoachReply(withPhotos: Bool, defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: consentKey) && (!withPhotos || defaults.bool(forKey: photoConsentKey))
+    }
+
+    static func allowsFoodPhoto(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: consentKey) && FoodSettings.photoAnalysisAllowed(defaults)
+    }
+
+    static func revokeFoodPhotoConsent(defaults: UserDefaults = .standard) {
+        foodPhotoConsent.withLock { $0.revision = UUID() }
+        defaults.removeObject(forKey: FoodSettings.photoConsentKey)
+    }
+
+    @MainActor
+    static func revokeChatConsent(defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: consentKey)
+        clearPhotoConsentIfChatIsOff(defaults: defaults)
+        invalidateConversation()
+    }
+
+    @MainActor
+    static func monitorConsent() {
+        _ = consentObserver
+        observeConsentChange()
+    }
+
+    private static func observeConsentChange() {
+        let allowed = allowsFoodPhoto()
+        foodPhotoConsent.withLock {
+            if $0.allowed && !allowed { $0.revision = UUID() }
+            $0.allowed = allowed
+        }
+        clearPhotoConsentIfChatIsOff(defaults: .standard)
+    }
+
+    private static func clearPhotoConsentIfChatIsOff(defaults: UserDefaults) {
+        guard !defaults.bool(forKey: consentKey) else { return }
+        if defaults.bool(forKey: photoConsentKey) { defaults.removeObject(forKey: photoConsentKey) }
+        if FoodSettings.photoAnalysisAllowed(defaults) { revokeFoodPhotoConsent(defaults: defaults) }
     }
 
     @MainActor
@@ -186,13 +229,16 @@ enum CoachProviders {
         photo: Data, system: String, schema: String, anthropicKey: String?, openAIKey: String?,
         maySend: @Sendable () -> Bool, send: Transport, parse: (String) throws -> Result
     ) async throws -> Result {
+        let revision = foodPhotoConsent.withLock { $0.revision }
         try checkConsent(maySend)
         let prompt = Prompt(
             system: system, messages: [["role": "user", "content": "Schätze die sichtbare Portion auf dem Foto."]],
             images: [try prepareImage(photo)], model: .sonnet, jsonSchema: schema
         )
         return try await requestReply(
-            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: maySend, send: send
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: {
+                foodPhotoConsent.withLock { $0.revision } == revision && maySend()
+            }, send: send
         ) { blocks in
             guard blocks.count == 1, let json = blocks.first else { throw ReplyError.invalidResponse }
             return try parse(json)
