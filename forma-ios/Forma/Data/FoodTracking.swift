@@ -123,10 +123,13 @@ final class FoodLibraryItem {
 final class FoodWaterEntry {
     var date: Date
     var milliliters: Double
+    /// Kennung des importierten Widget-Ereignisses. Manuelle und ältere Einträge haben keine Kennung.
+    var widgetEventID: UUID?
 
-    init(date: Date = .now, milliliters: Double) {
+    init(date: Date = .now, milliliters: Double, widgetEventID: UUID? = nil) {
         self.date = date
         self.milliliters = milliliters
+        self.widgetEventID = widgetEventID
     }
 }
 

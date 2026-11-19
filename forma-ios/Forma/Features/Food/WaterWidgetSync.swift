@@ -1,17 +1,13 @@
+import Foundation
 import SwiftData
 import WidgetKit
 
 /// Gleicht das Wasser-Widget (App Group) mit dem Wassertagebuch in SwiftData ab.
 @MainActor
 enum WaterWidgetSync {
-    /// Gläser aus dem Widget, die in SwiftData noch fehlen. Ein Eintrag mit gleichem Zeitstempel und 250 ml gilt als
-    /// schon übernommen; so entstehen keine Doppelten, wenn die App zwischen Speichern und Bestätigen endet.
-    /// shortcut: Der Abgleich nutzt den Zeitstempel statt einer eigenen UUID im Modell; ein Feld
-    /// `widgetEventID` wäre nur nötig, wenn zwei Gläser denselben Zeitstempel haben könnten.
-    nonisolated static func missing(_ pending: [WaterWidgetEvent],
-                                    existing: [(date: Date, milliliters: Double)]) -> [WaterWidgetEvent] {
-        let known = Set(existing.filter { $0.milliliters == WaterWidgetStore.glassMilliliters }.map(\.date))
-        return pending.filter { !known.contains($0.date) }
+    nonisolated static func missing<Key: Hashable>(_ pending: [WaterWidgetEvent], existing: Set<Key>,
+                                                    identifiedBy key: KeyPath<WaterWidgetEvent, Key>) -> [WaterWidgetEvent] {
+        pending.filter { !existing.contains($0[keyPath: key]) }
     }
 
     /// Übernimmt wartende Gläser, veröffentlicht den Tagesstand fürs Widget und lädt es neu.
@@ -22,14 +18,17 @@ enum WaterWidgetSync {
         guard enabled, !FormaApp.isUITest else { return }
         do {
             let pending = try store.pendingEntries()
-            if let earliest = pending.map(\.date).min() {
+            if !pending.isEmpty {
                 let existing = try context.fetch(FetchDescriptor<FoodWaterEntry>(
-                    predicate: #Predicate { $0.date >= earliest }))
-                let new = missing(pending, existing: existing.map { ($0.date, $0.milliliters) })
+                    predicate: #Predicate { $0.widgetEventID != nil }))
+                let knownIDs = Set(existing.compactMap(\.widgetEventID))
+                let new = missing(pending, existing: knownIDs, identifiedBy: \.id)
                 if !new.isEmpty {
                     try FoodEntry.saveChange(in: context) {
                         for event in new {
-                            context.insert(FoodWaterEntry(date: event.date, milliliters: WaterWidgetStore.glassMilliliters))
+                            context.insert(FoodWaterEntry(date: event.date,
+                                                          milliliters: WaterWidgetStore.glassMilliliters,
+                                                          widgetEventID: event.id))
                         }
                     }
                 }
