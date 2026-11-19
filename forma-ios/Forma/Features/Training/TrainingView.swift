@@ -40,9 +40,6 @@ enum TrainingRoute: Hashable {
 }
 
 /// Bisherige Trainingsseite als eigenständige Ansicht (Runde 11: kein eigener Tab mehr, Plus-Menü öffnet sie).
-/// shortcut: Alias für den alten Tab-Aufruf in FormaApp, entfällt, sobald plus-coach dort umgestellt hat.
-typealias TrainingView = TrainingHomeView
-
 struct TrainingHomeView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
