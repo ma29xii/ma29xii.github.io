@@ -38,14 +38,6 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Ruhepuls und Atemfrequenz sind niedriger besser, alles andere höher.
-    var higherIsBetter: Bool {
-        switch self {
-        case .restingHR, .respiratoryRate: false
-        default: true
-        }
-    }
-
     func value(_ day: DayMetrics) -> Double? {
         switch self {
         case .hrv: day.hrv
@@ -70,45 +62,47 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Eine Zeile der Biomarker-Liste: Name, Zustandswort farbig, Wert, Verlauf der letzten 14 Tage.
+/// Eine Zeile der Biomarker-Liste: Name, Zustand gegen deinen Bereich, Wert, Verlauf der letzten 14 Tage.
+/// Bei großer Schrift stehen die Teile untereinander statt zu schrumpfen (K-03-26).
 struct MetricSummaryRow: View {
     @Environment(DataHub.self) private var hub
+    @Environment(\.dynamicTypeSize) private var typeSize
     let kind: MetricKind
 
     var body: some View {
-        let points = hub.days.compactMap { day in
+        let evaluation = BiomarkerComparison.evaluate(kind, days: hub.longDays)
+        let status = evaluation.status
+        let start = Date.now.startOfDay.adding(days: -13)
+        let recent = hub.longDays.filter { $0.date >= start }.compactMap { day in
             kind.value(day).map { HealthChartPoint(date: day.date, value: $0) }
         }
-        let last = points.last
-        let recent = points.filter { $0.date >= Date.now.startOfDay.adding(days: -13) }
-        let status = BiomarkerStatus.evaluate(latest: last.map { (date: $0.date, value: $0.value) },
-                                              baseline: ScoreEngine.baseline(points.dropLast().map(\.value)))
-        let color = status.color(for: kind)
+        let large = typeSize.isAccessibilitySize
 
         HStack(spacing: Space.s3) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(kind.title)
                     .font(.formaRowTitle)
                     .foregroundStyle(Theme.textPrimary)
-                HStack(spacing: 6) {
-                    Circle().fill(color).frame(width: 6, height: 6).accessibilityHidden(true)
-                    Text(status.title).foregroundStyle(color)
-                    if let last {
-                        Text("·").foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
-                        Text(kind.measurement(last.value))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                            .formaNumberTransition(last.value)
-                    }
+                if let latest = evaluation.latest {
+                    Text(kind.measurement(latest.value))
+                        .font(.formaValue)
+                        .foregroundStyle(Theme.textPrimary)
+                        .formaNumberTransition(latest.value)
                 }
+                Label {
+                    Text(status.title)
+                } icon: {
+                    if let symbol = status.symbol { Image(systemName: symbol) }
+                }
+                .labelStyle(.titleAndIcon)
                 .font(.formaCaptionStrong)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .foregroundStyle(status.color)
             }
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            if recent.count >= 2 {
-                MetricSparkline(points: recent, color: color == Theme.textSecondary ? Theme.textTertiary : color)
-                    .frame(width: 64, height: 28)
+            if !large, recent.count >= 2 {
+                MetricSparkline(points: recent, range: evaluation.range)
+                    .frame(width: 72, height: 32)
                     .accessibilityHidden(true)
             }
             Image(systemName: "chevron.right")
@@ -127,34 +121,43 @@ struct MetricSummaryRow: View {
 /// Die X-Position folgt dem Kalendertag. Eine fehlende Messung unterbricht die Linie.
 private struct MetricSparkline: View {
     let points: [HealthChartPoint]
-    let color: Color
+    let range: ClosedRange<Double>?
 
     var body: some View {
         Canvas { context, size in
-            guard let low = points.map(\.value).min(), let high = points.map(\.value).max() else { return }
+            let values = points.map(\.value) + (range.map { [$0.lowerBound, $0.upperBound] } ?? [])
+            guard let low = values.min(), let high = values.max() else { return }
             let first = Date.now.startOfDay.adding(days: -13)
             let span = max(high - low, 0.001)
+            func y(_ value: Double) -> CGFloat {
+                high == low ? size.height / 2 : size.height - 3 - (size.height - 6) * CGFloat((value - low) / span)
+            }
+            if let range {
+                let top = y(range.upperBound), bottom = y(range.lowerBound)
+                context.fill(Path(roundedRect: CGRect(x: 0, y: top, width: size.width, height: max(1, bottom - top)),
+                                  cornerRadius: 2), with: .color(Color.white.opacity(0.07)))
+            }
             var path = Path()
             var previous: Date?
-            var end: CGPoint?
+            var end: (point: CGPoint, outside: Bool)?
             for point in points {
                 let days = Calendar.forma.dateComponents([.day], from: first, to: point.date).day ?? 0
-                let x = 2 + (size.width - 6) * CGFloat(days) / 13
-                let y = high == low ? size.height / 2 : size.height - 3 - (size.height - 6) * CGFloat((point.value - low) / span)
-                let position = CGPoint(x: x, y: y)
+                let position = CGPoint(x: 2 + (size.width - 6) * CGFloat(days) / 13, y: y(point.value))
                 if previous?.adding(days: 1) == point.date {
                     path.addLine(to: position)
                 } else {
                     path.move(to: position)
                 }
                 previous = point.date
-                end = position
-                context.fill(Path(ellipseIn: CGRect(x: x - 1, y: y - 1, width: 2, height: 2)), with: .color(color.opacity(0.6)))
+                end = (point: position, outside: range.map { !$0.contains(point.value) } ?? false)
+                context.fill(Path(ellipseIn: CGRect(x: position.x - 1, y: position.y - 1, width: 2, height: 2)),
+                             with: .color(Theme.textTertiary))
             }
-            context.stroke(path, with: .color(color.opacity(0.9)),
+            context.stroke(path, with: .color(Theme.textSecondary),
                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             if let end {
-                context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)), with: .color(color))
+                context.fill(Path(ellipseIn: CGRect(x: end.point.x - 2.5, y: end.point.y - 2.5, width: 5, height: 5)),
+                             with: .color(end.outside ? Theme.textPrimary : Theme.textSecondary))
             }
         }
     }

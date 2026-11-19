@@ -65,6 +65,9 @@ enum AgingPace {
     }
 
     static func text(_ pace: Double) -> String {
+        // Außerhalb der Skala keine Scheingenauigkeit (K-03-38).
+        if pace > scale.upperBound { return "über 3,0×" }
+        if pace < scale.lowerBound { return "unter −1,0×" }
         let rounded = (pace * 10).rounded() / 10
         let sign = rounded < 0 ? "−" : ""
         return sign + Format.number(abs(rounded), decimals: 1) + "×"
@@ -110,24 +113,23 @@ enum FactorScale {
     }
 }
 
-/// Zustandswort eines Biomarkers: letzter Wert gegen den persönlichen Bereich.
+/// Zustandswort eines Biomarkers: letzter Wert gegen deinen üblichen Bereich – neutral, ohne „besser/schlechter“ (K-03-24).
 enum BiomarkerStatus: Equatable {
     case none
     case stale(Date)
     case noBaseline
-    case normal
-    case higher
-    case lower
+    case within
+    case above
+    case below
 
-    static func evaluate(latest: (date: Date, value: Double)?, baseline: ScoreEngine.Baseline?,
+    static func evaluate(latest: (date: Date, value: Double)?, range: ClosedRange<Double>?,
                          today: Date = .now) -> Self {
         guard let latest else { return .none }
         guard Calendar.forma.isDate(latest.date, inSameDayAs: today) else { return .stale(latest.date) }
-        guard let baseline else { return .noBaseline }
-        let z = baseline.z(latest.value)
-        if z > 1 { return .higher }
-        if z < -1 { return .lower }
-        return .normal
+        guard let range else { return .noBaseline }
+        if latest.value > range.upperBound { return .above }
+        if latest.value < range.lowerBound { return .below }
+        return .within
     }
 
     var title: String {
@@ -135,19 +137,62 @@ enum BiomarkerStatus: Equatable {
         case .none: "Keine Messung"
         case .stale(let date): "Stand \(Format.shortDate(date))"
         case .noBaseline: "Noch kein Vergleich"
-        case .normal: "Normal"
-        case .higher: "Erhöht"
-        case .lower: "Niedrig"
+        case .within: "In deinem Bereich"
+        case .above: "Über deinem Bereich"
+        case .below: "Unter deinem Bereich"
         }
     }
 
-    /// Grün, wenn die Abweichung in die gute Richtung geht, sonst Orange.
-    func color(for kind: MetricKind) -> Color {
+    /// Abweichungen heben sich nur durch Helligkeit und Pfeil ab, nicht durch Ampelfarben.
+    var color: Color {
         switch self {
-        case .normal: Theme.younger
-        case .higher: kind.higherIsBetter ? Theme.younger : Theme.warning
-        case .lower: kind.higherIsBetter ? Theme.warning : Theme.younger
-        case .none, .stale, .noBaseline: Theme.textSecondary
+        case .above, .below: Theme.textPrimary
+        case .within: Theme.textSecondary
+        case .none, .stale, .noBaseline: Theme.textTertiary
         }
+    }
+
+    var symbol: String? {
+        switch self {
+        case .above: "arrow.up"
+        case .below: "arrow.down"
+        default: nil
+        }
+    }
+}
+
+/// Gleiche Vergleichsbasis wie der Health Monitor: die 30 Tage davor, nur Werte derselben Quelle,
+/// mindestens sieben Werte, Bereich = Mittel ± 2 Standardabweichungen.
+enum BiomarkerComparison {
+    struct Evaluation {
+        let latest: (date: Date, value: Double)?
+        let range: ClosedRange<Double>?
+        let status: BiomarkerStatus
+    }
+
+    static func series(for kind: MetricKind) -> MetricSeries? {
+        kind == .sleepDuration ? .sleep : MetricSeries(rawValue: kind.rawValue)
+    }
+
+    static func range(for kind: MetricKind, day: DayMetrics, history: [DayMetrics]) -> ClosedRange<Double>? {
+        let source = Self.series(for: kind)
+        let values = InsightHistory(history).prior(to: day.date).compactMap { previous -> Double? in
+            if let source, !ScoreEngine.sameBaselineSource(for: source, today: day, previous: previous) { return nil }
+            return kind.value(previous)
+        }
+        guard values.count >= 7 else { return nil }
+        var baseline = ScoreEngine.baseline(values, minimumRelativeSpread: kind == .spo2 ? 0 : 0.04)
+        if kind == .spo2, let spread = baseline?.sd { baseline?.sd = max(1, spread) }
+        return NightVitals.range(for: kind.rawValue, baseline: baseline)
+    }
+
+    static func evaluate(_ kind: MetricKind, days: [DayMetrics], today: Date = .now) -> Evaluation {
+        guard let day = days.last(where: { kind.value($0) != nil }), let value = kind.value(day) else {
+            return Evaluation(latest: nil, range: nil, status: .none)
+        }
+        let usual = Self.range(for: kind, day: day, history: days)
+        let latest = (date: day.date, value: value)
+        return Evaluation(latest: latest, range: usual,
+                          status: BiomarkerStatus.evaluate(latest: latest, range: usual, today: today))
     }
 }

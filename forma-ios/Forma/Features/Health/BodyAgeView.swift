@@ -71,25 +71,17 @@ struct HealthAgeHero: View {
             .frame(width: 252, height: 252)
             .padding(.top, Space.s2)
 
-            Text(headline)
-                .font(.formaHeadline)
-                .foregroundStyle(result.map { BodyAgeText.color($0.difference) } ?? Theme.textSecondary)
+            let tint = result.map { BodyAgeText.color($0.difference) } ?? Theme.textSecondary
+            Text("\(Text(headline).foregroundStyle(tint))\(Text("  ·  Schätzung").foregroundStyle(Theme.textTertiary))")
+                .font(.formaRowTitle)
                 .multilineTextAlignment(.center)
-                .formaNumberTransition(result?.difference ?? 0)
-            HStack(spacing: 4) {
-                Text(caption)
-                Image(systemName: "chevron.right").imageScale(.small)
-            }
-            .font(.formaCaption)
-            .foregroundStyle(Theme.textSecondary)
-            .frame(minHeight: 28)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Health Age")
-        .accessibilityValue(result == nil ? headline : "\(number) Jahre, \(headline), \(caption)")
-        .accessibilityHint("Öffnet die Datengrundlage")
+        .accessibilityValue(result == nil ? headline : "Schätzung \(number) Jahre, \(headline)")
+        .accessibilityHint("Öffnet Tempo, Beiträge und Verlauf")
     }
 
     private var number: String {
@@ -103,10 +95,6 @@ struct HealthAgeHero: View {
         case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Daten nötig"
         case .insufficient(let reason): reason
         }
-    }
-
-    private var caption: String {
-        result.map { "Datenlage \($0.confidence.title.lowercased())" } ?? "Datengrundlage"
     }
 }
 
@@ -123,7 +111,8 @@ struct HealthAgeSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s5) {
-            AgingPaceCard(pace: result?.pace)
+            // Bei dünner Datenlage schwankt das Tempo zu stark, um es zu zeigen (K-03-38).
+            AgingPaceCard(pace: result?.confidence == .low ? nil : result?.pace)
             if let result, !result.factors.isEmpty {
                 VStack(alignment: .leading, spacing: Space.s2) {
                     DashboardHeading(title: "Beiträge")
@@ -501,32 +490,45 @@ private struct HealthAgeTrendCard: View {
 
 // MARK: - Datengrundlage und Quellen
 
+/// Health Age im Detail: Schätzung, Tempo, Beiträge, Verlauf, Datengrundlage, Quellen.
 struct BodyAgeDetailView: View {
-    @Environment(AppState.self) private var app
     @Environment(DataHub.self) private var hub
     let outcome: BodyAge.Outcome
+    var trend: [BodyAge.Estimate] = []
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.s4) {
+            VStack(alignment: .leading, spacing: Space.s5) {
                 if hub.isSample { SampleDataBadge() }
-                switch outcome {
-                case .ready(let result):
-                    DashboardCard {
-                        MetricRow(title: "Health Age", value: BodyAgeText.years(result.bodyAge, confidence: result.confidence))
-                        RowDivider()
-                        MetricRow(title: "Echtes Alter", value: Format.number(result.age, decimals: 1))
-                        RowDivider()
-                        MetricRow(title: "Tage mit Daten", value: "\(result.daysWithData) von \(result.windowDays)")
-                        RowDivider()
-                        MetricRow(title: "Datenlage", value: result.confidence.title)
+                if case .ready(let result) = outcome {
+                    VStack(alignment: .leading, spacing: Space.s1) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                            Text(BodyAgeText.years(result.bodyAge, confidence: result.confidence))
+                                .font(.formaDisplay)
+                                .formaNumberTransition(result.bodyAge)
+                            Text("Jahre · Schätzung")
+                                .font(.formaCaption)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                        Text(BodyAgeText.difference(result))
+                            .font(.formaRowTitle)
+                            .foregroundStyle(BodyAgeText.color(result.difference))
                     }
-                    if !result.missing.isEmpty {
-                        DashboardHeading(title: "Fehlt noch")
-                            .padding(.top, Space.s2)
+                    .accessibilityElement(children: .combine)
+                    .padding(.top, Space.s3)
+
+                    HealthAgeSections(outcome: outcome, trend: trend)
+
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        DashboardHeading(title: "Datengrundlage")
                         DashboardCard {
-                            ForEach(Array(result.missing.enumerated()), id: \.offset) { index, item in
-                                if index > 0 { RowDivider() }
+                            MetricRow(title: "Echtes Alter", value: Format.number(result.age, decimals: 0))
+                            RowDivider()
+                            MetricRow(title: "Tage mit Daten", value: "\(result.daysWithData) von \(result.windowDays)")
+                            RowDivider()
+                            MetricRow(title: "Datenlage", value: result.confidence.title)
+                            ForEach(Array(result.missing.enumerated()), id: \.offset) { _, item in
+                                RowDivider()
                                 Text(item)
                                     .font(.formaBody)
                                     .foregroundStyle(Theme.textSecondary)
@@ -535,28 +537,84 @@ struct BodyAgeDetailView: View {
                             }
                         }
                     }
-                case .needsProfile:
-                    Text("Für Health Age fehlt dein Geburtsjahr.").font(.formaBody)
-                    Button("Profil öffnen") { app.showProfile = true }
-                        .buttonStyle(.glass)
-                        .frame(minHeight: 44)
-                case .needsData(let have, let need):
-                    DashboardCard {
-                        MetricRow(title: "Tage mit Daten", value: "\(have) von \(need)")
-                    }
-                case .insufficient(let reason):
-                    Text(reason).font(.formaBody)
+                } else {
+                    HealthAgeSetupCard(outcome: outcome)
                 }
-                Text("Schätzung, keine Diagnose.")
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textTertiary)
+                VStack(spacing: Space.s1) {
+                    Text("Modellschätzung aus deinen Messwerten, keine Diagnose.")
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .multilineTextAlignment(.center)
+                    NavigationLink {
+                        HealthSourcesView()
+                    } label: {
+                        Text("Quellen")
+                            .font(.formaCaption)
+                            .underline()
+                            .foregroundStyle(Theme.textTertiary)
+                            .frame(minWidth: 88, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("health.sources")
+                }
+                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, Space.page)
-            .padding(.vertical, Space.s4)
+            .padding(.bottom, Space.s6)
         }
         .dashboardScreen()
-        .navigationTitle("Datengrundlage")
+        .navigationTitle("Health Age")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Ohne Schätzung: eine einzige ruhige Karte mit dem einen nächsten Schritt (K-03-28).
+struct HealthAgeSetupCard: View {
+    @Environment(AppState.self) private var app
+    let outcome: BodyAge.Outcome
+
+    var body: some View {
+        DashboardCard {
+            HStack(alignment: .top, spacing: Space.s3) {
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 32)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text("Health Age").formaLabelStyle()
+                    Text(message)
+                        .font(.formaBody)
+                        .foregroundStyle(Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if case .needsProfile = outcome {
+                        Button("Geburtsjahr eintragen") { app.showProfile = true }
+                            .font(.formaRowTitle)
+                            .frame(minHeight: 44)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(Space.s4)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var icon: String {
+        switch outcome {
+        case .needsProfile: "person.crop.circle"
+        case .needsData: "hourglass"
+        default: "circle.dashed"
+        }
+    }
+
+    private var message: String {
+        switch outcome {
+        case .ready: "Schätzung bereit."
+        case .needsProfile: "Mit deinem Geburtsjahr schätzt Health, wie alt dein Körper wirkt."
+        case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Messungen, dann gibt es die erste Schätzung."
+        case .insufficient(let reason): reason
+        }
     }
 }
 

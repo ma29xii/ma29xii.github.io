@@ -21,14 +21,13 @@ enum HealthTile: String, TileKind {
     }
 }
 
-/// Health: oben Health Age, darunter Tempo, Beiträge, Trend, Health Monitor und Biomarker.
+/// Health: oben nur Health Age (Details nach Antippen), direkt darunter die Biomarker, dann der Health Monitor.
 struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
 
     var body: some View {
         let age = bodyAgeOutcome(hub: hub, sessions: sessions)
-        let trend = bodyAgeTrend(hub: hub, sessions: sessions)
         let today = Date.now.startOfDay
         let day = hub.days.last.flatMap { $0.date == today ? $0 : nil } ?? DayMetrics(date: today)
         let snapshot = DashboardDay(day: day, history: hub.dashboardHistory(recent: hub.days))
@@ -40,16 +39,18 @@ struct HealthView: View {
                     } else if let status = hub.todayDataNotice {
                         Text(status).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                     }
-                    NavigationLink {
-                        BodyAgeDetailView(outcome: age)
-                    } label: {
-                        HealthAgeHero(outcome: age)
+                    if case .ready = age {
+                        NavigationLink {
+                            BodyAgeDetailView(outcome: age, trend: bodyAgeTrend(hub: hub, sessions: sessions))
+                        } label: {
+                            HealthAgeHero(outcome: age)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("health.age")
+                    } else {
+                        HealthAgeSetupCard(outcome: age)
+                            .accessibilityIdentifier("health.age")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("health.age")
-
-                    HealthAgeSections(outcome: age, trend: trend)
-                    HealthMonitor(snapshot: snapshot)
 
                     VStack(alignment: .leading, spacing: Space.s2) {
                         DashboardHeading(title: "Biomarker")
@@ -58,17 +59,7 @@ struct HealthView: View {
                         }
                     }
 
-                    NavigationLink {
-                        HealthSourcesView()
-                    } label: {
-                        Text("Quellen")
-                            .font(.formaCaption)
-                            .underline()
-                            .foregroundStyle(Theme.textTertiary)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("health.sources")
+                    HealthMonitor(snapshot: snapshot)
                 }
                 .padding(.horizontal, Space.page)
                 .padding(.vertical, Space.s4)
@@ -95,7 +86,7 @@ struct HealthView: View {
     }
 }
 
-/// Diagramm eines Biomarkers über 7, 30 oder 90 Tage mit persönlichem Normalband.
+/// Diagramm eines Biomarkers über 7, 30 oder 90 Tage mit deinem üblichen Bereich als Band.
 struct MetricDetailView: View {
     @Environment(DataHub.self) private var hub
     let kind: MetricKind
@@ -140,8 +131,9 @@ struct MetricDetailView: View {
         let all = hub.longDays.compactMap { day in kind.value(day).map { (day.date, $0) } }
         let points = all.filter { domain.contains($0.0) }
         let values = points.map(\.1)
-        let base = ScoreEngine.baseline(hub.history.compactMap { kind.value($0) })
-        let status = BiomarkerStatus.evaluate(latest: all.last.map { (date: $0.0, value: $0.1) }, baseline: base)
+        let evaluation = BiomarkerComparison.evaluate(kind, days: hub.longDays)
+        let usual = evaluation.range
+        let status = evaluation.status
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -150,13 +142,15 @@ struct MetricDetailView: View {
                         .font(.formaDisplay)
                         .formaNumberTransition(all.last?.1 ?? 0)
                     HStack(spacing: 6) {
-                        Text(status.title).foregroundStyle(status.color(for: kind))
+                        if let symbol = status.symbol { Image(systemName: symbol).accessibilityHidden(true) }
+                        Text(status.title)
                         // Bei älteren Werten steht das Datum schon im Zustandswort.
-                        if status == .normal || status == .higher || status == .lower, let last = all.last {
+                        if status == .within || status == .above || status == .below, let last = all.last {
                             Text("· \(Format.shortDate(last.0))").foregroundStyle(Theme.textSecondary)
                         }
                     }
                     .font(.formaCaptionStrong)
+                    .foregroundStyle(status.color)
                 }
                 .padding(.top, Space.s4)
 
@@ -194,7 +188,7 @@ struct MetricDetailView: View {
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, minHeight: 160, alignment: .center)
                         } else {
-                            chart(points: points, base: base)
+                            chart(points: points, usual: usual)
                         }
                     }
                     .padding(Space.s4)
@@ -210,9 +204,9 @@ struct MetricDetailView: View {
                         MetricRow(title: "Niedrigster Wert", value: values.min().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
                         RowDivider()
                         MetricRow(title: "Höchster Wert", value: values.max().map { kind.formatted($0) } ?? "–", unit: kind == .sleepDuration ? nil : kind.unit)
-                        if let base {
+                        if let usual {
                             RowDivider()
-                            MetricRow(title: "Normalbereich", value: "\(kind.formatted(max(0, base.mean - base.sd)))–\(kind.formatted(base.mean + base.sd))", unit: kind == .sleepDuration ? nil : kind.unit)
+                            MetricRow(title: "Dein Bereich", value: "\(kind.formatted(usual.lowerBound))–\(kind.formatted(usual.upperBound))", unit: kind == .sleepDuration ? nil : kind.unit)
                         }
                     }
                 }
@@ -226,12 +220,12 @@ struct MetricDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func chart(points: [(Date, Double)], base: ScoreEngine.Baseline?) -> some View {
+    private func chart(points: [(Date, Double)], usual: ClosedRange<Double>?) -> some View {
         Chart {
-            if let b = base {
+            if let usual {
                 RectangleMark(xStart: .value("Start", domain.lowerBound), xEnd: .value("Ende", domain.upperBound),
-                              yStart: .value("unten", max(0, b.mean - b.sd)), yEnd: .value("oben", b.mean + b.sd))
-                    .foregroundStyle(Theme.younger.opacity(0.08))
+                              yStart: .value("unten", usual.lowerBound), yEnd: .value("oben", usual.upperBound))
+                    .foregroundStyle(Color.white.opacity(0.07))
             }
             // Linear verbinden und bei Lücken unterbrechen: keine erfundenen Zwischenwerte.
             ForEach(segmented(points), id: \.date) { p in
