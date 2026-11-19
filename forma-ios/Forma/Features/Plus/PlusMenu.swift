@@ -173,16 +173,9 @@ private struct PlusFlow: ViewModifier {
             .onChange(of: app.showProfile) { _, _ in routeIntent() }
             .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
             .onChange(of: app.isWorkoutSummaryActive) { _, _ in routeIntent() }
-            .onChange(of: app.liveWorkout?.draftID) { _, new in
-                // Startet das Training aus dem Trainings-Blatt, erst das Blatt schließen, dann das Vollbild zeigen.
-                if new != nil, destination != nil {
-                    app.liveCoverHeld = true
-                    destination = nil
-                }
-                routeIntent()
-            }
+            .onChange(of: app.liveWorkout?.draftID) { _, _ in routeIntent() }
             .onChange(of: destination) { _, _ in routeIntent() }
-            .sheet(item: $destination, onDismiss: { app.liveCoverHeld = false }) { action in
+            .sheet(item: $destination) { action in
                 switch action {
                 case .track: PlusFood.track()
                 case .scan: PlusFood.scan()

@@ -75,7 +75,9 @@ private struct FoodHomeContent: View {
 
     var body: some View {
         let target = goal.target
-        let macros = FoodMacroGoals.resolve(kcal: target, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal)
+        // Eigene Ziele aus „Ziele“ gehen vor; sonst die berechneten aus Gewicht und Kalorienziel.
+        let proteinTarget = proteinGoal > 0 ? proteinGoal : goal.proteinGrams
+        let carbTarget = carbsGoal > 0 ? carbsGoal : goal.carbGrams
         let planOpen = planned.filter { $0.loggedAt == nil }.count
         ScrollViewReader { proxy in
             List {
@@ -86,7 +88,7 @@ private struct FoodHomeContent: View {
                 }
                 Section {
                     Button { route = .goals } label: {
-                        FoodHero(entries: entries, target: target, macros: macros)
+                        FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget)
                     }
                     .buttonStyle(.plain)
                     .id("food.top")
@@ -124,7 +126,7 @@ private struct FoodHomeContent: View {
             case .fasting: FoodFastingView()
             case .weight: FoodWeightView()
             case .plan: FoodPlanView(standalone: false)
-            case .goals: FoodGoalsView(target: target)
+            case .goals: FoodGoalsView(target: target, proteinAuto: goal.proteinGrams, carbsAuto: goal.carbGrams)
             }
         }
         .sheet(isPresented: $showTrack) { FoodTrackSheet() }
@@ -208,7 +210,8 @@ private struct FoodHomeContent: View {
 private struct FoodHero: View {
     let entries: [FoodEntry]
     let target: Double
-    let macros: FoodMacroGoals
+    let proteinGoal: Double
+    let carbGoal: Double
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -220,8 +223,8 @@ private struct FoodHero: View {
                 VStack(spacing: Space.s4) {
                     calories(energy, size: 180)
                     HStack(alignment: .top, spacing: Space.s4) {
-                        macro("Protein", protein, goal: macros.protein, tint: Theme.younger, size: 110)
-                        macro("Kohlenhydrate", carbs, goal: macros.carbs, tint: Theme.warning, size: 110)
+                        macro("Protein", protein, goal: proteinGoal, tint: Theme.younger, size: 110)
+                        macro("Kohlenhydrate", carbs, goal: carbGoal, tint: Theme.warning, size: 110)
                     }
                 }
             } else {
@@ -239,9 +242,9 @@ private struct FoodHero: View {
     private func row(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum,
                      side: CGFloat, middle: CGFloat, spacing: CGFloat) -> some View {
         HStack(alignment: .center, spacing: spacing) {
-            macro("Protein", protein, goal: macros.protein, tint: Theme.younger, size: side)
+            macro("Protein", protein, goal: proteinGoal, tint: Theme.younger, size: side)
             calories(energy, size: middle)
-            macro("Kohlenhydrate", carbs, goal: macros.carbs, tint: Theme.warning, size: side)
+            macro("Kohlenhydrate", carbs, goal: carbGoal, tint: Theme.warning, size: side)
         }
     }
 

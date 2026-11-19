@@ -47,8 +47,6 @@ final class AppState {
     var showProfile = false
     /// Plus-Menü (Kacheln: Nährwerte tracken, Essen planen, Training, Wasser, Fasten, Gewicht).
     var showPlus = false
-    /// Hält das Trainings-Vollbild kurz zurück, solange ein Blatt schließt. So zeigt SwiftUI beides nacheinander.
-    var liveCoverHeld = false
     var profilePhoto = ProfilePhotoStore.load()
 
     var weightUnit: WeightUnit {

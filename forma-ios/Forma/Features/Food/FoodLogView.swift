@@ -342,12 +342,22 @@ struct FoodHabitTile: View {
 /// Kalorien- und Makro-Ziele, Körpergröße.
 struct FoodGoalsView: View {
     let target: Double
+    /// Berechnete Tagesziele (Gewicht, Kalorienziel); ohne Angabe gilt die einfache Aufteilung.
+    var proteinAuto: Double?
+    var carbsAuto: Double?
+
+    init(target: Double, proteinAuto: Double? = nil, carbsAuto: Double? = nil) {
+        self.target = target
+        self.proteinAuto = proteinAuto
+        self.carbsAuto = carbsAuto
+    }
     @AppStorage(FoodSettings.proteinGoalKey) private var protein = 0.0
     @AppStorage(FoodSettings.carbsGoalKey) private var carbs = 0.0
     @AppStorage(FoodSettings.fatGoalKey) private var fat = 0.0
 
     var body: some View {
-        let auto = FoodMacroGoals.automatic(kcal: target)
+        let split = FoodMacroGoals.automatic(kcal: target)
+        let auto = FoodMacroGoals(protein: proteinAuto ?? split.protein, carbs: carbsAuto ?? split.carbs, fat: split.fat)
         Form {
             Section {
                 LabeledContent("Kalorien", value: "\(FoodText.number(target)) kcal")

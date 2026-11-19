@@ -5,10 +5,8 @@ import SwiftUI
 enum PlusFood {
     @ViewBuilder static func track() -> some View { FoodTrackSheet() }
     @ViewBuilder static func scan() -> some View { FoodScanSheet() }
-    /// Trainingsseite als eigenes Blatt (mit eigenem NavigationStack).
-    /// shortcut: `TrainingView` ist die heutige Trainingsseite; auf `TrainingHomeView()` von training-muskeln
-    /// umstellen, sobald sie gepusht ist.
-    @ViewBuilder static func training() -> some View { TrainingView() }
+    /// Trainingsseite als eigenes Blatt. Sie bringt NavigationStack, Live-Training und Zusammenfassung selbst mit.
+    @ViewBuilder static func training() -> some View { TrainingHomeView() }
     @ViewBuilder static func plan() -> some View { FoodPlanView() }
     @ViewBuilder static func water() -> some View { FoodWaterView(standalone: true) }
     @ViewBuilder static func fasting() -> some View { FoodFastingView(standalone: true) }
