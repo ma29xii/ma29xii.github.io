@@ -119,35 +119,44 @@ struct ProfileView: View {
     // MARK: Freigaben
 
     /// Nur Widerruf: Zustimmen geschieht dort, wo der Text erklärt, was gesendet wird (Coach-Dialog, Essensfoto).
-    /// Der Chat-Widerruf nimmt auch beide Foto-Freigaben mit, damit sie nicht still wieder wirksam werden.
+    /// Der Chat-Widerruf läuft über `CoachProviders`: Er beendet auch laufende Anfragen und nimmt beide Foto-Freigaben mit.
     @ViewBuilder private var consentSection: some View {
         if coachConsent || coachPhotoConsent || foodPhotoConsent {
             Section {
                 if coachConsent {
-                    revokeRow("Fragen an den Online-Coach", systemImage: "cloud", id: "profile.consent.chat") {
-                        coachConsent = false
-                        coachPhotoConsent = false
-                        foodPhotoConsent = false
+                    revokeRow("Fragen an den Online-Coach", systemImage: "cloud", id: "profile.consent.chat",
+                              note: "Danach geht nichts mehr online, auch keine Fotos. Der Coach antwortet auf dem iPhone.") {
+                        CoachProviders.revokeChatConsent()
                     }
                 }
                 if coachPhotoConsent {
-                    revokeRow("Fotos im Chat", systemImage: "photo", id: "profile.consent.chatPhotos") { coachPhotoConsent = false }
+                    revokeRow("Fotos im Chat", systemImage: "photo", id: "profile.consent.chatPhotos",
+                              note: "Fotos im Chat werden nicht mehr gesendet. Fragen ohne Foto gehen weiter online.") {
+                        coachPhotoConsent = false
+                    }
                 }
                 if foodPhotoConsent {
-                    revokeRow("Fotos beim Essen", systemImage: "fork.knife", id: "profile.consent.foodPhotos") { foodPhotoConsent = false }
+                    revokeRow("Fotos beim Essen", systemImage: "fork.knife", id: "profile.consent.foodPhotos",
+                              note: "Essensfotos werden nicht mehr zur Analyse gesendet. Der Chat bleibt online.") {
+                        CoachProviders.revokeFoodPhotoConsent()
+                    }
                 }
             } header: {
                 Text("Freigaben").formaLabelStyle()
-            } footer: {
-                Text("Nach dem Widerruf sendet Health dafür nichts mehr an den Online-Coach, bis du erneut zustimmst. Der Coach antwortet dann auf dem iPhone.")
             }
             .listRowBackground(Theme.card)
         }
     }
 
-    private func revokeRow(_ title: String, systemImage: String, id: String, action: @escaping () -> Void) -> some View {
+    private func revokeRow(_ title: String, systemImage: String, id: String, note: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            SettingsRow(title: title, systemImage: systemImage, detail: "Widerrufen")
+            VStack(alignment: .leading, spacing: Space.s2) {
+                SettingsRow(title: title, systemImage: systemImage, detail: "Widerrufen")
+                Text(note)
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .accessibilityHint("Gibt diese Freigabe zurück")
         .accessibilityIdentifier(id)

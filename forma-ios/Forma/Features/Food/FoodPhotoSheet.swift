@@ -236,7 +236,7 @@ struct FoodPhotoSheet: View {
                 let keys = try CoachProviders.externalCredentials()
                 let (_, guesses) = try await FoodPhotoFlow.run(
                     load: load, anthropicKey: keys.anthropic, openAIKey: keys.openAI,
-                    allowed: { CoachProviders.allowsExternalData() && FoodSettings.photoAnalysisAllowed() },
+                    allowed: { CoachProviders.allowsFoodPhoto() },
                     onLoaded: { data in await MainActor.run { photo = UIImage(data: data) } }
                 )
                 try Task.checkCancellation()

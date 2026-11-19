@@ -70,7 +70,7 @@ struct CoachView: View {
                             if hub.isSample { SampleDataBadge() }
                             if online {
                                 Menu {
-                                    Button("Datenfreigabe widerrufen", systemImage: "hand.raised", role: .destructive) { externalConsent = false }
+                                    Button("Datenfreigabe widerrufen", systemImage: "hand.raised", role: .destructive) { CoachProviders.revokeChatConsent() }
                                 } label: {
                                     sourceChip("Online-Coach", systemImage: "cloud")
                                 }
