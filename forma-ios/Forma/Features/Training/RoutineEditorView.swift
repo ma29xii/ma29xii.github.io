@@ -166,10 +166,18 @@ struct ExerciseLibraryView: View {
                 .frame(height: 230)
                 .padding(.vertical, Space.s2)
                 .listRowBackground(Color.clear)
-                if let selected = muscleFilter {
-                    Button { withAnimation(.snappy) { muscleFilter = nil } } label: {
-                        Label("\(selected.name) · Filter aufheben", systemImage: "xmark.circle.fill")
+                // Vollständige Auswahl mit 44-pt-Zeilen, auch für VoiceOver und kleine Muskeln.
+                Menu {
+                    ForEach(Muscle.allCases) { m in
+                        Button(m.name) { withAnimation(.snappy) { muscleFilter = m } }
                     }
+                } label: {
+                    Text(muscleFilter?.name ?? "Muskel wählen")
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                if muscleFilter != nil {
+                    Button("Filter aufheben") { withAnimation(.snappy) { muscleFilter = nil } }
+                        .frame(minHeight: 44)
                 }
             } footer: {
                 if muscleFilter == nil { Text("Tipp auf einen Muskel, um die Übungen zu filtern.") }

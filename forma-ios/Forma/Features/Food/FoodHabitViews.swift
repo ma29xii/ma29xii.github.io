@@ -55,7 +55,13 @@ struct FoodRing<Center: View>: View {
 
 // MARK: - Wasser
 
+/// Einstieg mit getrenntem Einstellungsspeicher in der Vorschau.
 struct FoodWaterView: View {
+    var standalone = false
+    var body: some View { FoodWaterContent(standalone: standalone).foodSettingsStore() }
+}
+
+private struct FoodWaterContent: View {
     var standalone = false
     @Environment(\.modelContext) private var context
     @AppStorage(FoodSettings.waterGoalKey) private var goal = FoodSettings.defaultWaterMl
@@ -170,7 +176,13 @@ struct FoodWaterView: View {
 
 // MARK: - Fasten
 
+/// Einstieg mit getrenntem Einstellungsspeicher in der Vorschau.
 struct FoodFastingView: View {
+    var standalone = false
+    var body: some View { FoodFastingContent(standalone: standalone).foodSettingsStore() }
+}
+
+private struct FoodFastingContent: View {
     var standalone = false
     @Environment(\.modelContext) private var context
     @AppStorage(FoodSettings.fastHoursKey) private var hours = 16.0
@@ -312,7 +324,13 @@ struct FoodFastingView: View {
 
 // MARK: - Gewicht
 
+/// Einstieg mit getrenntem Einstellungsspeicher in der Vorschau.
 struct FoodWeightView: View {
+    var standalone = false
+    var body: some View { FoodWeightContent(standalone: standalone).foodSettingsStore() }
+}
+
+private struct FoodWeightContent: View {
     var standalone = false
     @Environment(\.modelContext) private var context
     @AppStorage(FoodSettings.weightGoalKey) private var goal = 0.0

@@ -227,11 +227,7 @@ struct TrainingView: View {
                         .padding(.horizontal, Space.s4)
                         .padding(.top, Space.s2)
                 }
-                Text("Hauptmuskel zählt einen Satz, mithelfende einen halben. Aufwärmsätze zählen nicht.")
-                    .font(.formaCaption).foregroundStyle(Theme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding([.horizontal, .bottom], Space.s4)
-                    .padding(.top, Space.s2)
+                Color.clear.frame(height: Space.s4)
             }
         }
     }
@@ -252,10 +248,11 @@ struct TrainingView: View {
 
 struct SessionRow: View {
     let session: WorkoutSession
+    @Environment(AppState.self) private var app
     var body: some View {
         MetricRow(title: session.title,
                   subtitle: "\(session.start.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))) · \(Format.duration(session.duration)) · \(session.workSets.count) Sätze",
-                  value: Format.number(session.volume), unit: "kg", showsChevron: true)
+                  value: Format.weight(session.volume, unit: app.weightUnit), unit: app.weightUnit.rawValue, showsChevron: true)
     }
 }
 

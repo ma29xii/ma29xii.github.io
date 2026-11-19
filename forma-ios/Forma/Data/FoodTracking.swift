@@ -248,3 +248,46 @@ enum FoodTracking {
         return (last.kg - first.kg) / days * 7
     }
 }
+
+// MARK: - Summen mit Lücken
+
+/// Summe bekannter Werte. `complete == false`, sobald ein Eintrag keinen Wert hat: dann ist die Summe nur ein Mindestwert.
+struct FoodSum: Equatable, Sendable {
+    let known: Double
+    let complete: Bool
+
+    init(_ values: [Double?]) {
+        known = values.compactMap { $0 }.filter(\.isFinite).reduce(0, +)
+        complete = values.allSatisfy { $0?.isFinite == true }
+    }
+
+    /// Restbudget nur bei vollständigen Angaben, sonst offen.
+    func remaining(of target: Double) -> Double? { complete && target > 0 ? target - known : nil }
+}
+
+// MARK: - Vorschau und Freigaben
+
+extension FoodSettings {
+    /// Eigene Foto-Freigabe für die Essensanalyse, getrennt von der Coach-Freigabe.
+    static let photoConsentKey = "forma.food.photoConsent.v1"
+
+    static func photoAnalysisAllowed(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: photoConsentKey)
+    }
+
+    static let previewSuite = "forma.preview.food"
+
+    /// Speicher der Vorschau: Beispieldaten schreiben nie in Profil, Gewicht oder echte Ziele.
+    /// Wird bei jedem App-Start geleert und mit einem Beispielprofil vorbelegt.
+    static let previewDefaults: UserDefaults = {
+        // shortcut: fester, gültiger Suite-Name; nil gibt es nur für die eigene Bundle-ID.
+        let defaults = UserDefaults(suiteName: previewSuite)!
+        defaults.removePersistentDomain(forName: previewSuite)
+        defaults.register(defaults: [
+            bodyWeightKey: 78.0, FoodGoal.heightKey: 180.0, "forma.birthYear": 1994, "forma.sex": BiologicalSex.male.rawValue
+        ])
+        return defaults
+    }()
+
+    static func store(isSample: Bool) -> UserDefaults { isSample ? previewDefaults : .standard }
+}

@@ -137,20 +137,14 @@ struct FoodScanSheet: View {
                 .listRowBackground(Color.clear)
             } else if operation == nil {
                 VStack(alignment: .leading, spacing: Space.s3) {
-                    Label("Barcode scannen", systemImage: "barcode.viewfinder")
-                        .font(.formaSection)
-                    Text(cameraDenied
-                         ? "Erlaube den Kamerazugriff in den Einstellungen oder nutze die Produktsuche."
-                         : "Halte den Barcode der Verpackung in die Kamera.")
-                        .font(.formaBody)
-                        .foregroundStyle(Theme.textSecondary)
                     if cameraDenied {
-                        Button("Einstellungen öffnen") {
-                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                            UIApplication.shared.open(url)
-                        }
-                        .frame(minHeight: 44)
+                        CameraDeniedNotice(alternative: "Nutze stattdessen die Produktsuche.")
                     } else {
+                        Label("Barcode scannen", systemImage: "barcode.viewfinder")
+                            .font(.formaSection)
+                        Text("Halte den Barcode der Verpackung in die Kamera.")
+                            .font(.formaBody)
+                            .foregroundStyle(Theme.textSecondary)
                         Button { enableCamera() } label: {
                             Text("Kamera starten").frame(minHeight: 44)
                         }
@@ -250,17 +244,16 @@ struct FoodScanSheet: View {
         }
         requestingCamera = true
         Task { @MainActor in
-            let authorized: Bool
-            switch AVCaptureDevice.authorizationStatus(for: .video) {
-            case .authorized: authorized = true
-            case .notDetermined: authorized = await AVCaptureDevice.requestAccess(for: .video)
-            default: authorized = false
-            }
+            let authorized = await CameraAccess.request() == .ready
             requestingCamera = false
             guard mode == .scanner else { return }
             cameraDenied = !authorized
-            if authorized {
+            guard authorized else { return }
+            // isAvailable ist zusätzlich falsch bei Bildschirmzeit-Sperren oder belegter Kamera.
+            if DataScannerViewController.isAvailable {
                 cameraEnabled = true
+            } else {
+                status = "Die Kamera ist gerade nicht verfügbar. Du kannst nach dem Produktnamen suchen."
             }
         }
     }

@@ -46,8 +46,8 @@ struct WorkoutSummaryView: View {
                                 let now = session.bestOneRepMax(for: name)
                                 let before = bestBefore(name)
                                 MetricRow(title: name,
-                                          subtitle: before > 0 ? (now > before ? "Neuer Bestwert · +\(Format.number(now - before, decimals: 1)) kg" : "Bestwert \(Format.number(before, decimals: 1)) kg") : "erstes Mal erfasst",
-                                          value: now > 0 ? Format.number(now, decimals: 1) : "–", unit: "kg",
+                                          subtitle: before > 0 ? (now > before ? "Neuer Bestwert · +\(Format.weight(now - before, unit: app.weightUnit)) \(app.weightUnit.rawValue)" : "Bestwert \(Format.weight(before, unit: app.weightUnit)) \(app.weightUnit.rawValue)") : "erstes Mal erfasst",
+                                          value: now > 0 ? Format.weight(now, unit: app.weightUnit) : "–", unit: app.weightUnit.rawValue,
                                           valueColor: now > before && before > 0 ? Theme.recoveryHigh : Theme.textPrimary)
                             }
                         }
@@ -112,7 +112,7 @@ struct WorkoutSummaryView: View {
         HStack(spacing: Space.s3) {
             Text(label).font(.formaCaption).foregroundStyle(Theme.textSecondary).frame(width: 64, alignment: .leading)
             ProgressLine(fraction: value / max(1, maxValue), color: color, height: 6)
-            Text("\(Format.number(value)) kg").font(.formaValue).frame(width: 84, alignment: .trailing)
+            Text("\(Format.weight(value, unit: app.weightUnit)) \(app.weightUnit.rawValue)").font(.formaValue).frame(width: 84, alignment: .trailing)
         }
         .padding(.horizontal, Space.s4)
         .frame(minHeight: 44)

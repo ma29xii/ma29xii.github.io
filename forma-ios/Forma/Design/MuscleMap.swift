@@ -124,7 +124,7 @@ private struct MuscleFigure: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
-                guard let onSelect, let hit = muscles.first(where: { BodyShape(polygons: MuscleArt.polygons($0, side) ?? []).path(in: rect).contains(location) }) else { return }
+                guard let onSelect, let hit = MuscleArt.muscle(at: location, side: side, in: rect) else { return }
                 onSelect(hit)
             }
         }
@@ -156,12 +156,8 @@ struct BodyShape: Shape {
     var head = false
 
     func path(in rect: CGRect) -> Path {
-        let s = min(rect.width / MuscleArt.size.width, rect.height / MuscleArt.size.height)
-        let dx = rect.minX + (rect.width - MuscleArt.size.width * s) / 2
-        let dy = rect.minY + (rect.height - MuscleArt.size.height * s) / 2
-        let map = { (p: CGPoint, mirror: Bool) in
-            CGPoint(x: dx + (mirror ? MuscleArt.size.width - p.x : p.x) * s, y: dy + p.y * s)
-        }
+        let (s, dx, dy) = MuscleArt.layout(in: rect)
+        let map = { (p: CGPoint, mirror: Bool) in MuscleArt.point(p, mirror: mirror, in: rect) }
         var path = Path()
         if head {
             path.addEllipse(in: CGRect(x: dx + 82 * s, y: dy + 12 * s, width: 36 * s, height: 44 * s))
@@ -196,6 +192,47 @@ enum MuscleArt {
 
     static func polygons(_ muscle: Muscle, _ side: BodySide) -> [[CGPoint]]? {
         side == .front ? front[muscle] : back[muscle]
+    }
+
+    /// Maßstab und Versatz für ein mittig eingepasstes 200 × 440-Raster.
+    static func layout(in rect: CGRect) -> (s: CGFloat, dx: CGFloat, dy: CGFloat) {
+        let s = min(rect.width / size.width, rect.height / size.height)
+        return (s, rect.minX + (rect.width - size.width * s) / 2, rect.minY + (rect.height - size.height * s) / 2)
+    }
+
+    static func point(_ p: CGPoint, mirror: Bool, in rect: CGRect) -> CGPoint {
+        let (s, dx, dy) = layout(in: rect)
+        return CGPoint(x: dx + (mirror ? size.width - p.x : p.x) * s, y: dy + p.y * s)
+    }
+
+    /// Treffer beim Antippen. Liegt der Finger daneben, gilt der nächste Muskel im Umkreis von 22 pt:
+    /// so hat auch die schmale Schulter eine unsichtbare Tippfläche von mindestens 44 pt.
+    static func muscle(at location: CGPoint, side: BodySide, in rect: CGRect, tolerance: CGFloat = 22) -> Muscle? {
+        let candidates = Muscle.allCases.compactMap { m in polygons(m, side).map { (m, $0) } }
+        if let hit = candidates.first(where: { BodyShape(polygons: $0.1).path(in: rect).contains(location) }) {
+            return hit.0
+        }
+        let nearest = candidates
+            .map { c in (c.0, c.1.flatMap { poly in [false, true].map { distance(location, to: poly, mirror: $0, in: rect) } }.min() ?? CGFloat.infinity) }
+            .min { $0.1 < $1.1 }
+        guard let nearest, nearest.1 <= tolerance else { return nil }
+        return nearest.0
+    }
+
+    /// Abstand zum Umriss (Strecken zwischen den Stützpunkten; die Kurve läuft durch sie hindurch).
+    private static func distance(_ p: CGPoint, to poly: [CGPoint], mirror: Bool, in rect: CGRect) -> CGFloat {
+        let pts = poly.map { point($0, mirror: mirror, in: rect) }
+        guard pts.count > 1 else { return .infinity }
+        var best = CGFloat.infinity
+        for i in pts.indices {
+            let a = pts[i], b = pts[(i + 1) % pts.count]
+            let ab = CGPoint(x: b.x - a.x, y: b.y - a.y)
+            let len2 = ab.x * ab.x + ab.y * ab.y
+            let t = len2 > 0 ? max(0, min(1, ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2)) : 0
+            let q = CGPoint(x: a.x + ab.x * t, y: a.y + ab.y * t)
+            best = min(best, hypot(p.x - q.x, p.y - q.y))
+        }
+        return best
     }
 
     private static func poly(_ pts: [(CGFloat, CGFloat)]) -> [CGPoint] { pts.map { CGPoint(x: $0.0, y: $0.1) } }

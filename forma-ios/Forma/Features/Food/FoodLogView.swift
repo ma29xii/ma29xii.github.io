@@ -29,6 +29,8 @@ struct FoodLogView: View {
         }
         .sheet(isPresented: $showScanner) { FoodScanSheet() }
         .sheet(isPresented: $showPhoto) { FoodPhotoSheet() }
+        // Nach den Blättern, damit auch sie in der Vorschau den getrennten Speicher nutzen.
+        .foodSettingsStore()
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in updateDay() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in updateDay() }
         .onChange(of: scenePhase, initial: true) { _, phase in
@@ -76,9 +78,7 @@ private struct FoodDayView: View {
     }
 
     private var goal: FoodGoal {
-        if hub.isSample {
-            return FoodGoal(weightKg: 0, heightCm: 0, age: nil, sex: .unknown, activeEnergy: nil)
-        }
+        // In der Vorschau kommen Profilwerte aus dem getrennten Beispielspeicher (FoodSettings.previewDefaults).
         let currentYear = Calendar.forma.component(.year, from: day)
         let age = (1900...currentYear).contains(birthYear) ? currentYear - birthYear : nil
         let measuredToday = hub.today
@@ -156,7 +156,7 @@ private struct FoodDayView: View {
 
     private func mealSection(_ meal: FoodMeal) -> some View {
         let items = entries.filter { $0.meal == meal }
-        let kcal = items.compactMap(\.energy).reduce(0, +)
+        let kcal = FoodSum(items.map(\.energy))
         return Section {
             if items.isEmpty {
                 Text("Noch nichts eingetragen")
@@ -179,8 +179,8 @@ private struct FoodDayView: View {
             HStack {
                 Text(meal.title).formaLabelStyle()
                 Spacer()
-                if kcal > 0 {
-                    Text("\(FoodText.number(kcal)) kcal")
+                if kcal.known > 0 {
+                    Text("\(kcal.complete ? "" : "≥ ")\(FoodText.number(kcal.known)) kcal")
                         .font(.formaCaptionStrong)
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
@@ -206,11 +206,11 @@ private struct FoodDayHero: View {
     let streak: Int
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var consumed: Double { entries.compactMap(\.energy).reduce(0, +) }
-    private var missingEnergy: Bool { entries.contains { $0.energy == nil } }
-
     var body: some View {
-        let left = target - consumed
+        // Fehlende Energie zählt nicht als 0: Summe ist dann ein Mindestwert, das Restbudget bleibt offen.
+        let energy = FoodSum(entries.map(\.energy))
+        let consumed = energy.known
+        let left = energy.remaining(of: target)
         let size: CGFloat = typeSize.isAccessibilitySize ? 160 : 196
         VStack(spacing: Space.s5) {
             HStack {
@@ -224,23 +224,34 @@ private struct FoodDayHero: View {
                 }
             }
             FoodRing(fraction: target > 0 ? consumed / target : 0,
-                     tint: left < 0 ? Theme.older : Theme.younger, lineWidth: 14) {
+                     tint: left.map { $0 < 0 ? Theme.older : Theme.younger } ?? Theme.textSecondary, lineWidth: 14) {
                 VStack(spacing: 2) {
-                    Text(FoodText.number(abs(left)))
-                        .font(.formaDisplay)
-                        .formaNumberTransition(left)
-                    Text(left < 0 ? "kcal zu viel" : "kcal übrig")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
+                    if let left {
+                        Text(FoodText.number(abs(left)))
+                            .font(.formaDisplay)
+                            .formaNumberTransition(left)
+                        Text(left < 0 ? "kcal zu viel" : "kcal übrig")
+                            .font(.formaCaption)
+                            .foregroundStyle(Theme.textSecondary)
+                    } else {
+                        Text((energy.complete ? "" : "≥ ") + FoodText.number(consumed))
+                            .font(.formaDisplay)
+                            .formaNumberTransition(consumed)
+                        Text(energy.complete ? "kcal gegessen" : "kcal, nicht alle Angaben bekannt")
+                            .font(.formaCaption)
+                            .foregroundStyle(Theme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
+                .padding(.horizontal, Space.s4)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Kalorien")
-                .accessibilityValue("\(missingEnergy ? "mindestens " : "")\(FoodText.number(consumed)) von \(FoodText.number(target)) Kilokalorien gegessen")
+                .accessibilityValue("\(energy.complete ? "" : "mindestens ")\(FoodText.number(consumed)) von \(FoodText.number(target)) Kilokalorien gegessen")
             }
             .frame(width: size, height: size)
 
             HStack(spacing: Space.s6) {
-                stat("Gegessen", consumed)
+                stat("Gegessen", consumed, atLeast: !energy.complete)
                 stat("Ziel", target)
             }
 
@@ -255,9 +266,9 @@ private struct FoodDayHero: View {
         .contentShape(Rectangle())
     }
 
-    private func stat(_ title: String, _ value: Double) -> some View {
+    private func stat(_ title: String, _ value: Double, atLeast: Bool = false) -> some View {
         VStack(spacing: 2) {
-            Text(FoodText.number(value)).font(.formaValue).monospacedDigit()
+            Text((atLeast ? "≥ " : "") + FoodText.number(value)).font(.formaValue).monospacedDigit()
             Text(title)
                 .font(.formaMicro)
                 .tracking(Tracking.micro)
@@ -268,24 +279,25 @@ private struct FoodDayHero: View {
     }
 
     @ViewBuilder private var macroBars: some View {
-        macro("Eiweiß", entries.compactMap(\.protein), goal: macros.protein, tint: Theme.younger)
-        macro("Kohlenhydrate", entries.compactMap(\.carbohydrates), goal: macros.carbs, tint: Theme.warning)
-        macro("Fett", entries.compactMap(\.fat), goal: macros.fat, tint: Theme.sleep)
+        macro("Eiweiß", FoodSum(entries.map(\.protein)), goal: macros.protein, tint: Theme.younger)
+        macro("Kohlenhydrate", FoodSum(entries.map(\.carbohydrates)), goal: macros.carbs, tint: Theme.warning)
+        macro("Fett", FoodSum(entries.map(\.fat)), goal: macros.fat, tint: Theme.sleep)
     }
 
-    private func macro(_ title: String, _ values: [Double], goal: Double, tint: Color) -> some View {
-        let grams = values.reduce(0, +)
+    private func macro(_ title: String, _ sum: FoodSum, goal: Double, tint: Color) -> some View {
+        let grams = sum.known
+        let prefix = sum.complete ? "" : "≥ "
         return VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.formaCaption).foregroundStyle(Theme.textSecondary).lineLimit(1)
             ProgressLine(fraction: goal > 0 ? grams / goal : 0, color: tint, height: 5)
-            Text("\(FoodText.number(grams)) / \(FoodText.number(goal)) g")
+            Text("\(prefix)\(FoodText.number(grams)) / \(FoodText.number(goal)) g")
                 .font(.formaCaptionStrong)
                 .monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue("\(FoodText.number(grams)) von \(FoodText.number(goal)) Gramm")
+        .accessibilityValue("\(sum.complete ? "" : "mindestens ")\(FoodText.number(grams)) von \(FoodText.number(goal)) Gramm")
     }
 }
 

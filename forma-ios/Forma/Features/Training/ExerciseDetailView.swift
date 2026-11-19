@@ -70,10 +70,10 @@ struct ExerciseDetailView: View {
             Plate {
                 Chart {
                     ForEach(pts, id: \.0) { p in
-                        LineMark(x: .value("Datum", p.0), y: .value("1RM", p.1))
+                        LineMark(x: .value("Datum", p.0), y: .value("1RM", p.1 * (app.weightUnit == .kg ? 1 : 2.20462)))
                             .interpolationMethod(.monotone)
                             .foregroundStyle(Theme.textPrimary)
-                        PointMark(x: .value("Datum", p.0), y: .value("1RM", p.1))
+                        PointMark(x: .value("Datum", p.0), y: .value("1RM", p.1 * (app.weightUnit == .kg ? 1 : 2.20462)))
                             .foregroundStyle(Theme.textPrimary)
                             .symbolSize(18)
                     }

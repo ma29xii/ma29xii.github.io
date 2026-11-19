@@ -11,9 +11,10 @@ struct FoodPhotoSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @AppStorage(CoachProviders.consentKey) private var consent = false
-    /// Gleiche Foto-Zustimmung wie im Coach.
-    @AppStorage("forma.coach.photoConsent.v1") private var photoConsent = false
+    // Freigaben immer aus dem echten Speicher, auch in der Vorschau.
+    @AppStorage(CoachProviders.consentKey, store: .standard) private var consent = false
+    /// Eigene Foto-Freigabe der Essensanalyse, getrennt vom Coach.
+    @AppStorage(FoodSettings.photoConsentKey, store: .standard) private var photoConsent = false
     @State private var phase = Phase.idle
     @State private var photo: UIImage?
     @State private var portions: [FoodPhotoPortion] = []
@@ -22,8 +23,7 @@ struct FoodPhotoSheet: View {
     @State private var showCamera = false
     @State private var task: Task<Void, Never>?
     @State private var saveError = false
-
-    private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    @State private var camera = CameraAccess.State.unavailable
     private var chosen: [FoodPhotoPortion] { portions.filter(\.included) }
     private var totalKcal: Double { chosen.compactMap { $0.nutrients?.values[.energy] }.reduce(0, +) }
 
@@ -67,20 +67,19 @@ struct FoodPhotoSheet: View {
             }
         }
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in estimate(data) }.ignoresSafeArea()
+            CameraPicker { data in run { data } }.ignoresSafeArea()
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
-            Task { @MainActor in
-                pickerItem = nil
-                guard let data = try? await item.loadTransferable(type: Data.self) else {
-                    phase = .failed("Das Foto ließ sich nicht laden.")
-                    return
-                }
-                estimate(data)
-            }
+            pickerItem = nil
+            // Laden gehört zum selben abbrechbaren Ablauf wie die Schätzung.
+            run { try await item.loadTransferable(type: Data.self) }
         }
-        .onDisappear { task?.cancel() }
+        .onAppear { camera = CameraAccess.current }
+        .onDisappear {
+            task?.cancel()
+            task = nil
+        }
         .alert("Konnte nicht gespeichert werden", isPresented: $saveError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -128,7 +127,7 @@ struct FoodPhotoSheet: View {
             VStack(alignment: .leading, spacing: Space.s3) {
                 Label("Fotos an die KI senden?", systemImage: "photo.badge.checkmark")
                     .font(.formaRowTitle)
-                Text("Anthropic erhält das ausgewählte Foto. Wenn Anthropic ausfällt oder nur OpenAI eingerichtet ist, geht es an OpenAI. Eingetragen wird erst nach deiner Bestätigung.")
+                Text("Nur für die Essensanalyse: Anthropic erhält das ausgewählte Foto, bei Ausfall OpenAI. Eingetragen wird erst nach deiner Bestätigung. Die Foto-Freigabe des Coachs bleibt davon getrennt.")
                     .font(.formaBody)
                     .foregroundStyle(Theme.textSecondary)
                 Button("Erlauben") { photoConsent = true }
@@ -140,13 +139,20 @@ struct FoodPhotoSheet: View {
             .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
         } else {
             VStack(spacing: Space.s3) {
-                if cameraAvailable {
-                    Button { showCamera = true } label: {
+                switch camera {
+                case .ready, .needsRequest:
+                    Button(action: openCamera) {
                         Label("Foto aufnehmen", systemImage: "camera")
                             .font(.formaRowTitle)
                             .frame(maxWidth: .infinity, minHeight: 50)
                     }
                     .buttonStyle(.glassProminent)
+                case .denied:
+                    CameraDeniedNotice()
+                        .padding(Space.s4)
+                        .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
+                case .unavailable:
+                    EmptyView()
                 }
                 PhotosPicker(selection: $pickerItem, matching: .images) {
                     Label("Aus Fotos wählen", systemImage: "photo.on.rectangle")
@@ -214,25 +220,41 @@ struct FoodPhotoSheet: View {
         phase = .idle
     }
 
-    private func estimate(_ data: Data) {
+    private func openCamera() {
+        Task { @MainActor in
+            camera = await CameraAccess.request()
+            if camera == .ready { showCamera = true }
+        }
+    }
+
+    /// Foto laden und schätzen in einem Task. Schließen oder „Anderes Foto“ bricht beides ab.
+    private func run(_ load: @escaping @Sendable () async throws -> Data?) {
         task?.cancel()
-        photo = UIImage(data: data)
         phase = .estimating
         task = Task { @MainActor in
             do {
-                let guesses = try await FoodVision.estimate(photo: data)
+                let keys = try CoachProviders.externalCredentials()
+                let (_, guesses) = try await FoodPhotoFlow.run(
+                    load: load, anthropicKey: keys.anthropic, openAIKey: keys.openAI,
+                    allowed: { CoachProviders.allowsExternalData() && FoodSettings.photoAnalysisAllowed() },
+                    onLoaded: { data in await MainActor.run { photo = UIImage(data: data) } }
+                )
                 try Task.checkCancellation()
                 portions = guesses.compactMap(FoodPhotoPortion.init(guess:))
                 phase = portions.isEmpty ? .empty : .results
-            } catch is CancellationError {
-                guard !Task.isCancelled else { return }
-                phase = .failed("Die Freigabe für die KI fehlt. Erlaube sie im Coach.")
-            } catch let error as CoachProviders.ReplyError {
-                phase = .failed(Self.text(for: error))
             } catch {
                 guard !Task.isCancelled else { return }
-                phase = .failed("Die Schätzung hat nicht geklappt. Versuch es erneut.")
+                phase = .failed(Self.text(for: error))
             }
+        }
+    }
+
+    static func text(for error: Error) -> String {
+        switch error {
+        case FoodPhotoFlow.FlowError.loadFailed: "Das Foto ließ sich nicht laden."
+        case is CancellationError: "Die Freigabe für die Essensanalyse fehlt."
+        case let reply as CoachProviders.ReplyError: text(for: reply)
+        default: "Die Schätzung hat nicht geklappt. Versuch es erneut."
         }
     }
 
@@ -311,5 +333,27 @@ extension FoodMeal {
         case 17..<22: .dinner
         default: .snack
         }
+    }
+}
+
+/// Laden → Schätzen ohne UI. Nach Abbruch oder ohne Freigabe geht keine einzige Anfrage raus.
+enum FoodPhotoFlow {
+    enum FlowError: Error { case loadFailed }
+
+    static func run(
+        load: @Sendable () async throws -> Data?, anthropicKey: String?, openAIKey: String?,
+        allowed: @escaping @Sendable () -> Bool, onLoaded: @Sendable (Data) async -> Void = { _ in },
+        send: @escaping CoachProviders.Transport = CoachProviders.fetch
+    ) async throws -> (Data, [FoodGuess]) {
+        let loaded: Data?
+        do { loaded = try await load() } catch { throw FlowError.loadFailed }
+        guard let data = loaded else { throw FlowError.loadFailed }
+        try Task.checkCancellation()
+        await onLoaded(data)
+        let guesses = try await FoodVision.estimate(
+            photo: data, anthropicKey: anthropicKey, openAIKey: openAIKey,
+            maySend: { !Task.isCancelled && allowed() }, send: send
+        )
+        return (data, guesses)
     }
 }

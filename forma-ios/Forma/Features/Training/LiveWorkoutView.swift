@@ -6,6 +6,8 @@ struct LiveWorkoutView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
     @Query private var library: [Exercise]
+    /// Verlauf für „Letztes Mal“ und Vorwerte: numerisch in kg, Anzeige in der gewählten Einheit (Gegenprüfung 02 #13).
+    @Query(sort: \WorkoutSession.start, order: .reverse) private var history: [WorkoutSession]
     @Bindable var workout: LiveWorkout
     @State private var showPicker = false
     @State private var confirmEnd = false
@@ -94,7 +96,7 @@ struct LiveWorkoutView: View {
                 .accessibilityLabel("Ausführung und Muskeln")
             }
             .padding(.top, Space.s6)
-            Text(exercise.lastTime ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
+            Text(lastTimeText(exercise.name) ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
             if let progression = exercise.progression {
                 HStack(spacing: Space.s2) {
                     Label(progression, systemImage: exercise.suggestedWeight != nil ? "arrow.up.right" : "equal")
@@ -134,6 +136,29 @@ struct LiveWorkoutView: View {
         }
     }
 
+    private func lastWorkSets(_ name: String) -> [SetRecord] {
+        guard let session = history.first(where: { $0.sets.contains { $0.exerciseName == name } }) else { return [] }
+        return session.workSets.filter { $0.exerciseName == name }.sorted { $0.order < $1.order }
+    }
+
+    private func lastTimeText(_ name: String) -> String? {
+        let work = lastWorkSets(name)
+        guard let top = work.max(by: { $0.weight < $1.weight }) else { return nil }
+        return "Letztes Mal \(work.count) × \(top.reps) · \(Format.weight(top.weight, unit: app.weightUnit)) \(app.weightUnit.rawValue)"
+    }
+
+    /// Vorwert für den n-ten Arbeitssatz, z. B. „170,9 lb × 8“.
+    private func previousText(_ exIndex: Int, _ setIndex: Int) -> String? {
+        guard workout.exercises.indices.contains(exIndex) else { return nil }
+        let sets = workout.exercises[exIndex].sets
+        guard sets.indices.contains(setIndex), !sets[setIndex].isWarmup else { return nil }
+        let workIndex = sets[..<setIndex].filter { !$0.isWarmup }.count
+        let previous = lastWorkSets(workout.exercises[exIndex].name)
+        guard previous.indices.contains(workIndex) else { return nil }
+        let p = previous[workIndex]
+        return "\(Format.weight(p.weight, unit: app.weightUnit)) \(app.weightUnit.rawValue) × \(p.reps)"
+    }
+
     private func setRow(_ exIndex: Int, _ setIndex: Int, _ set: LiveSet) -> some View {
         let active = exIndex == workout.exerciseIndex && setIndex == workout.setIndex && !set.done
         let number = set.isWarmup ? "Auf" : "\(workout.workSetNumber(exercise: exIndex, set: setIndex))"
@@ -143,8 +168,8 @@ struct LiveWorkoutView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Format.weight(set.weight, unit: app.weightUnit)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
                         .contentTransition(.numericText(value: set.weight))
-                    if let previous = set.previous, !set.done {
-                        Text("vorher \(previous) \(app.weightUnit == .kg ? "kg" : "")").font(.formaMicro).foregroundStyle(Theme.textTertiary)
+                    if let previous = previousText(exIndex, setIndex), !set.done {
+                        Text("vorher \(previous)").font(.formaMicro).foregroundStyle(Theme.textTertiary)
                             .accessibilityLabel("Letztes Mal \(previous)")
                     }
                 }
