@@ -1,128 +1,104 @@
-# Health – Stand und Testplan
+# Health – Testplan fürs iPhone
 
-Die App hieß früher Forma. Auf dem iPhone heißt sie jetzt **Health**.
-Bundle-ID (`com.ma29xii.forma`) und Code-Namen bleiben gleich, damit deine Daten beim Update erhalten bleiben.
+## So installierst du
 
-## A. Was fertig ist
+1. Verbinde dein iPhone per USB mit dem PC. Bestätige „Diesem Computer vertrauen?“, falls gefragt.
+2. Öffne Sideloadly, wähle dein iPhone und zieh `Health.ipa` aus **Downloads** ins Fenster.
+3. Nutze deine kostenlose Apple-ID und klicke auf **Start**. [Sideloadly](https://sideloadly.io/)
+4. Aktiviere bei Bedarf auf dem iPhone unter **Einstellungen → Datenschutz & Sicherheit** den **Entwicklermodus**. Starte das iPhone neu und bestätige. [Apple](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device)
+5. Öffne **Health**. Mit einer kostenlosen Apple-ID gilt die Signatur sieben Tage. Danach kannst du die App mit derselben Apple-ID erneut signieren. [Sideloadly-FAQ](https://sideloadly.io/faq)
 
-- [x] Native iPhone-App (SwiftUI, iOS 26, Liquid Glass), Bau per GitHub-CI als `Forma.ipa` (Artifact „Forma-IPA“)
-- [x] **Heute:** 3 Ringe (Belastung, Erholung, Schlaf), Zielbogen, Kacheln verschiebbar (Coach, Als Nächstes, Energie & Stress, Körper, Tag, Woche, Körperalter, Einblick)
-- [x] **Detailseiten** für Erholung, Schlaf (Hypnogramm, Phasen, Bettzeit) und Belastung
-- [x] **Training:** Routinen, Routineneditor, Übungsbibliothek, eigene Übungen, Live-Training, Pausentimer, Steigerungsvorschlag, Scheibenrechner, Zusammenfassung mit 1RM, Verlauf, Wiederherstellung nach Absturz
-- [x] **Gesundheit:** Messwerte mit Diagrammen (7/14/30 Tage), Körperalter mit offengelegter Methode und Quellen
-- [x] **Coach:** lokal auf dem iPhone, optional Claude mit eigenem API-Schlüssel und Zustimmung, Vorschläge nur für heute
-- [x] **Coach im Hintergrund:** Morgenbericht, Erinnerung zur Schlafenszeit, Weckzeit im Profil
-- [x] **Journal:** Ja/Nein-Fragen, „wie am Vortag“
-- [x] **Profil:** Datenquelle, Über dich, Einheiten, Mitteilungen, Synchronisieren, lokale Kopie löschen
-- [x] **Apple Health:** nur lesen, 180 Tage, Hintergrund-Abruf, lokale Kopie für Offline-Start
-- [x] Codex-Review 01 und 02 umgesetzt, Antworten in `reviews/`
-- [x] Umbenennung in „Health“
+📱 = nur auf einem echten iPhone testen. Du kannst mit Beispieldaten anfangen. Bei Tests zum dauerhaften Speichern, zu Google Health und zu iPhone-Anzeigen nutze den Modus ohne Beispieldaten. Wenn etwas hakt, notiere die Testnummer und was du siehst, etwa **T-05 – Anmeldung bricht ab**.
 
-## B. Was noch offen ist
+## Start und Google Health
 
-- [ ] **Grüner CI-Build** für den aktuellen Stand (der letzte grüne Build ist älter)
-- [ ] **Test auf deinem iPhone 18 Pro** (dieser Plan, Runde 1)
-- [ ] HealthKit mit kostenloser Apple-ID über Sideloadly: noch nicht bestätigt (T-03)
-- [ ] Mitteilungen auf dem gesperrten iPhone (T-50 bis T-53), geht nur am echten Gerät
-- [ ] Coach mit echtem Claude-Schlüssel (T-45)
-- [ ] Codex-Review Runde 03
-- [ ] Google-Health-Anbindung (Fitbit-Ersatz): braucht dein Google-Cloud-Projekt
-- [ ] Später: Homescreen-Widget, Live Activity für die Pause
+- **T-01** 📱 Öffne **Health** über das App-Symbol → Auf einem frischen Stand erscheint die Auswahl zwischen Google Health und Beispieldaten.
+- **T-02** Tippe auf „Erst mit Beispieldaten ansehen“ → Today öffnet sich mit dem Hinweis „Beispieldaten“. Training, Health und Coach sind erreichbar.
+- **T-03** 📱 Öffne Health nach einem Update mit derselben Apple-ID → Deine bisherigen Routinen und Trainings sind weiter da.
+- **T-04** 📱 Öffne Profil → „Mit Google Health verbinden“. Brich die Anmeldung ab → Du landest wieder in Health. Google Health bleibt getrennt und du kannst es erneut versuchen.
+- **T-05** 📱 Verbinde ein Google-Konto mit Messwerten und erlaube den Zugriff → Der Status zeigt die Verbindung. Schritte und Schlaf erscheinen für die passenden Tage, sofern Google sie liefert.
+- **T-06** 📱 Tippe im Profil auf „Jetzt aktualisieren“ → Bei Erfolg erscheint der neue Abrufstand. Vergleiche die Schritte eines abgeschlossenen Tages mit Google Health.
+- **T-07** 📱 Schalte nach einem Abruf am selben Tag WLAN und mobile Daten aus. Öffne Health neu und versuche zu aktualisieren → Die zuletzt geladenen Werte bleiben sichtbar. Der Abrufstand springt bei Fehlern nicht auf jetzt.
+- **T-08** 📱 Lass Health mit erlaubter Hintergrundaktualisierung über Nacht im Hintergrund → Prüfe morgens den Abrufstand im Profil. Eine Uhrzeit vor dem Öffnen zeigt, dass Health im Hintergrund abgerufen hat.
+- **T-09** 📱 Tippe auf „Google Health trennen“ und bestätige → Die importierten Messwerte verschwinden. Verbinde Google Health wieder, bevor du mit eigenen Werten weiter testest.
 
-## C. So läuft eine Testrunde
+## Today
 
-1. Claude baut die neue Version und spielt sie per Sideloadly auf dein iPhone.
-2. Du gehst die Tests unten durch. Was nicht passt, schreibst du kurz so: **„T-14: Knopf zu klein“**. Ein Screenshot hilft.
-3. Claude behebt alles, baut neu, und die nächste Runde startet. Getestet werden dann nur die geänderten Stellen und T-01 bis T-05.
+- **T-10** Tippe nacheinander auf **Strain**, **Recovery** und **Sleep** → Jeder Ring öffnet sein eigenes Detail mit Verlauf und Erklärung.
+- **T-11** Öffne **Sleep** mit Daten für eine Nacht → Beginn, Ende und Schlafphasen passen zu der aufgezeichneten Nacht.
+- **T-12** Scrolle auf Today nach unten und tippe auf die kleine Leiste mit den Tageswerten → Die Ansicht springt zurück nach oben.
+- **T-13** Tippe auf den Coach-Hinweis und danach auf die Schritte unter „Kennzahlen“ → Der Hinweis öffnet Coach. Die Schritte öffnen ihren Verlauf.
+- **T-14** Öffne den Stress Monitor und zieh über die Kurve → Die Uhrzeit und der geschätzte Stress erscheinen. Stunden ohne Messung bleiben leer.
+- **T-15** Tippe unten auf „Anpassen“. Zieh eine Kachel am Griff und blende eine per Minus aus → Nach „Fertig“ bleibt die neue Reihenfolge. Über „Anpassen“ und Plus holst du die Kachel zurück.
 
-Bewertung pro Test: ✅ passt · ⚠️ geht, sieht aber falsch aus · ❌ kaputt.
+## Plus, Essen und Getränke
 
-## D. Testplan, Runde 1
+- **T-16** Tippe im Coach-Tab auf **+** und zieh das Menü nach unten zu → Es zeigt Essen, Wasser, Fasten, Gewicht und Training. Danach bist du wieder im Coach-Tab.
+- **T-17** Tippe auf **+ → Essen suchen**. Suche nach Haferflocken, wähle einen Treffer und trage 50 g ein → Das Produkt steht unter der gewählten Mahlzeit in „Ernährung heute“. Die Nährwerte passen zur Menge.
+- **T-18** Tippe bei einem Produkt ins Mengenfeld und gib 0 ein → „Eintragen“ ist gesperrt. Mit einer gültigen Menge kannst du fortfahren.
+- **T-19** Wische in „Ernährung heute“ einen Testeintrag nach links und tippe auf „Löschen“ → Der Eintrag verschwindet und die Tagessumme sinkt um seinen Anteil.
+- **T-20** 📱 Tippe auf **+ → Mahlzeit scannen → Kamera starten**. Zeig einen bekannten Produktbarcode → Das passende Produkt öffnet sich mit Menge und Nährwerten.
+- **T-21** 📱 Lehne die Kamera-Freigabe beim Scannen ab → Health erklärt, wie du den Zugriff erlauben kannst. Die Suche nach Produktnamen bleibt bedienbar.
+- **T-22** 📱 Tippe auf **+ → Essen fotografieren**. Erteile die Foto-Freigabe für Essen, wenn der Online-Coach eingerichtet und erlaubt ist → Nach der Aufnahme erscheinen bei erfolgreicher Analyse geschätzte Lebensmittel und Mengen. Du kannst sie ändern und erst dann eintragen.
+- **T-23** 📱 Öffne **+ → Essen fotografieren** ohne Freigabe für Essensfotos → Health zeigt, welche Freigabe fehlt. Das Öffnen allein sendet kein Foto.
+- **T-24** Tippe auf **+ → Wasser → Glas · 250 ml** und dann auf das Minus → Die Menge steigt um 250 ml und sinkt wieder auf den alten Stand.
+- **T-25** Tippe auf **+ → Fasten**, wähle **16:8** und starte den Timer. Öffne die Ansicht neu und beende das Fasten → Die laufende Zeit bleibt erhalten. Danach steht der Versuch im Verlauf.
+- **T-26** Tippe auf **+ → Gewicht**, trage einen gültigen Messwert ein und sichere ein Ziel → Der Messwert steht im Verlauf. Die Anzeige zeigt den Abstand zum Ziel.
 
-### Start und Daten
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-01 | App-Symbol auf dem Homescreen ansehen | Name darunter: **Health** |
-| T-02 | App zum ersten Mal öffnen | „Willkommen bei Health“, Knopf für Apple Health und „Erst mit Beispieldaten ansehen“ |
-| T-03 | Apple Health verbinden, alle Kategorien erlauben | Kein Absturz. Danach erscheinen echte Werte, oben kein Hinweis „Beispieldaten“ |
-| T-04 | App schließen (wegwischen), neu öffnen | Startet sofort mit den letzten Werten, kein leerer Bildschirm |
-| T-05 | Profil → „Jetzt synchronisieren“ | Kurze Ladeanzeige, danach „Stand“ mit aktueller Uhrzeit |
+## Training
 
-### Heute
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-10 | Ringe oben ansehen | Erholung groß in der Mitte, Belastung links, Schlaf rechts, Zahlen 0–100. Werte passen grob zu deinem Gefühl |
-| T-11 | Nach unten scrollen | Ringe werden klein und bleiben oben in der Leiste |
-| T-12 | Auf jeden Ring tippen | Detailseite öffnet sich: Erholung, Schlaf, Belastung |
-| T-13 | Jede Kachel einmal antippen (Coach, Als Nächstes, Energie & Stress, Körper, Tag, Woche, Körperalter, Einblick) | Jede öffnet das Passende oder zeigt sinnvollen Inhalt. Kein leerer oder kaputter Text |
-| T-14 | Eine Kachel lange drücken und an eine andere Stelle ziehen | Kachel bewegt sich, neue Reihenfolge bleibt nach App-Neustart |
-| T-15 | Lange drücken → Kontextmenü: Nach oben, Nach unten, Ausblenden | Jede Aktion wirkt sofort |
-| T-16 | Ganz unten „Heute anpassen …“: ausblenden, einblenden, „Standard“ | Liste funktioniert, „Standard“ fragt nach und stellt alles zurück |
+- **T-27** Tippe auf „Neue Routine“, gib ihr einen Namen und füge zwei Übungen hinzu → Zurück unter „Routinen“ steht der neue Plan mit beiden Übungen.
+- **T-28** Öffne deine Routine und tippe auf „Training starten“ → Das Live-Training zeigt die erste Übung und den ersten Satz.
+- **T-29** Ändere Gewicht und Wiederholungen. Tippe schnell zweimal auf „Satz abschließen“ → Ein Satz wird abgehakt und der Pausentimer startet.
+- **T-30** Tippe in der Pause auf „+15 s“ und dann auf „Pause beenden“ → Der Timer gewinnt 15 Sekunden und endet beim zweiten Knopf sofort.
+- **T-31** Wische die App bei laufendem Training aus der App-Übersicht und öffne sie erneut → Der Entwurf öffnet sich mit den bereits erfassten Sätzen.
+- **T-32** Tippe nach erledigten Sätzen auf „Training beenden“ oder „Beenden → Speichern und beenden“ → Die Zusammenfassung zeigt die Sätze. Im Verlauf steht das Training einmal.
+- **T-33** Öffne „Kalender und alle Trainings“ und tippe auf den Tag mit deinem Training → Die Liste zeigt die Einheiten dieses Tages. Ein Tipp öffnet die Zusammenfassung.
+- **T-34** Öffne nach einem erfassten Training „Muskeln, 7 Tage“ und tippe auf einen markierten Muskel → Die Karte zeigt die Belastung der Woche. Der Muskel öffnet passende Übungen.
+- **T-35** Öffne in der Übungsbibliothek eine bekannte Übung und tippe auf „Ausführung“ und „Verlauf“ → Du siehst die Muskelkarte und Anleitung. Im Verlauf stehen vorhandene Trainings oder ein Hinweis auf fehlende Daten.
+- **T-36** Tippe in der Übungsbibliothek auf **+**, lege eine eigene Übung an und füge sie einer Routine hinzu → Die Übung ist in der Suche auffindbar und auswählbar.
+- **T-37** Tippe auf „Freies Training“, füge eine Übung und einen Satz hinzu → Du kannst beide direkt im Live-Training bearbeiten.
+- **T-38** Tippe bei einer Routine mit Übungen auf **+ → Training starten** → Die im Menü genannte Routine startet direkt.
+- **T-39** 📱 Tippe in der Pause auf „Bei Pausenende benachrichtigen“. Erlaube Mitteilungen und sperre das iPhone → Bei Ablauf kommt die Pausenmeldung.
 
-### Detailseiten
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-20 | Erholung: „Was beiträgt“ lesen | HRV, Ruhepuls, Schlaf mit Plus/Minus-Punkten, nichts abgeschnitten |
-| T-21 | Schlaf: Verlauf der Nacht und Phasen | Hypnogramm stimmt grob mit der Apple-Health-Nacht überein (Uhrzeit, Dauer) |
-| T-22 | Schlaf: „Ins Bett“ und Schlafbedarf | Bettzeit passt zur Weckzeit im Profil |
-| T-23 | Schlaf: „Letzte 7 Nächte“ | Fehlende Nächte zählen nicht ins Mittel, Text „x von 7 Nächten“ |
-| T-24 | Belastung: Aktivitäten heute, Schritte, aktive Energie | Werte stimmen mit Apple Health überein |
+## Health und Health Age
 
-### Training
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-30 | Training → „Neue Routine“, 2 Übungen, Sätze/Wdh/Gewicht/Pause einstellen, „Sichern“ | Routine erscheint in der Liste |
-| T-31 | Routine öffnen, ändern, sichern. Dann „Routine löschen“ | Änderung bleibt, Löschen fragt nach |
-| T-32 | Übungsbibliothek: Übung ansehen, „Eigene Übung“ anlegen | Eigene Übung ist danach auswählbar |
-| T-33 | Routine starten | Live-Training öffnet sich, **keine** Systemabfrage für Mitteilungen |
-| T-34 | Gewicht und Wdh mit +/− ändern, Reserve wählen, Satz abschließen | Satz ist abgehakt, Pause startet |
-| T-35 | In der Pause: „+15 s“, „Pause beenden“, „Bei Pausenende benachrichtigen“ | Timer reagiert. Erst der Knopf fragt nach der Mitteilungs-Erlaubnis |
-| T-36 | Pause laufen lassen, iPhone sperren | Am Pausenende kommt eine Mitteilung „Pause vorbei“ (wenn erlaubt) |
-| T-37 | Schnell zweimal auf „Satz abschließen“ tippen | Es wird nur **ein** Satz abgeschlossen |
-| T-38 | „Satz hinzufügen“, „Übung hinzufügen“ | Neuer Satz bzw. neue Übung erscheint und ist bedienbar |
-| T-39 | Scheibenrechner ansehen (z. B. 60 kg) | „Pro Seite“ mit Einheit, rechnet mit 20-kg-Stange |
-| T-40 | Steigerungsvorschlag „Übernehmen“ (ab dem 2. Training derselben Routine) | Gewicht ändert sich nur nach Tippen |
-| T-41 | Mitten im Training App wegwischen, neu öffnen | Training wird wiederhergestellt, kein Satz fehlt |
-| T-42 | „Training beenden“ → Zusammenfassung | Volumen, Sätze, 1RM, Vergleich zum letzten Mal. Training erscheint im Verlauf und **einmal**, nicht doppelt |
-| T-43 | Training im Verlauf öffnen → „Training löschen“ | Fragt nach, danach weg |
-| T-44 | Freies Training ohne Satz beenden | App bietet kein „fertig“ an bzw. verwirft sauber |
+- **T-40** Öffne **Health** mit Beispieldaten und tippe auf „Health Age“ → Oben steht das geschätzte Alter. Die Details zeigen Vergleich, Einflussfaktoren, Datenabdeckung und Quellen.
+- **T-41** Öffne **Health** mit eigenen Daten ohne Geburtsjahr und tippe auf „Geburtsjahr eintragen“ → Das Profil öffnet sich. Im Health-Tab steht bis zur Angabe ein Hinweis statt einer Alterszahl.
+- **T-42** Öffne **Health** mit eingetragenem Geburtsjahr, aber zu wenigen Messungen → Health Age zeigt, wie viele Messtage für die erste Schätzung noch fehlen.
+- **T-43** Tippe unter „Biomarker“ auf Ruhepuls. Wechsle zwischen 7, 30 und 90 Tagen und zieh über das Diagramm → Zeitraum und Zusammenfassung wechseln. Tage ohne Wert zeigen „keine Messung“.
+- **T-44** Tippe auf „Health Monitor“ → Du siehst die vorhandenen Messwerte mit ihrem persönlichen Bereich. Ohne genügend Messungen steht „Noch kein Vergleich“.
 
-### Coach
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-45 | Coach-Tab: eine der Einstiegsfragen antippen | Sinnvolle Antwort auf Deutsch, passend zu deinen Werten |
-| T-46 | Eigene Frage eintippen, senden | Antwort kommt. Ohne Schlüssel steht „lokal“ dabei |
-| T-47 | (optional) Profil → Claude-Schlüssel eintragen, Frage senden | Erst kommt die Zustimmungsfrage, danach antwortet Claude |
-| T-48 | Trainingsvorschlag annehmen, „Rückgängig“ | Gilt nur für heute, die Routine bleibt unverändert |
+## Coach und Lumo
 
-### Gesundheit und Körperalter
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-55 | Gesundheit: jede Messwert-Zeile antippen | Diagramm mit 7/14/30 Tagen, Finger auf Diagramm zeigt Tageswert, in Lücken „keine Messung“ |
-| T-56 | Körperalter öffnen (Geburtsjahr nötig, sonst „Im Profil eintragen“) | Geschätztes Alter, Faktoren, Datenabdeckung, Methode mit Quellen |
-| T-57 | Kacheln in Gesundheit und Training verschieben | Wie T-14 |
+- **T-45** Öffne **Coach** und tippe auf eine Einstiegsfrage → Lumo bleibt sichtbar. Auf die Frage folgt eine Antwort auf Deutsch.
+- **T-46** Sende eine Frage ohne Internet mit ausgeschalteter Online-Freigabe → Der Coach antwortet auf dem iPhone.
+- **T-47** Sende bei eingerichtetem Online-Coach erstmals eine Frage und tippe auf „Nur lokal antworten“ → Die App erklärt vorab die Datenfreigabe. Danach kommt die lokale Antwort.
+- **T-48** Tippe im Chat auf „Foto hinzufügen → Fotos“. Wähle ein Bild und entferne es vor dem Senden → Die Vorschau erscheint und lässt sich wieder entfernen.
+- **T-49** 📱 Tippe im Chat auf „Foto hinzufügen → Kamera“. Nimm ein Foto auf und sende es bei eingerichtetem Online-Coach erstmals → Das Bild erscheint als Vorschau. Vor dem Senden fragt Health nach der Foto-Freigabe. Bei Freigabe erscheint das Foto im Chat.
+- **T-50** Tippe bei einem Trainingsvorschlag auf „Übernehmen“ und danach auf „Rückgängig“ → Der Vorschlag gilt zunächst fürs nächste Training heute und ist danach wieder weg.
+- **T-51** 📱 Erlaube Mitteilungen und lass Health über Nacht im Hintergrund → Wenn Health am Morgen neue Schlafdaten abruft, erscheint der Tagesbericht einmal. Die Standardmeldung enthält keine Messwerte.
+- **T-52** 📱 Stelle bei erlaubten Mitteilungen und vorhandenem Schlafbedarf im Profil die Weckzeit ein → Rund 30 Minuten vor der vorgeschlagenen Bettzeit kommt eine Erinnerung.
 
-### Journal und Profil
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-60 | Journal öffnen, Fragen mit Ja/Nein beantworten, „Fertig“ | Antworten bleiben nach Neustart |
-| T-61 | „Offene wie am Vortag ausfüllen“ | Übernimmt nur, wenn es gestern Antworten gab, und zeigt wie viele |
-| T-62 | Profil: Geburtsjahr, Geschlecht, Gewicht kg/lb | Einheit ändert sich überall (Training, Zusammenfassung) |
-| T-63 | Profil: Quelle wechseln (Automatisch / Apple Health / Beispieldaten) | Daten wechseln sofort, Beispieldaten sind klar gekennzeichnet |
-| T-64 | „Lokale Kopie der Apple-Health-Daten löschen“ | Fragt nach, danach lädt die App neu aus Apple Health |
+## Profil und Body
 
-### Hintergrund und Mitteilungen (über 1–2 Tage)
-| Nr. | Was du tust | Was passieren soll |
-|---|---|---|
-| T-50 | Profil: Mitteilungen erlauben, Morgenbericht an, Weckzeit stellen | Erlaubnis-Dialog nur jetzt |
-| T-51 | Mit Uhr schlafen, morgens App **nicht** öffnen | Morgens Mitteilung „Dein Tagesbericht ist bereit“, ohne Gesundheitswerte |
-| T-52 | Abends | Erinnerung etwa 30 min vor der Bettzeit |
-| T-53 | App öffnen nach der Nacht | Neue Nacht ist schon da, ohne Warten |
+- **T-53** Tippe aufs Profilsymbol → „Body“. Setze Geburtsjahr und Geschlecht, speichere Größe und Gewicht → Die Angaben sind beim erneuten Öffnen da.
+- **T-54** Stell unter **Body → Einheiten** von Kilogramm auf Pfund um → Das Training zeigt die Gewichte in lb.
+- **T-55** Wähle ein Profilbild aus „Fotos“ und öffne die App neu → Das Bild bleibt am Profilsymbol. Über „Bild entfernen“ kannst du es löschen.
+- **T-56** Schalte „Beispieldaten zeigen“ ein und wieder aus → Die Beispielwerte sind klar gekennzeichnet. Danach siehst du wieder deinen eigenen Stand.
+- **T-57** Tippe unter „Freigaben“ auf „Fragen an den Online-Coach“, wenn sie erteilt ist → Die Freigabe wird widerrufen. Der Coach antwortet wieder lokal und Online-Fotos brauchen erneut eine Freigabe.
 
-### Aussehen und Bedienung (überall nebenbei)
-| Nr. | Was du prüfst | Was passieren soll |
-|---|---|---|
-| T-70 | Texte | Deutsch, du-Form, nichts abgeschnitten, keine „…“ mitten im Wort |
-| T-71 | Einstellungen → Anzeige → Textgröße groß | Alles noch lesbar und bedienbar, besonders das Trainings-Dock |
-| T-72 | Bedienung mit einer Hand | Wichtige Knöpfe unten erreichbar, nichts zu klein |
-| T-73 | Allgemeiner Eindruck | Ruhig, modern, eigenständig. Was dich stört, einfach notieren |
+## Widgets, Live Activity und Siri
+
+- **T-58** 📱 Füge das kleine oder mittlere Health-Widget „Today“ zum Homescreen hinzu → Mit geladenen Google-Daten stimmen die angezeigten Ringwerte mit Today überein.
+- **T-59** 📱 Füge „Today“ zum Sperrbildschirm hinzu und schalte danach Beispieldaten ein → Sobald sich das Widget aktualisiert, zeigt es „Keine Messung“.
+- **T-60** 📱 Starte ein Training mit ausgeschalteten Beispieldaten und schließe einen Satz ab. Sperre das iPhone → Die Live Activity zeigt die laufende Pause. Nach Trainingsende verschwindet sie.
+- **T-61** 📱 Füge im Kontrollzentrum „Training starten“ von Health hinzu und tippe darauf → Health startet das nächste Training. Ohne Routine startet ein freies Training.
+- **T-62** 📱 Sag „Siri, Training mit Health starten“ → Health öffnet das Training. Erneutes Aufrufen startet kein zweites.
+- **T-63** 📱 Sag „Siri, wie ist meine Erholung in Health?“ → Nach dem Entsperren nennt Siri den heutigen Wert samt Uhrzeit oder meldet, dass keine Messung vorliegt.
+- **T-64** 📱 Sag „Siri, Essen mit Health scannen“ → Health öffnet die Barcode-Ansicht.
+
+## Bedienung
+
+- **T-65** Stell in iOS eine sehr große Schrift ein. Öffne Today, das Plus-Menü und ein Live-Training → Texte bleiben lesbar und die wichtigen Knöpfe erreichbar.
+- **T-66** 📱 Schalte VoiceOver ein und streiche durch Today, das Plus-Menü und das Live-Training → VoiceOver liest Ringwerte, Knöpfe und den Stand des aktuellen Satzes verständlich vor.
