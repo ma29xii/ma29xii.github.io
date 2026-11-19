@@ -72,6 +72,18 @@ final class DesignHealthTests: XCTestCase {
         XCTAssertNil(BiomarkerComparison.evaluate(.restingHR, days: thin, today: today).range)
     }
 
+    func testApproximateAgeUsesWholeYearsEverywhere() {
+        func result(_ approximate: Bool) -> BodyAge.Result {
+            BodyAge.Result(age: 35.4, bodyAge: 32.26, recent: nil, previous: nil, factors: [], missing: [],
+                           daysWithData: 150, windowDays: 180, confidence: .high, ageIsApproximate: approximate)
+        }
+        XCTAssertEqual(BodyAgeText.age(result(false)), "32,3")
+        XCTAssertEqual(BodyAgeText.difference(result(false)), "3,1 Jahre jünger")
+        XCTAssertEqual(BodyAgeText.age(result(true)), "32")
+        XCTAssertEqual(BodyAgeText.spokenAge(result(true)), "etwa 32 Jahre")
+        XCTAssertEqual(BodyAgeText.difference(result(true)), "etwa 3 Jahre jünger")
+    }
+
     func testPaceOutsideTheScaleIsNotShownPrecisely() {
         XCTAssertEqual(AgingPace.text(3.65), "über 3,0×")
         XCTAssertEqual(AgingPace.text(-2), "unter −1,0×")

@@ -27,12 +27,28 @@ enum BodyAgeText {
         return sign + Format.number(abs(rounded), decimals: 1) + " Jahre"
     }
 
+    /// Eine Nachkommastelle nur bei guter Datenlage und bekanntem Geburtsdatum; sonst ganze Jahre.
+    static func decimals(_ result: BodyAge.Result) -> Int {
+        result.confidence == .high && !result.ageIsApproximate ? 1 : 0
+    }
+
+    /// Sichtbares Modellalter – überall gleich gerundet (Kopf, Detail, Trend, VoiceOver).
+    static func age(_ result: BodyAge.Result) -> String {
+        Format.number(result.bodyAge, decimals: decimals(result))
+    }
+
+    static func spokenAge(_ result: BodyAge.Result) -> String {
+        (result.ageIsApproximate ? "etwa " : "") + age(result) + " Jahre"
+    }
+
     static func difference(_ result: BodyAge.Result) -> String {
-        let places = result.confidence == .high ? 10.0 : 1.0
+        let places = decimals(result) == 1 ? 10.0 : 1.0
         let difference = (result.difference * places).rounded() / places
         if difference == 0 { return "Etwa so alt wie du bist" }
-        let amount = years(abs(difference), confidence: result.confidence)
-        return "\(amount) \(abs(difference) == 1 ? "Jahr" : "Jahre") \(difference < 0 ? "jünger" : "älter")"
+        let amount = Format.number(abs(difference), decimals: decimals(result))
+        let text = "\(amount) \(abs(difference) == 1 ? "Jahr" : "Jahre") \(difference < 0 ? "jünger" : "älter")"
+        // Nur das Geburtsjahr ist bekannt: Alter auf ein halbes Jahr unsicher.
+        return result.ageIsApproximate ? "etwa " + text : text
     }
 
     static func color(_ difference: Double) -> Color {
@@ -80,12 +96,12 @@ struct HealthAgeHero: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Health Age")
-        .accessibilityValue(result == nil ? headline : "Schätzung \(number) Jahre, \(headline)")
+        .accessibilityValue(result.map { "Schätzung \(BodyAgeText.spokenAge($0)), \(headline)" } ?? headline)
         .accessibilityHint("Öffnet Tempo, Beiträge und Verlauf")
     }
 
     private var number: String {
-        result.map { BodyAgeText.years($0.bodyAge, confidence: $0.confidence) } ?? "–"
+        result.map { BodyAgeText.age($0) } ?? "–"
     }
 
     private var headline: String {
@@ -112,7 +128,8 @@ struct HealthAgeSections: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s5) {
             // Bei dünner Datenlage schwankt das Tempo zu stark, um es zu zeigen (K-03-38).
-            AgingPaceCard(pace: result?.confidence == .low ? nil : result?.pace)
+            AgingPaceCard(pace: result?.confidence == .low ? nil : result?.pace,
+                          outsideScale: result?.paceOutsideScale ?? false)
             if let result, !result.factors.isEmpty {
                 VStack(alignment: .leading, spacing: Space.s2) {
                     DashboardHeading(title: "Beiträge")
@@ -130,13 +147,14 @@ struct HealthAgeSections: View {
                     }
                 }
             }
-            HealthAgeTrendCard(points: trend)
+            HealthAgeTrendCard(points: trend, decimals: result.map(BodyAgeText.decimals) ?? 0)
         }
     }
 }
 
 private struct AgingPaceCard: View {
     let pace: Double?
+    var outsideScale = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s2) {
@@ -156,11 +174,14 @@ private struct AgingPaceCard: View {
                                 .foregroundStyle(band.color)
                         }
                         AgingPaceScale(pace: pace, tint: band.color)
+                        Text("Zwei 90-Tage-Fenster verglichen · Schätzung")
+                            .font(.formaCaption)
+                            .foregroundStyle(Theme.textTertiary)
                     }
                     .padding(Space.s4)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Alterungstempo")
-                    .accessibilityValue("\(AgingPace.text(pace)), \(band.title)")
+                    .accessibilityLabel("Alterungstempo, Schätzung aus zwei 90-Tage-Fenstern")
+                    .accessibilityValue("\(AgingPace.text(pace)), \(band.title)\(outsideScale ? ", außerhalb der Skala" : "")")
                 } else {
                     DashboardEmpty(title: "Noch nicht genug Verlauf")
                 }
@@ -377,6 +398,8 @@ struct AgeFactorDetail: View {
 /// Health Age gegen echtes Alter, eine Schätzung pro Woche.
 private struct HealthAgeTrendCard: View {
     let points: [BodyAge.Estimate]
+    /// Gleiche Rundung wie die Kopfansicht.
+    var decimals = 0
     @State private var selection: Date?
 
     var body: some View {
@@ -407,7 +430,7 @@ private struct HealthAgeTrendCard: View {
         return VStack(alignment: .leading, spacing: Space.s3) {
             if let shown = selected {
                 HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                    Text(Format.number(shown.bodyAge, decimals: 1))
+                    Text(Format.number(shown.bodyAge, decimals: decimals))
                         .font(.formaNumber)
                         .foregroundStyle(tint)
                         .formaNumberTransition(shown.bodyAge)
@@ -466,7 +489,7 @@ private struct HealthAgeTrendCard: View {
             .frame(height: 168)
             .sensoryFeedback(.selection, trigger: selected?.date) { _, new in new != nil }
             .accessibilityLabel("Health Age Trend, \(points.count) Wochen")
-            .accessibilityValue("zuletzt \(Format.number(last.bodyAge, decimals: 1)) Jahre bei echtem Alter \(Format.number(last.age, decimals: 1))")
+            .accessibilityValue("zuletzt \(Format.number(last.bodyAge, decimals: decimals)) Jahre bei echtem Alter \(Format.number(last.age, decimals: 0))")
             HStack(spacing: Space.s4) {
                 legend("Health Age", color: tint, dashed: false)
                 legend("Echtes Alter", color: Theme.textTertiary, dashed: true)
@@ -503,7 +526,7 @@ struct BodyAgeDetailView: View {
                 if case .ready(let result) = outcome {
                     VStack(alignment: .leading, spacing: Space.s1) {
                         HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                            Text(BodyAgeText.years(result.bodyAge, confidence: result.confidence))
+                            Text(BodyAgeText.age(result))
                                 .font(.formaDisplay)
                                 .formaNumberTransition(result.bodyAge)
                             Text("Jahre · Schätzung")
