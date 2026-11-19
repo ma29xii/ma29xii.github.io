@@ -37,6 +37,12 @@ enum CoachEngine {
             CoachEngine.measuredSleepNeed(scores, strainAvailable: strainAvailable, history: history)
         }
 
+        var stepGoalToday: Int? {
+            StepGoal.target(on: today.date, history: history, recovery: recoveryAvailable ? scores.recovery : nil,
+                            sleepScore: sleepScore, sleepDebt: sleepDebt,
+                            strainTarget: recoveryAvailable ? scores.target : nil)
+        }
+
         var energy: Int? {
             recoveryAvailable && strainAvailable && sleepScore != nil ? scores.energy : nil
         }
@@ -145,11 +151,18 @@ enum CoachEngine {
         let q = question.lowercased()
         let s = c.scores
         let selected = selectedFields(for: question)
-        let measurements: [ExternalField] = [.energy, .stress, .sleepNeed, .sleepDebt]
+        let measurements: [ExternalField] = [.energy, .stress, .sleepNeed, .sleepDebt, .stepGoal]
         let requested = measurements.filter { selected.contains($0) }
         if requested == [.sleepNeed] { return sleepAdvice(c) }
         if !requested.isEmpty {
-            return requested.map { "\($0.rawValue): \($0.value(in: c) ?? "keine Messung")." }.joined(separator: " ")
+            return requested.map { field in
+                let value = field.value(in: c)
+                if field == .stepGoal {
+                    return value.map { "Heute passen etwa \($0)." }
+                        ?? "Für ein Schrittziel brauche ich Messwerte von mindestens sieben Tagen."
+                }
+                return "\(field.rawValue): \(value ?? "keine Messung")."
+            }.joined(separator: " ")
         }
         if q.contains("hrv") || q.contains("erhol") {
             guard c.recoveryAvailable else {
@@ -185,7 +198,7 @@ enum CoachEngine {
                 : "Für einen Zielbereich fehlen vergleichbare Herzwerte."
             return "\(current) \(target)"
         }
-        return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training oder Belastung."
+        return "Ich habe dazu noch keine passende Auswertung. Frag mich nach Erholung, Schlaf, Training, Belastung oder deinem Schrittziel."
     }
 
     private static func sleepAdvice(_ c: Context) -> String {
@@ -230,6 +243,7 @@ enum CoachEngine {
         case stress = "Stress"
         case sleepNeed = "Schlafbedarf"
         case sleepDebt = "Schlafschuld"
+        case stepGoal = "Schrittziel"
         case hrv = "HRV"
         case hrvDelta = "HRV-Abweichung"
         case restingHR = "Ruhepuls"
@@ -247,6 +261,7 @@ enum CoachEngine {
             case .stress: return c.stress.map { "\(Format.number($0, decimals: 1))/3 (geschätzt)" }
             case .sleepNeed: return c.sleepNeed.map(Format.duration)
             case .sleepDebt: return c.sleepDebt.map(Format.duration)
+            case .stepGoal: return c.stepGoalToday.map { "\(Format.number(Double($0))) Schritte" }
             case .hrv: return c.today.hrv.flatMap { $0.isFinite ? "\(Format.number($0)) ms" : nil }
             case .hrvDelta:
                 return c.hrvDelta.flatMap { $0.isFinite ? "\($0 >= 0 ? "+" : "")\(Format.number($0)) ms zum Normalwert" : nil }
@@ -290,6 +305,10 @@ enum CoachEngine {
         if asksForDuration { fields.insert(.sleepDuration) }
         if asksForNeed { fields.insert(.sleepNeed) }
         if has("schlafschuld", "schlafdefizit") { fields.insert(.sleepDebt) }
+        if has("schrittziel") || (has("schritte", "schritten") &&
+            has("soll", "sollte", "sollten", "ziel", "passen", "empfiehlst", "empfohlen", "sinnvoll")) {
+            fields.insert(.stepGoal)
+        }
         if has("trainieren", "training", "trainingsplan", "workout", "push", "pull", "beintraining") {
             fields.formUnion([.recovery, .strain, .target, .routine])
         }

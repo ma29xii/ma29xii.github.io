@@ -186,11 +186,19 @@ struct FoodGoal {
     let base: Double
     let activeEnergy: Double?
     let isPersonalized: Bool
+    let proteinGrams: Double
 
     var target: Double { base + (activeEnergy ?? 0) }
+    var carbGrams: Double {
+        // 30 % der Zielkalorien sind für Fett vorgesehen. Protein und Kohlenhydrate liefern je 4 kcal/g.
+        max(0, (target - target * 0.30) / 4 - proteinGrams)
+    }
+    var fiberGrams: Double { target / 1_000 * 14 }
 
     init(weightKg: Double, heightCm: Double, age: Int?, sex: BiologicalSex, activeEnergy: Double?) {
-        if let age, (18...120).contains(age), (1...500).contains(weightKg),
+        let hasWeight = (1...500).contains(weightKg)
+        proteinGrams = hasWeight ? weightKg * 1.8 : 120
+        if let age, (18...120).contains(age), hasWeight,
            Self.heightRange.contains(heightCm), sex != .unknown {
             // Geschätzter Ruheenergiebedarf nach Mifflin–St Jeor, DOI 10.1093/ajcn/51.2.241.
             let estimate = 10 * weightKg + 6.25 * heightCm - 5 * Double(age) + (sex == .male ? 5 : -161)

@@ -374,6 +374,15 @@ final class DataHub {
     var yesterday: DayMetrics? { days.count > 1 ? days[days.count - 2] : nil }
     var history: [DayMetrics] { Array(days.dropLast()) }
 
+    var stepGoalToday: Int? {
+        let recent = days
+        guard let day = recent.last else { return nil }
+        let snapshot = DashboardDay(day: day, history: Array(recent.dropLast()))
+        return StepGoal.target(on: day.date, history: snapshot.history, recovery: snapshot.recovery,
+                               sleepScore: snapshot.sleepScore, sleepDebt: ScoreEngine.sleepDebt(history: snapshot.history),
+                               strainTarget: snapshot.recovery.map { ScoreEngine.target(recovery: $0) }, calendar: calendar())
+    }
+
     var days: [DayMetrics] {
         let recent = Array(longDays.suffix(30))
         let calendar = calendar()
