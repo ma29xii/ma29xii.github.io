@@ -126,10 +126,6 @@ struct MetricSummaryRow: View {
                     .formaNumberTransition(evaluation.latest?.value ?? 0)
                     .frame(minWidth: 64, alignment: .trailing)
             }
-            Image(systemName: "chevron.right")
-                .font(.formaCaptionStrong)
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityHidden(true)
         }
         .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)

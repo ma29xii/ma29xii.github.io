@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Farbwelt der Kugel: grün = jünger, warm = älter, Graphit ohne Schätzung.
+/// Farbwelt des Partikelkreises: grün = jünger, warm = älter, Graphit ohne Wert.
 enum OrbMood: Equatable, Sendable {
     case younger, older, even, none
 
@@ -45,93 +45,76 @@ enum OrbMood: Equatable, Sendable {
     }
 }
 
-/// Leuchtende, langsam atmende Kugel hinter dem Health Age. Reduce Motion: steht still.
+/// Kreis aus vielen feinen Lichtpunkten, zum Rand hin dichter, ruhig schwebend. Reduce Motion: steht still.
 struct AgeOrb: View {
     let mood: OrbMood
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { context in
-            let t = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate * 0.35
-            orb(phase: t)
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { tick in
+            let t = reduceMotion ? 0 : tick.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                Self.draw(in: &context, size: size, time: t, mood: mood)
+            }
         }
         .accessibilityHidden(true)
     }
 
-    private func orb(phase t: Double) -> some View {
-        let blob = OrbBlob(phase: t)
-        return ZStack {
-            // Weiches Leuchten nach außen.
-            blob
-                .fill(mood.mid)
-                .blur(radius: 36)
-                .opacity(0.5)
-                .scaleEffect(1.06)
-            // Körper: heller Rand, dunkle Mitte, die Mitte wandert ganz leicht.
-            MeshGradient(width: 3, height: 3, points: meshPoints(t), colors: [
-                mood.rim, mood.mid, mood.rim,
-                mood.mid, mood.deep, mood.mid,
-                mood.rim, mood.mid, mood.rim
-            ])
-            .clipShape(blob)
-            // Dunkle Mitte, damit die Zahl ruhig lesbar bleibt.
-            blob.fill(RadialGradient(colors: [Color.black.opacity(0.82), Color.black.opacity(0.45), .clear],
-                                     center: .center, startRadius: 0, endRadius: 118))
-            // Glanzlicht oben links.
-            blob.fill(RadialGradient(colors: [Color.white.opacity(0.10), .clear],
-                                     center: UnitPoint(x: 0.3, y: 0.2), startRadius: 0, endRadius: 80))
-            // Lichtsaum.
-            blob.stroke(mood.rim.opacity(0.45), lineWidth: 7).blur(radius: 9)
-            blob.stroke(mood.rim.opacity(0.85), lineWidth: 1.1)
-        }
-        .compositingGroup()
+    struct Particle: Sendable {
+        let angle: Double
+        /// 0 = Mitte, 1 = Rand.
+        let radius: Double
+        let size: Double
+        let brightness: Double
+        let speed: Double
+        let phase: Double
+        let light: Bool
     }
 
-    private func meshPoints(_ t: Double) -> [SIMD2<Float>] {
-        let dx = Float(0.10 * sin(t * 0.9))
-        let dy = Float(0.10 * cos(t * 0.7))
-        return [
-            SIMD2<Float>(0, 0), SIMD2<Float>(0.5, 0), SIMD2<Float>(1, 0),
-            SIMD2<Float>(0, 0.5), SIMD2<Float>(0.5 + dx, 0.5 + dy), SIMD2<Float>(1, 0.5),
-            SIMD2<Float>(0, 1), SIMD2<Float>(0.5, 1), SIMD2<Float>(1, 1)
-        ]
-    }
-}
-
-/// Organischer Umriss: sieben Stützpunkte auf einem Kreis, deren Radius sanft schwankt.
-struct OrbBlob: Shape {
-    var phase: Double
-
-    func path(in rect: CGRect) -> Path {
-        let count = 7
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        let points: [CGPoint] = (0..<count).map { i in
-            let index = Double(i)
-            let angle = index / Double(count) * 2 * Double.pi
-            let wobble = 0.045 * sin(phase + index * 2.1) + 0.03 * sin(phase * 0.7 + index * 3.7)
-            let r = radius * CGFloat(0.92 + wobble)
-            return CGPoint(x: center.x + r * CGFloat(cos(angle)), y: center.y + r * CGFloat(sin(angle)))
+    /// Feste Verteilung (gleiches Bild bei jedem Start): viele Punkte am Rand, nach innen ausdünnend.
+    static let particles: [Particle] = {
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        func random() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double(seed >> 11) / Double(1 << 53)
         }
-        return Self.smoothClosed(points)
-    }
-
-    /// Geschlossene Catmull-Rom-Kurve durch alle Punkte, als kubische Bézier-Abschnitte.
-    static func smoothClosed(_ p: [CGPoint]) -> Path {
-        var path = Path()
-        guard p.count > 2 else { return path }
-        let n = p.count
-        path.move(to: p[0])
-        for i in 0..<n {
-            let p0 = p[(i - 1 + n) % n]
-            let p1 = p[i]
-            let p2 = p[(i + 1) % n]
-            let p3 = p[(i + 2) % n]
-            let c1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
-            let c2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
-            path.addCurve(to: p2, control1: c1, control2: c2)
+        return (0..<1100).map { _ in
+            // pow(…, 3) drückt die meisten Punkte an den Rand; innen bleibt es dunkel.
+            let depth = pow(random(), 3)
+            return Particle(angle: random() * 2 * .pi,
+                            radius: 1 - depth * 0.62,
+                            size: 0.6 + random() * random() * 2.4,
+                            brightness: 0.25 + random() * 0.75,
+                            speed: 0.15 + random() * 0.45,
+                            phase: random() * 2 * .pi,
+                            light: random() < 0.18)
         }
-        path.closeSubpath()
-        return path
+    }()
+
+    static func draw(in context: inout GraphicsContext, size: CGSize, time t: Double, mood: OrbMood) {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let outer = min(size.width, size.height) / 2 * 0.94
+        // Zarter Lichtsaum unter den Punkten.
+        let halo = Path(ellipseIn: CGRect(x: center.x - outer, y: center.y - outer, width: outer * 2, height: outer * 2))
+        context.fill(halo, with: .radialGradient(
+            Gradient(stops: [
+                .init(color: .clear, location: 0.55),
+                .init(color: mood.mid.opacity(0.22), location: 0.9),
+                .init(color: .clear, location: 1)
+            ]),
+            center: center, startRadius: 0, endRadius: outer))
+        for p in particles {
+            // Jeder Punkt schwebt auf einer eigenen kleinen Bahn und flimmert leicht.
+            let drift = sin(t * p.speed + p.phase)
+            let angle = p.angle + drift * 0.012 + t * 0.004
+            let radius = outer * CGFloat(min(1, p.radius + cos(t * p.speed * 0.8 + p.phase) * 0.012))
+            let x = center.x + radius * CGFloat(cos(angle))
+            let y = center.y + radius * CGFloat(sin(angle))
+            let twinkle = 0.65 + 0.35 * sin(t * p.speed * 2.2 + p.phase * 3)
+            let opacity = p.brightness * twinkle * (0.35 + 0.65 * p.radius)
+            let d = CGFloat(p.size)
+            context.fill(Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d)),
+                         with: .color((p.light ? mood.rim : mood.mid).opacity(opacity)))
+        }
     }
 }

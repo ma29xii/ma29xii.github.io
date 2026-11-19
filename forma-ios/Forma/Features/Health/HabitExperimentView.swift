@@ -21,19 +21,17 @@ struct ExperimentTile: View {
                     .frame(width: 52, height: 52)
                     .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Experiment").formaLabelStyle()
+                        Text("Gewohnheit").formaLabelStyle()
                         Text(title)
                             .font(.formaRowTitle)
                             .foregroundStyle(Theme.textPrimary)
-                        Text(detail)
-                            .font(.formaCaption)
-                            .foregroundStyle(Theme.textSecondary)
+                        if let detail {
+                            Text(detail)
+                                .font(.formaCaption)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.right")
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textTertiary)
-                        .accessibilityHidden(true)
                 }
                 .padding(Space.s4)
                 .contentShape(Rectangle())
@@ -56,8 +54,8 @@ struct ExperimentTile: View {
         return store.past.first.map { "Ergebnis: \($0.habit.title)" } ?? "Gewohnheit testen"
     }
 
-    private var detail: String {
-        guard let current = store.current else { return "14 Tage, ein Tipp pro Tag" }
+    private var detail: String? {
+        guard let current = store.current else { return nil }
         if current.isComplete() { return "Ergebnis bereit" }
         let today = current.dayIndex(of: .now)
         let open = today.map { current.answers[$0] == nil } ?? false
@@ -105,7 +103,7 @@ struct ExperimentDetailView: View {
                 }
                 if !store.past.isEmpty {
                     VStack(alignment: .leading, spacing: Space.s2) {
-                        DashboardHeading(title: "Frühere Experimente")
+                        DashboardHeading(title: "Frühere Gewohnheiten")
                         DashboardCard {
                             ForEach(Array(store.past.enumerated()), id: \.element.id) { index, experiment in
                                 if index > 0 { RowDivider() }
@@ -129,10 +127,6 @@ struct ExperimentDetailView: View {
                                         Text(Format.shortDate(experiment.start))
                                             .font(.formaCaption)
                                             .foregroundStyle(Theme.textSecondary)
-                                        Image(systemName: "chevron.right")
-                                            .font(.formaMicro)
-                                            .foregroundStyle(Theme.textTertiary)
-                                            .accessibilityHidden(true)
                                     }
                                     .padding(.horizontal, Space.s4)
                                     .frame(minHeight: 52)
@@ -148,7 +142,7 @@ struct ExperimentDetailView: View {
             .padding(.vertical, Space.s4)
         }
         .dashboardScreen()
-        .navigationTitle("Experiment")
+        .navigationTitle("Gewohnheit")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if store.current != nil {
@@ -157,7 +151,7 @@ struct ExperimentDetailView: View {
                 }
             }
         }
-        .confirmationDialog("Experiment beenden?", isPresented: $confirmEnd, titleVisibility: .visible) {
+        .confirmationDialog("Gewohnheit beenden?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("Beenden und auswerten") { update { $0.finishCurrent() } }
             Button("Verwerfen", role: .destructive) { update { $0.current = nil } }
         }

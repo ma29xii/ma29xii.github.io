@@ -42,13 +42,23 @@ enum BodyAgeText {
     }
 
     static func difference(_ result: BodyAge.Result) -> String {
-        let places = decimals(result) == 1 ? 10.0 : 1.0
-        let difference = (result.difference * places).rounded() / places
+        difference(result.difference, decimals: decimals(result), approximate: result.ageIsApproximate)
+    }
+
+    static func difference(_ value: Double, decimals: Int, approximate: Bool) -> String {
+        let places = decimals == 1 ? 10.0 : 1.0
+        let difference = (value * places).rounded() / places
         if difference == 0 { return "Etwa so alt wie du bist" }
-        let amount = Format.number(abs(difference), decimals: decimals(result))
+        let amount = Format.number(abs(difference), decimals: decimals)
         let text = "\(amount) \(abs(difference) == 1 ? "Jahr" : "Jahre") \(difference < 0 ? "jünger" : "älter")"
         // Nur das Geburtsjahr ist bekannt: Alter auf ein halbes Jahr unsicher.
-        return result.ageIsApproximate ? "etwa " + text : text
+        return approximate ? "etwa " + text : text
+    }
+
+    /// Woche, auf die sich eine Schätzung bezieht, z. B. „13. Nov. – 19. Nov.“.
+    static func week(ending date: Date) -> String {
+        let style = Date.FormatStyle(locale: .german).day().month(.abbreviated)
+        return "\(date.adding(days: -6).formatted(style)) – \(date.formatted(style))"
     }
 
     static func color(_ difference: Double) -> Color {
@@ -59,7 +69,7 @@ enum BodyAgeText {
 
 // MARK: - Kopf
 
-/// Hauptsache des Health-Tabs: Kugel, Zahl, „x Jahre jünger“, Datenlage.
+/// Hauptsache des Health-Tabs: Zeitraum oben, Partikelkreis mit Zahl und Abstand zum echten Alter.
 struct HealthAgeHero: View {
     let outcome: BodyAge.Outcome
 
@@ -69,48 +79,109 @@ struct HealthAgeHero: View {
     }
 
     var body: some View {
-        VStack(spacing: Space.s3) {
-            ZStack {
-                AgeOrb(mood: OrbMood(difference: result?.difference))
-                VStack(spacing: 2) {
-                    Text(number)
-                        .font(.formaHero)
-                        .foregroundStyle(Theme.textPrimary)
-                        .formaNumberTransition(result?.bodyAge ?? 0)
-                    Text("Health Age")
-                        .font(.formaMicro)
-                        .tracking(Tracking.label)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .frame(width: 252, height: 252)
-            .padding(.top, Space.s2)
-
-            let tint = result.map { BodyAgeText.color($0.difference) } ?? Theme.textSecondary
-            Text("\(Text(headline).foregroundStyle(tint))\(Text("  ·  Schätzung").foregroundStyle(Theme.textTertiary))")
-                .font(.formaRowTitle)
-                .multilineTextAlignment(.center)
+        VStack(spacing: Space.s2) {
+            Text(BodyAgeText.week(ending: .now))
+                .formaLabelStyle()
+                .accessibilityRemoveTraits(.isHeader)
+            HealthAgeDial(bodyAge: result?.bodyAge, difference: result?.difference,
+                          decimals: result.map(BodyAgeText.decimals) ?? 0,
+                          approximate: result?.ageIsApproximate ?? false)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Health Age")
-        .accessibilityValue(result.map { "Schätzung \(BodyAgeText.spokenAge($0)), \(headline)" } ?? headline)
+        .accessibilityValue(result.map { "\(BodyAgeText.spokenAge($0)), \(BodyAgeText.difference($0))" } ?? "")
         .accessibilityHint("Öffnet Tempo, Beiträge und Verlauf")
     }
+}
 
-    private var number: String {
-        result.map { BodyAgeText.age($0) } ?? "–"
+/// Partikelkreis mit großer Zahl, „Health Age“ und dem Abstand in der Zustandsfarbe.
+struct HealthAgeDial: View {
+    let bodyAge: Double?
+    let difference: Double?
+    let decimals: Int
+    let approximate: Bool
+    var diameter: CGFloat = 292
+
+    var body: some View {
+        ZStack {
+            AgeOrb(mood: OrbMood(difference: difference))
+            VStack(spacing: 4) {
+                Text(bodyAge.map { Format.number($0, decimals: decimals) } ?? "–")
+                    .font(.formaHero)
+                    .foregroundStyle(Theme.textPrimary)
+                    .formaNumberTransition(bodyAge ?? 0)
+                Text("Health Age")
+                    .font(.formaMicro)
+                    .tracking(Tracking.label)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Theme.textSecondary)
+                if let difference {
+                    Text(BodyAgeText.difference(difference, decimals: decimals, approximate: approximate))
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(BodyAgeText.color(difference))
+                        .padding(.top, 2)
+                }
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, diameter * 0.2)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+}
+
+/// Kopf der Health-Age-Seite: Woche umschalten (Pfeile oder Wischen), darunter der Partikelkreis dieser Woche.
+private struct HealthAgeWeekHeader: View {
+    let result: BodyAge.Result
+    let trend: [BodyAge.Estimate]
+    @State private var index: Int?
+
+    var body: some View {
+        let points = trend.isEmpty
+            ? [BodyAge.Estimate(date: .now, bodyAge: result.bodyAge, age: result.age)]
+            : trend
+        let current = min(max(index ?? points.count - 1, 0), points.count - 1)
+        let shown = points[current]
+        let decimals = BodyAgeText.decimals(result)
+        VStack(spacing: Space.s2) {
+            HStack(spacing: Space.s3) {
+                stepButton("Woche davor", systemImage: "chevron.left", enabled: current > 0) { index = current - 1 }
+                Text(BodyAgeText.week(ending: shown.date))
+                    .formaLabelStyle()
+                    .accessibilityRemoveTraits(.isHeader)
+                    .frame(minWidth: 150)
+                    .contentTransition(.opacity)
+                stepButton("Woche danach", systemImage: "chevron.right", enabled: current < points.count - 1) {
+                    index = current + 1
+                }
+            }
+            HealthAgeDial(bodyAge: shown.bodyAge, difference: shown.bodyAge - shown.age,
+                          decimals: decimals, approximate: result.ageIsApproximate)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Health Age, \(BodyAgeText.week(ending: shown.date))")
+                .accessibilityValue(BodyAgeText.difference(shown.bodyAge - shown.age, decimals: decimals,
+                                                           approximate: result.ageIsApproximate))
+                .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
+                    if drag.translation.width > 40, current > 0 { index = current - 1 }
+                    if drag.translation.width < -40, current < points.count - 1 { index = current + 1 }
+                })
+        }
+        .frame(maxWidth: .infinity)
+        .animation(.smooth, value: current)
+        .sensoryFeedback(.selection, trigger: current)
     }
 
-    private var headline: String {
-        switch outcome {
-        case .ready(let result): BodyAgeText.difference(result)
-        case .needsProfile: "Geburtsjahr fehlt"
-        case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Daten nötig"
-        case .insufficient(let reason): reason
+    private func stepButton(_ label: String, systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 44, height: 44)
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Theme.textPrimary : Theme.textQuaternary)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 }
 
@@ -182,13 +253,10 @@ private struct AgingPaceCard: View {
                             }
                         }
                         AgingPaceScale(pace: pace, tint: band.color)
-                        Text("Zwei 90-Tage-Fenster verglichen · Schätzung")
-                            .font(.formaCaption)
-                            .foregroundStyle(Theme.textTertiary)
                     }
                     .padding(Space.s4)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Alterungstempo, Schätzung aus zwei 90-Tage-Fenstern")
+                    .accessibilityLabel("Alterungstempo aus zwei 90-Tage-Fenstern")
                     .accessibilityValue("\(AgingPace.text(pace)), \(band.title)\(outsideScale ? ", außerhalb der Skala" : "")")
                 } else {
                     DashboardEmpty(title: "Noch nicht genug Verlauf")
@@ -280,9 +348,6 @@ private struct AgeFactorRow: View {
                     .font(.formaValue)
                     .foregroundStyle(tint)
                     .formaNumberTransition(years)
-                Image(systemName: "chevron.right")
-                    .font(.formaMicro)
-                    .foregroundStyle(Theme.textTertiary)
             }
             FactorRangeBar(factor: factor, tint: tint)
         }
@@ -542,21 +607,8 @@ struct BodyAgeDetailView: View {
             VStack(alignment: .leading, spacing: Space.s5) {
                 if hub.isSample { SampleDataBadge() }
                 if case .ready(let result) = outcome {
-                    VStack(alignment: .leading, spacing: Space.s1) {
-                        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                            Text(BodyAgeText.age(result))
-                                .font(.formaDisplay)
-                                .formaNumberTransition(result.bodyAge)
-                            Text("Jahre · Schätzung")
-                                .font(.formaCaption)
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                        Text(BodyAgeText.difference(result))
-                            .font(.formaRowTitle)
-                            .foregroundStyle(BodyAgeText.color(result.difference))
-                    }
-                    .accessibilityElement(children: .combine)
-                    .padding(.top, Space.s3)
+                    HealthAgeWeekHeader(result: result, trend: trend)
+                        .padding(.top, Space.s2)
 
                     HealthAgeSections(outcome: outcome, trend: trend)
 
@@ -582,10 +634,6 @@ struct BodyAgeDetailView: View {
                     HealthAgeSetupCard(outcome: outcome)
                 }
                 VStack(spacing: Space.s1) {
-                    Text("Modellschätzung aus deinen Messwerten, keine Diagnose.")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textTertiary)
-                        .multilineTextAlignment(.center)
                     NavigationLink {
                         HealthSourcesView()
                     } label: {
@@ -607,7 +655,7 @@ struct BodyAgeDetailView: View {
         .navigationTitle("Health Age")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Teilen nur mit fertiger Schätzung; gleiche Rundung wie auf dem Bildschirm.
+            // Teilen nur mit fertigem Wert; gleiche Rundung wie auf dem Bildschirm.
             if case .ready(let result) = outcome {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareCardButton { .healthAge(result, isSample: hub.isSample) }
@@ -659,9 +707,9 @@ struct HealthAgeSetupCard: View {
 
     private var message: String {
         switch outcome {
-        case .ready: "Schätzung bereit."
+        case .ready: "Bereit."
         case .needsProfile: "Mit deinem Geburtsjahr schätzt Health, wie alt dein Körper wirkt."
-        case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Messungen, dann gibt es die erste Schätzung."
+        case .needsData(let have, let need): "Noch \(need - have) \(need - have == 1 ? "Tag" : "Tage") mit Messungen, dann erscheint dein Health Age."
         case .insufficient(let reason): reason
         }
     }
@@ -670,6 +718,12 @@ struct HealthAgeSetupCard: View {
 struct HealthSourcesView: View {
     var body: some View {
         ScrollView {
+            Text("Modellschätzung aus deinen Messwerten, keine Diagnose.")
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Space.page)
+                .padding(.top, Space.s4)
             DashboardCard {
                 ForEach(Array(BodyAge.sources.enumerated()), id: \.offset) { index, source in
                     if let url = URL(string: source.url) {

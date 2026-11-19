@@ -52,15 +52,16 @@ struct HealthView: View {
                             .accessibilityIdentifier("health.age")
                     }
 
+                    ExperimentTile()
+                    HealthMonitor(snapshot: snapshot)
+
+                    // Biomarker zuletzt: so steht „Anpassen“ ganz unten auf der Seite.
                     VStack(alignment: .leading, spacing: Space.s2) {
                         DashboardHeading(title: "Biomarker")
                         InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
                             AnyView(tile(kind))
                         }
                     }
-
-                    ExperimentTile()
-                    HealthMonitor(snapshot: snapshot)
                 }
                 .padding(.horizontal, Space.page)
                 .padding(.vertical, Space.s4)

@@ -3,6 +3,8 @@ import SwiftUI
 /// Vitalwerte des Tages mit Haken, wenn sie in deinem üblichen Bereich liegen.
 struct HealthMonitor: View {
     let snapshot: DashboardDay
+    /// Today: nur die Symbole, ohne Titel und Zusammenfassung.
+    var compact = false
 
     var body: some View {
         let check = NightVitals(day: snapshot.day, history: snapshot.history)
@@ -14,13 +16,8 @@ struct HealthMonitor: View {
         } label: {
             DashboardCard {
                 VStack(alignment: .leading, spacing: Space.s4) {
-                    HStack {
+                    if !compact {
                         DashboardHeading(title: "Health Monitor")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.formaCaptionStrong)
-                            .foregroundStyle(Theme.textTertiary)
-                            .accessibilityHidden(true)
                     }
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 0) {
@@ -34,13 +31,15 @@ struct HealthMonitor: View {
                             ForEach(items) { indicator($0) }
                         }
                     }
-                    Label(status, systemImage: check.isMarked ? "moon" : summary.icon)
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(check.isMarked ? Theme.warning : summary.tint)
-                        .formaNumberTransition(Double(check.outliers.count))
-                        .padding(.horizontal, Space.s3)
-                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-                        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    if !compact || check.isMarked {
+                        Label(status, systemImage: check.isMarked ? "moon" : summary.icon)
+                            .font(.formaCaptionStrong)
+                            .foregroundStyle(check.isMarked ? Theme.warning : summary.tint)
+                            .formaNumberTransition(Double(check.outliers.count))
+                            .padding(.horizontal, Space.s3)
+                            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                            .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    }
                 }
                 .padding(Space.s4)
                 .contentShape(Rectangle())
