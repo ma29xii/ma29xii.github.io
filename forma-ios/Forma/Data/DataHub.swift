@@ -324,6 +324,11 @@ final class DataHub {
     }
 
     var isSample: Bool { activeSource == .sample }
+    /// Erfolge gelten je Google-Konto; mit Beispieldaten werden keine gesammelt.
+    var achievementHealthScope: AchievementHealthScope? {
+        guard !isSample, let accountID else { return nil }
+        return AchievementHealthScope(accountID: accountID)
+    }
     var today: DayMetrics { days.last ?? DayMetrics(date: calendar().startOfDay(for: now())) }
     var yesterday: DayMetrics? { days.count > 1 ? days[days.count - 2] : nil }
     var history: [DayMetrics] { Array(days.dropLast()) }
