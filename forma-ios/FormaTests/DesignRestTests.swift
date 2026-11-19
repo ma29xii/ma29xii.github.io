@@ -10,7 +10,7 @@ final class DesignRestTests: XCTestCase {
         XCTAssertEqual(GoogleStatus(.disconnected, now: now).title, "Nicht verbunden")
         XCTAssertEqual(GoogleStatus(.disconnected, now: now).tone, .off)
         XCTAssertTrue(GoogleStatus(.connecting, now: now).isBusy)
-        XCTAssertNotNil(GoogleStatus(.notConfigured, now: now).detail)
+        XCTAssertNil(GoogleStatus(.notConfigured, now: now).detail)
 
         let failed = GoogleStatus(.failed("Freigabe abgelaufen"), now: now)
         XCTAssertEqual(failed.tone, .problem)

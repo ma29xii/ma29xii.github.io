@@ -31,7 +31,7 @@ struct ProfileView: View {
 
                 Section {
                     NavigationLink { BodyProfileView() } label: {
-                        SettingsRow(title: "Body", systemImage: "figure.stand", detail: bodySummary)
+                        SettingsRow(title: "Body", systemImage: "figure.stand")
                     }
                     .accessibilityIdentifier("Body")
                     NavigationLink {
@@ -70,8 +70,6 @@ struct ProfileView: View {
                         .accessibilityIdentifier("profile.wake")
                 } header: {
                     Text("Mitteilungen").formaLabelStyle()
-                } footer: {
-                    Text("Die Weckzeit bestimmt, wann dich die Schlafenszeit-Erinnerung ans Bett schickt.")
                 }
                 .listRowBackground(Theme.card)
 
@@ -184,42 +182,47 @@ struct ProfileView: View {
 
     // MARK: Profilbild
 
+    /// Kopf wie die Apple-ID-Zeile in den iOS-Einstellungen: Bild links, Name und Angaben rechts.
     private var photoSection: some View {
         Section {
-            VStack(spacing: Space.s2) {
+            HStack(spacing: Space.s4) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    ProfileAvatar(image: app.profilePhoto, size: 88)
+                    ProfileAvatar(image: app.profilePhoto, size: 60)
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: "camera.fill")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Theme.onSelection)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 22, height: 22)
                                 .background(Circle().fill(Theme.selection))
-                                .overlay(Circle().strokeBorder(Theme.background, lineWidth: 2))
+                                .overlay(Circle().strokeBorder(Theme.card, lineWidth: 2))
                         }
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if app.profilePhoto != nil {
+                        Button("Bild entfernen", systemImage: "trash", role: .destructive) { removePhoto() }
+                    }
+                }
                 .accessibilityLabel(app.profilePhoto == nil ? "Profilbild wählen" : "Profilbild ändern")
-                if app.profilePhoto != nil {
-                    Button("Bild entfernen", role: .destructive) { removePhoto() }
-                        .font(.formaCaption)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(minHeight: 44)
-                } else {
-                    Text("Tippe, um ein Bild zu wählen")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textTertiary)
-                        .frame(minHeight: 44)
+                .accessibilityActions {
+                    if app.profilePhoto != nil {
+                        Button("Bild entfernen") { removePhoto() }
+                    }
                 }
-                if let photoError {
-                    Text(photoError).font(.formaCaption).foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Mein Profil").font(.system(.title3, weight: .semibold))
+                    if let bodySummary {
+                        Text(bodySummary).font(.formaBody).foregroundStyle(Theme.textSecondary)
+                    }
+                    if let photoError {
+                        Text(photoError).font(.formaCaption).foregroundStyle(Theme.warning)
+                    }
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.top, Space.s2)
+            .padding(.vertical, Space.s1)
         }
-        .listRowBackground(Color.clear)
+        .listRowBackground(Theme.card)
     }
 
     private func removePhoto() {
@@ -302,16 +305,11 @@ struct ProfileView: View {
                 get: { hub.isSample },
                 set: { hub.preferredSource = $0 ? .sample : .google }
             )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Beispieldaten zeigen")
-                    Text("Zum Ausprobieren, ohne eigene Werte").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                }
+                Text("Beispieldaten zeigen")
             }
             .accessibilityIdentifier("profile.sample")
         } header: {
             Text("Datenquelle").formaLabelStyle()
-        } footer: {
-            Text("Wenn Google die Werte deiner Apple Watch bereitstellt, erscheinen sie hier.")
         }
         .listRowBackground(Theme.card)
     }
@@ -345,7 +343,6 @@ struct GoogleStatus: Equatable {
         switch connection {
         case .notConfigured:
             title = "Vorschau-Version"
-            detail = "Google ist noch nicht eingerichtet. Mit den Beispieldaten kannst du Health trotzdem ausprobieren."
             tone = .off
         case .disconnected:
             title = "Nicht verbunden"
@@ -387,7 +384,7 @@ enum ProfileText {
             return ("Hintergrund-Abruf nicht geplant\(when): \(error)", true)
         }
         guard let planned else { return nil }
-        return ("Nächster Hintergrund-Abruf frühestens \(stamp(planned, now: now)). iOS entscheidet, wann er wirklich läuft.", false)
+        return ("Nächster Hintergrund-Abruf frühestens \(stamp(planned, now: now))", false)
     }
 
     static func stamp(_ date: Date, now: Date = .now) -> String {
@@ -467,8 +464,6 @@ private struct BodyProfileView: View {
                     }
                     LabeledContent("Geschlecht", value: hub.person.sex.title)
                     LabeledContent("Gewicht", value: "\(Format.weight(SampleData.weightKg, unit: app.weightUnit)) \(app.weightUnit.rawValue)")
-                } footer: {
-                    Text("Mit Beispieldaten zeigt Health eine Beispielperson. Deine Angaben gelten, sobald du die Beispieldaten ausschaltest.")
                 }
                 .listRowBackground(Theme.card)
             } else {
@@ -515,8 +510,6 @@ private struct BodyProfileView: View {
                     }
                 } header: {
                     Text("Über dich").formaLabelStyle()
-                } footer: {
-                    Text("Für Health Age, Schlafbedarf und dein Kalorienziel.")
                 }
                 .listRowBackground(Theme.card)
             }
