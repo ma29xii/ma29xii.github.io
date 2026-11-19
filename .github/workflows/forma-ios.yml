@@ -133,7 +133,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/shots"
           xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ui.xcresult" --output-path "$RUNNER_TEMP/shots" > /dev/null 2>&1
           ls "$RUNNER_TEMP/shots" | head -40
+          echo "UI_STATUS=$status" >> "$GITHUB_ENV"
           exit 0
+
+      - name: Screenshots als Artifact (auch bei Fehlern)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Health-Screenshots
+          path: ${{ runner.temp }}/shots
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Screenshots in den Branch legen
         if: always()
@@ -179,3 +189,8 @@ jobs:
           git add docs/forma-screens
           git commit -q -m "Forma: Screenshots aus dem UI-Rundgang ($GITHUB_SHA, Lauf $GITHUB_RUN_ID)" || exit 0
           for i in 1 2 3; do git pull -q --rebase origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && break; sleep 5; done
+
+      - name: UI-Rundgang-Ergebnis
+        if: always()
+        run: |
+          if [ "${UI_STATUS:-1}" != "0" ]; then echo "UI-Rundgang fehlgeschlagen (Status ${UI_STATUS:-unbekannt})"; exit 1; fi
