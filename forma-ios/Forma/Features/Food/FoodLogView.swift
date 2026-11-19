@@ -301,7 +301,7 @@ private struct FoodDayHero: View {
     }
 }
 
-private struct FoodHabitTile: View {
+struct FoodHabitTile: View {
     let title: String
     let icon: String
     let tint: Color
@@ -340,7 +340,7 @@ private struct FoodHabitTile: View {
 }
 
 /// Kalorien- und Makro-Ziele, Körpergröße.
-private struct FoodGoalsView: View {
+struct FoodGoalsView: View {
     let target: Double
     @AppStorage(FoodSettings.proteinGoalKey) private var protein = 0.0
     @AppStorage(FoodSettings.carbsGoalKey) private var carbs = 0.0
@@ -397,7 +397,7 @@ private struct FoodGoalsView: View {
     }
 }
 
-private struct FoodLogRow: View {
+struct FoodLogRow: View {
     let entry: FoodEntry
 
     var body: some View {

@@ -4,7 +4,7 @@ import SwiftUI
 import UserNotifications
 
 enum AppTab: Hashable {
-    case today, training, health, coach, add
+    case today, food, health, coach, add
 }
 
 /// Globale Bedienzustände (Tab, Coach-Kontext, laufendes Training).
@@ -45,8 +45,10 @@ final class AppState {
     /// Die Trainings-Zusammenfassung ist offen oder unterwegs. Andere Fenster (z. B. wartender Scan) warten so lange.
     var isWorkoutSummaryActive: Bool { workoutSummaryIncoming || finishedSession != nil }
     var showProfile = false
-    /// Plus-Menü (Mahlzeit scannen, Essen suchen, Ernährung heute, Training starten).
+    /// Plus-Menü (Kacheln: Nährwerte tracken, Essen planen, Training, Wasser, Fasten, Gewicht).
     var showPlus = false
+    /// Hält das Trainings-Vollbild kurz zurück, solange ein Blatt schließt. So zeigt SwiftUI beides nacheinander.
+    var liveCoverHeld = false
     var profilePhoto = ProfilePhotoStore.load()
 
     var weightUnit: WeightUnit {

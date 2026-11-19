@@ -3,54 +3,53 @@ import SwiftData
 
 /// Einträge des Plus-Menüs.
 enum PlusAction: String, CaseIterable, Identifiable, Sendable {
-    case scan, photo, search, food, plan, water, fasting, weight, training
+    /// Sichtbare Kacheln.
+    case track, plan, training, water, fasting, weight
+    /// Nur intern (Siri, Steuerelement): Scanner direkt öffnen und Training sofort starten.
+    case scan, quickTraining
 
     var id: String { rawValue }
     var accessibilityID: String { "plus." + rawValue }
 
+    /// Reihenfolge der Kacheln im Menü: zwei Reihen mit je drei.
+    static let tiles: [PlusAction] = [.track, .plan, .training, .water, .fasting, .weight]
+
     var title: String {
         switch self {
-        case .scan: "Mahlzeit scannen"
-        case .photo: "Essen fotografieren"
-        case .search: "Essen suchen"
-        case .food: "Ernährung heute"
+        case .track: "Nährwerte tracken"
         case .plan: "Essen planen"
+        case .training: "Training"
         case .water: "Wasser"
         case .fasting: "Fasten"
         case .weight: "Gewicht"
-        case .training: "Training starten"
+        case .scan: "Essen scannen"
+        case .quickTraining: "Training starten"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .scan: "barcode.viewfinder"
-        case .photo: "camera.viewfinder"
-        case .search: "magnifyingglass"
-        case .food: "fork.knife"
+        case .track: "fork.knife"
         case .plan: "calendar"
+        case .training, .quickTraining: "dumbbell"
         case .water: "drop"
         case .fasting: "timer"
         case .weight: "scalemass"
-        case .training: "dumbbell"
+        case .scan: "barcode.viewfinder"
         }
     }
-}
 
-struct PlusGroup: Identifiable, Sendable {
-    let title: String
-    let actions: [PlusAction]
-    var id: String { title }
-}
-
-extension PlusAction {
-    /// Gruppen im Menü: Essen, Heute erfassen, Training.
-    static let groups = [
-        PlusGroup(title: "Essen", actions: [.scan, .photo, .search, .food, .plan]),
-        PlusGroup(title: "Heute erfassen", actions: [.water, .fasting, .weight]),
-        // Ohne Überschrift: „Training“ über „Training starten“ wäre doppelt.
-        PlusGroup(title: "", actions: [.training])
-    ]
+    /// Kennfarbe der Kachel: etwas Farbe, ohne bunt zu werden.
+    var tint: Color {
+        switch self {
+        case .track, .scan: Theme.younger
+        case .plan: Theme.sleep
+        case .training, .quickTraining: Theme.recoveryHigh
+        case .water: Theme.strain
+        case .fasting: Theme.warning
+        case .weight: Theme.older
+        }
+    }
 }
 
 enum PlusLogic {
@@ -61,75 +60,103 @@ enum PlusLogic {
     }
 }
 
-/// Das Menü hinter dem Plus-Knopf in der Tab-Leiste.
-struct PlusMenuSheet: View {
-    var trainingSubtitle: String? = nil
+// MARK: - Menü
+
+/// Kleine Kacheln in einer Glasfläche. Sie wächst aus der Ecke des Plus-Knopfs nach oben.
+struct PlusMenuPanel: View {
     let onSelect: (PlusAction) -> Void
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: 3)
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.s3) {
-                ForEach(PlusAction.groups) { group in
-                    if !group.title.isEmpty {
-                        Text(group.title).formaLabelStyle()
-                            .padding(.top, group.id == PlusAction.groups.first?.id ? 0 : Space.s3)
-                    } else {
-                        Color.clear.frame(height: Space.s1)
-                    }
-                    VStack(spacing: 0) {
-                        ForEach(Array(group.actions.enumerated()), id: \.element.id) { index, action in
-                            if index > 0 { RowDivider(inset: Space.s4 + 36 + Space.s3) }
-                            Button { onSelect(action) } label: { row(action) }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier(action.accessibilityID)
-                        }
-                    }
-                    .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Theme.plate))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 0.75))
-                }
+        LazyVGrid(columns: columns, spacing: Space.s2) {
+            ForEach(PlusAction.tiles) { action in
+                Button { onSelect(action) } label: { tile(action) }
+                    .buttonStyle(PlusTileStyle())
+                    .accessibilityIdentifier(action.accessibilityID)
             }
-            .padding(.horizontal, Space.page)
-            .padding(.top, Space.s5)
-            .padding(.bottom, Space.s4)
         }
+        .padding(Space.s3)
+        .frame(maxWidth: 330)
+        .glassEffect(.regular, in: .rect(cornerRadius: 30, style: .continuous))
         .foregroundStyle(Theme.textPrimary)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 
-    private func row(_ action: PlusAction) -> some View {
-        HStack(spacing: Space.s3) {
-            Glyph(systemName: action.systemImage)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(action.title).font(.formaRowTitle)
-                // Nur das Training braucht eine Zeile dazu: welche Routine startet.
-                if action == .training, let trainingSubtitle {
-                    Text(trainingSubtitle).font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                }
-            }
-            Spacer(minLength: Space.s2)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.textQuaternary)
+    private func tile(_ action: PlusAction) -> some View {
+        VStack(spacing: Space.s2) {
+            Image(systemName: action.systemImage)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(action.tint)
+                .frame(height: 26)
                 .accessibilityHidden(true)
+            Text(action.title)
+                .font(.formaCaptionStrong)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
         }
-        .padding(.horizontal, Space.s4)
-        .frame(minHeight: 56)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity, minHeight: 84)
+        .padding(.horizontal, Space.s1)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.plate))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 0.75))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
-/// Zeigt das Plus-Menü und danach das gewählte Ziel. Das Ziel erscheint erst, wenn das Menü
-/// ganz weg ist (`onDismiss`), weil SwiftUI zwei Sheets nicht gleichzeitig sauber wechselt.
+private struct PlusTileStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
+    }
+}
+
+/// Abdunkelung plus Menü. Eine Feder lässt das Menü aus der unteren rechten Ecke aufspringen
+/// (dort sitzt der Plus-Knopf); bei „Bewegung reduzieren“ blendet es nur ein.
+private struct PlusMenuOverlay: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let onSelect: (PlusAction) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomTrailing) {
+                if app.showPlus {
+                    Color.black.opacity(0.38)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { app.showPlus = false }
+                        .transition(.opacity)
+                        .accessibilityElement()
+                        .accessibilityLabel("Plus-Menü schließen")
+                        .accessibilityAddTraits(.isButton)
+                    PlusMenuPanel(onSelect: onSelect)
+                        .padding(.trailing, Space.page)
+                        // Knapp über der schwebenden Tab-Leiste (Sicherheitsrand unten plus Leiste).
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + 76)
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.12, anchor: .bottomTrailing).combined(with: .opacity))
+                        .accessibilityAddTraits(.isModal)
+                        .accessibilityAction(.escape) { app.showPlus = false }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.68), value: app.showPlus)
+        .sensoryFeedback(.impact(weight: .light), trigger: app.showPlus)
+        .allowsHitTesting(app.showPlus)
+    }
+}
+
+// MARK: - Ablauf
+
+/// Zeigt das Plus-Menü und öffnet das gewählte Ziel. Das Menü ist kein Sheet und kann deshalb sofort
+/// einem Sheet Platz machen.
 private struct PlusFlow: ViewModifier {
     @Environment(AppState.self) private var app
     @Environment(\.modelContext) private var context
     @Query(sort: \Routine.createdAt) private var routines: [Routine]
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
-    @State private var chosen: PlusAction?
     @State private var destination: PlusAction?
-    /// Training kam von einem Kurzbefehl: ohne Routine ein freies Training starten.
-    @State private var freeTrainingIfNone = false
     /// Seit wann ein Scan-Auftrag auf das Ende des Trainings wartet; nach 15 Minuten ist er veraltet.
     @State private var scanHeldSince: Date?
 
@@ -138,41 +165,40 @@ private struct PlusFlow: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        @Bindable var app = app
         content
-            .sheet(isPresented: $app.showPlus, onDismiss: menuClosed) {
-                PlusMenuSheet(trainingSubtitle: nextRoutine?.name) { action in
-                    chosen = action
-                    app.showPlus = false
-                }
-            }
+            .overlay { PlusMenuOverlay { choose($0) } }
             // Kurzbefehle und Steuerelemente: erst nach dem Start, nie über ein anderes offenes Fenster.
             .onChange(of: HealthIntentRouter.shared.pending) { _, _ in routeIntent() }
             .onChange(of: app.launchReady) { _, _ in routeIntent() }
             .onChange(of: app.showProfile) { _, _ in routeIntent() }
             .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
             .onChange(of: app.isWorkoutSummaryActive) { _, _ in routeIntent() }
-            .onChange(of: app.liveWorkout?.draftID) { _, _ in routeIntent() }
+            .onChange(of: app.liveWorkout?.draftID) { _, new in
+                // Startet das Training aus dem Trainings-Blatt, erst das Blatt schließen, dann das Vollbild zeigen.
+                if new != nil, destination != nil {
+                    app.liveCoverHeld = true
+                    destination = nil
+                }
+                routeIntent()
+            }
             .onChange(of: destination) { _, _ in routeIntent() }
-            .sheet(item: $destination) { action in
+            .sheet(item: $destination, onDismiss: { app.liveCoverHeld = false }) { action in
                 switch action {
+                case .track: PlusFood.track()
                 case .scan: PlusFood.scan()
-                case .photo: PlusFood.photo()
-                case .search: PlusFood.search()
-                case .food: PlusFood.log()
                 case .plan: PlusFood.plan()
+                case .training: PlusFood.training()
                 case .water: PlusFood.water()
                 case .fasting: PlusFood.fasting()
                 case .weight: PlusFood.weight()
-                case .training: EmptyView()
+                case .quickTraining: EmptyView()
                 }
             }
     }
 
-    private func menuClosed() {
-        guard let action = chosen else { return }
-        chosen = nil
-        if action == .training { menuClosedStart() } else { destination = action }
+    private func choose(_ action: PlusAction) {
+        app.showPlus = false
+        if action == .quickTraining { startTraining() } else { destination = action }
     }
 
     /// Übernimmt eine wartende Anfrage von Siri, Kurzbefehl oder Steuerelement.
@@ -190,23 +216,10 @@ private struct PlusFlow: ViewModifier {
         scanHeldSince = nil
         guard HealthIntentRouter.shared.consume() != nil else { return }
         if request == .scanFood, let held, Date.now.timeIntervalSince(held) > 15 * 60 { return }
+        app.showPlus = false
         switch request {
-        case .startTraining:
-            freeTrainingIfNone = true
-            if app.showPlus {
-                // Menü ist offen: über dieselbe Kette schließen, dann starten.
-                chosen = .training
-                app.showPlus = false
-            } else {
-                menuClosedStart()
-            }
-        case .scanFood:
-            if app.showPlus {
-                chosen = .scan
-                app.showPlus = false
-            } else {
-                destination = .scan
-            }
+        case .startTraining: startTraining(freeIfNoRoutine: true)
+        case .scanFood: destination = .scan
         }
     }
 
@@ -216,17 +229,11 @@ private struct PlusFlow: ViewModifier {
         app.isWorkoutSummaryActive
     }
 
-    private func menuClosedStart() {
-        startTraining()
-        freeTrainingIfNone = false
-    }
-
-    private func startTraining() {
-        app.selectedTab = .training
-        // Läuft schon ein Training, zeigt Training es wieder an. Nichts doppelt starten.
+    private func startTraining(freeIfNoRoutine: Bool = false) {
+        // Läuft schon ein Training, liegt es als Vollbild da. Nichts doppelt starten.
         guard app.liveWorkout == nil else { return }
         guard let routine = nextRoutine else {
-            if freeTrainingIfNone { app.liveWorkout = LiveWorkout.empty() }
+            if freeIfNoRoutine { app.liveWorkout = LiveWorkout.empty() }
             return
         }
         routine.lastUsed = .now

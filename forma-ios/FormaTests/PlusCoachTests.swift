@@ -7,13 +7,13 @@ final class PlusCoachTests: XCTestCase {
 
     func testPlusActionsHaveUniqueIdentifiersAndTexts() {
         let ids = PlusAction.allCases.map(\.accessibilityID)
-        XCTAssertEqual(ids, ["plus.scan", "plus.photo", "plus.search", "plus.food", "plus.plan", "plus.water",
-                             "plus.fasting", "plus.weight", "plus.training"])
         XCTAssertEqual(Set(ids).count, ids.count)
-        XCTAssertEqual(PlusAction.allCases.map(\.title),
-                       ["Mahlzeit scannen", "Essen fotografieren", "Essen suchen", "Ernährung heute", "Essen planen", "Wasser",
-                        "Fasten", "Gewicht", "Training starten"])
-        XCTAssertEqual(PlusAction.groups.flatMap(\.actions), PlusAction.allCases, "Jede Aktion steht in genau einer Gruppe")
+        XCTAssertEqual(PlusAction.tiles.map(\.accessibilityID),
+                       ["plus.track", "plus.plan", "plus.training", "plus.water", "plus.fasting", "plus.weight"])
+        XCTAssertEqual(PlusAction.tiles.map(\.title),
+                       ["Nährwerte tracken", "Essen planen", "Training", "Wasser", "Fasten", "Gewicht"])
+        XCTAssertFalse(PlusAction.tiles.contains(.scan), "Scanner und Schnellstart sind nur intern")
+        XCTAssertFalse(PlusAction.tiles.contains(.quickTraining))
         XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.systemImage.isEmpty })
     }
 

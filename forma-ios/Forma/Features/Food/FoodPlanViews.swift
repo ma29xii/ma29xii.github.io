@@ -38,8 +38,10 @@ private struct PlanDay: Identifiable {
 /// Wochenplanung fürs Essen: Mahlzeiten für die nächsten Tage planen, daraus eine Einkaufsliste ableiten
 /// und am Tag mit einem Tipp ins Tagebuch übernehmen.
 struct FoodPlanView: View {
+    /// `true` als eigenes Blatt (mit Schließen-Knopf), `false` zum Einschieben in einen NavigationStack.
+    var standalone = true
     var body: some View {
-        FoodStandalone(true) { FoodPlanContent() }
+        FoodStandalone(standalone) { FoodPlanContent() }
     }
 }
 

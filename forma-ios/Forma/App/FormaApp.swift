@@ -64,6 +64,8 @@ struct RootView: View {
     @AppStorage("forma.onboarded") private var onboarded = false
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var showOnboarding = false
+    /// Das Trainings-Vollbild folgt `app.liveWorkout`, wartet aber, solange ein Blatt schließt (`liveCoverHeld`).
+    @State private var shownWorkout: LiveWorkout?
 
     var body: some View {
         @Bindable var app = app
@@ -71,9 +73,10 @@ struct RootView: View {
             Tab("Today", systemImage: "circle.circle", value: AppTab.today) {
                 TodayView().scrollEdgeEffectStyle(.soft, for: .all)
             }
-            Tab("Training", systemImage: "dumbbell", value: AppTab.training) {
-                TrainingView().scrollEdgeEffectStyle(.soft, for: .all)
+            Tab("Food", systemImage: "fork.knife", value: AppTab.food) {
+                FoodHomeView().scrollEdgeEffectStyle(.soft, for: .all)
             }
+            .accessibilityIdentifier("tab.food")
             Tab("Health", systemImage: "heart", value: AppTab.health) {
                 HealthView().scrollEdgeEffectStyle(.soft, for: .all)
             }
@@ -96,7 +99,7 @@ struct RootView: View {
         // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)
         .plusFlow()
-        .fullScreenCover(item: $app.liveWorkout) { workout in
+        .fullScreenCover(item: $shownWorkout) { workout in
             LiveWorkoutView(workout: workout)
         }
         .sheet(item: $app.finishedSession) { session in
@@ -131,6 +134,8 @@ struct RootView: View {
         .onChange(of: showOnboarding) { _, shown in
             if !shown { app.launchReady = true }
         }
+        .onChange(of: app.liveWorkout?.draftID, initial: true) { _, _ in syncWorkoutCover() }
+        .onChange(of: app.liveCoverHeld) { _, _ in syncWorkoutCover() }
         .onChange(of: sessions.count, initial: true) { _, _ in
             guard !app.isDemo else { return }
             let since = Date.now.startOfDay.adding(days: -30)
@@ -144,6 +149,10 @@ struct RootView: View {
         }
         // Ganz am Ende: Der Tracker liegt so auch in den hier gezeigten Sheets (Profil, Zusammenfassung) im Environment.
         .achievementTracking(healthScope: hub.achievementHealthScope)
+    }
+
+    private func syncWorkoutCover() {
+        shownWorkout = app.liveCoverHeld ? nil : app.liveWorkout
     }
 }
 
