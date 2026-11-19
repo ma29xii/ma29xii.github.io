@@ -75,7 +75,7 @@ final class DataHub {
             guard oldValue != preferredSource else { return }
             if !isUITest { defaults.set(preferredSource.rawValue, forKey: "forma.source") }
             invalidateRefresh()
-            showPreferredSource()
+            showPreferredSource(invalidateWidgetTimeline: true)
             Task { await syncAndNotify(background: false) }
         }
     }
@@ -126,7 +126,8 @@ final class DataHub {
         stored == DataSourceKind.sample.rawValue ? .sample : .google
     }
 
-    private func showPreferredSource() {
+    private func showPreferredSource(invalidateWidgetTimeline: Bool = false) {
+        defer { publishWidgets(invalidateTimeline: invalidateWidgetTimeline) }
         activeSource = preferredSource
         syncWarning = nil
         resetSnapshot()
@@ -257,6 +258,7 @@ final class DataHub {
         invalidateRefresh()
         _ = deleteCache()
         resetSnapshot()
+        publishWidgets(invalidateTimeline: true)
         syncWarning = nil
         notificationIssue = nil
         recordBackgroundIssue(nil)
@@ -360,7 +362,29 @@ final class DataHub {
     }
 
     func setFormaWorkouts(_ workouts: [WorkoutSummary]) {
-        if workouts != formaWorkouts { formaWorkouts = workouts }
+        guard workouts != formaWorkouts else { return }
+        formaWorkouts = workouts
+        publishWidgets()
+    }
+
+    private func publishWidgets(invalidateTimeline: Bool = false) {
+        guard manageSystemState, !isUITest else { return }
+        let calendar = calendar()
+        let currentTime = now()
+        let today = CivilDay(currentTime, in: calendar)
+        // Bei Teilabrufen kann ein Teil des sichtbaren Stands älter sein.
+        let checkedAt = seriesFreshness.values
+            .filter { $0.latestMeasurementDay == today && calendar.isDate($0.checkedAt, inSameDayAs: currentTime) }
+            .map(\.checkedAt).min()
+        var snapshot: WidgetSnapshot?
+        if !isSample, accountID != nil, let checkedAt {
+            let recent = days
+            if let day = recent.last {
+                let dashboard = DashboardDay(day: day, history: dashboardHistory(recent: recent))
+                snapshot = WidgetBridge.snapshot(for: dashboard, checkedAt: checkedAt, calendar: calendar)
+            }
+        }
+        WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
     }
 
     var person: PersonInfo {
@@ -589,7 +613,7 @@ final class DataHub {
                     CoachNotifier.removeCoachNotifications(now: now())
                 }
                 accountID = account
-                showPreferredSource()
+                showPreferredSource(invalidateWidgetTimeline: true)
             }
             let calendar = calendar()
             let today = calendar.startOfDay(for: now())
@@ -754,6 +778,8 @@ final class DataHub {
             syncWarning = "Die lokale Kopie konnte nicht gespeichert werden. Du siehst den letzten gespeicherten Stand."
             return .storageFailed
         }
+        // Auch ein Rückimport kann die fehlende Vergleichsbasis für Today liefern.
+        defer { publishWidgets() }
 
         storedDays = days
         displayTimeZone = calendar.timeZone

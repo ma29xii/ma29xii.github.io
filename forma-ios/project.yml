@@ -1,6 +1,7 @@
 name: Forma
 options:
   bundleIdPrefix: com.ma29xii
+  developmentLanguage: de
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
@@ -23,14 +24,41 @@ targets:
         excludes:
           - coach-keys.json
           - "**/coach-keys.json"
+      - path: Shared
+    dependencies:
+      - target: HealthWidgets
+        link: false
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ma29xii.forma
         PRODUCT_NAME: Forma
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        GENERATE_INFOPLIST_FILE: NO
+        GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: Forma/Resources/Info.plist
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        CODE_SIGN_ENTITLEMENTS: Forma/Resources/Forma.entitlements
+  HealthWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: HealthWidgets
+        excludes:
+          - Info.plist
+          - HealthWidgets.entitlements
+      - path: Shared
+        excludes:
+          - HealthShortcuts.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ma29xii.forma.widgets
+        PRODUCT_NAME: HealthWidgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: HealthWidgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HealthWidgets/HealthWidgets.entitlements
+        SKIP_INSTALL: YES
   FormaTests:
     type: bundle.unit-test
     platform: iOS
