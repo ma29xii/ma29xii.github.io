@@ -131,9 +131,17 @@ final class TrainingTests: XCTestCase {
     func testLevelAndText() {
         XCTAssertEqual(MuscleVolume.level(0), 0)
         XCTAssertGreaterThan(MuscleVolume.level(0.5), 0)
-        XCTAssertEqual(MuscleVolume.level(10), 1)
-        XCTAssertEqual(MuscleVolume.level(25), 1)
         XCTAssertLessThan(MuscleVolume.level(3), MuscleVolume.level(6))
+        XCTAssertLessThan(MuscleVolume.level(6), MuscleVolume.level(12))
+        XCTAssertLessThan(MuscleVolume.level(12), MuscleVolume.level(22))
+        XCTAssertEqual(MuscleVolume.level(22), 1)
+        XCTAssertNil(MuscleVolume.band(0))
+        XCTAssertNil(MuscleVolume.band(.nan))
+        XCTAssertEqual(MuscleVolume.band(0.5), .low)
+        XCTAssertEqual(MuscleVolume.band(5), .below)
+        XCTAssertEqual(MuscleVolume.band(10), .target)
+        XCTAssertEqual(MuscleVolume.band(20), .target)
+        XCTAssertEqual(MuscleVolume.band(20.5), .above)
         XCTAssertEqual(MuscleVolume.text(4.5), "4,5")
         XCTAssertEqual(MuscleVolume.text(12), "12")
     }
@@ -288,5 +296,20 @@ final class TrainingTests: XCTestCase {
         XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 600), 15)
         XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 898), 2)
         XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 900), 0)
+    }
+
+    func testLastTrainedPerMuscle() {
+        let day = 86_400.0
+        let last = MuscleVolume.lastTrained([
+            (exercise: "Bankdrücken", date: now.addingTimeInterval(-3 * day)),
+            (exercise: "Trizepsdrücken am Kabel", date: now.addingTimeInterval(-1 * day)),
+            (exercise: "Bankdrücken", date: now.addingTimeInterval(day))   // Zukunft zählt nicht
+        ], now: now)
+        XCTAssertEqual(last[.chest], now.addingTimeInterval(-3 * day))
+        XCTAssertEqual(last[.triceps], now.addingTimeInterval(-1 * day), "mithelfend beim Bankdrücken, zuletzt direkt")
+        XCTAssertNil(last[.calves])
+        XCTAssertEqual(MuscleVolume.lastText(now, now: now), "heute")
+        XCTAssertEqual(MuscleVolume.lastText(now.addingTimeInterval(-day), now: now), "gestern")
+        XCTAssertEqual(MuscleVolume.lastText(now.addingTimeInterval(-3 * day), now: now), "vor 3 Tagen")
     }
 }

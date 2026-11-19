@@ -46,6 +46,8 @@ struct TrainingView: View {
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var path: [TrainingRoute] = []
     @State private var tappedMuscle: Muscle?
+    /// Angetippter Muskel auf der Karte: zeigt Name, Sätze und letzte Belastung direkt in der Kachel.
+    @State private var selectedMuscle: Muscle?
     @State private var muscleMode = MuscleMode.week
 
     private enum MuscleMode: Hashable { case week, recovery }
@@ -229,15 +231,22 @@ struct TrainingView: View {
         return VStack(alignment: .leading, spacing: 0) {
             Group {
                 if muscleMode == .week {
-                    MuscleMapView(intensity: volume.mapValues(MuscleVolume.level), showsBoth: true) { tappedMuscle = $0 }
+                    MuscleMapView(intensity: volume.mapValues(MuscleVolume.level), selected: selectedMuscle, showsBoth: true) { select($0) }
                 } else {
-                    MuscleMapView(intensity: load.mapValues(MuscleRecovery.level), showsBoth: true, tint: Theme.older) { tappedMuscle = $0 }
+                    MuscleMapView(intensity: load.mapValues(MuscleRecovery.level), selected: selectedMuscle, showsBoth: true, tint: Theme.older) { select($0) }
                 }
             }
             .frame(height: 250)
             .padding(.horizontal, Space.s4)
             .padding(.top, Space.s3)
             .animation(.smooth, value: muscleMode)
+            if let muscle = selectedMuscle {
+                selectedRow(muscle, volume: volume, load: load)
+                    .transition(.opacity)
+            } else if muscleMode == .week && !ranked.isEmpty {
+                volumeLegend
+                    .transition(.opacity)
+            }
             QuietSegments(options: [(MuscleMode.week, "7 Tage"), (MuscleMode.recovery, "Erholung")], selection: $muscleMode)
                 .frame(maxWidth: .infinity)
             if muscleMode == .recovery {
@@ -272,6 +281,73 @@ struct TrainingView: View {
                 }
                 Color.clear.frame(height: Space.s4)
             }
+        }
+    }
+
+    private func select(_ muscle: Muscle) {
+        withAnimation(.smooth(duration: 0.25)) { selectedMuscle = selectedMuscle == muscle ? nil : muscle }
+    }
+
+    /// Name, Sätze bzw. Zustand und letzte Belastung des angetippten Muskels; Tippen öffnet die Übungen dazu.
+    private func selectedRow(_ muscle: Muscle, volume: [Muscle: Double], load: [Muscle: Double]) -> some View {
+        let sets = volume[muscle] ?? 0
+        let last = MuscleVolume.lastTrained(entries(since: .distantPast), groups: exerciseGroups)[muscle]
+        var parts: [String] = []
+        if muscleMode == .week {
+            parts.append(sets > 0 ? "\(MuscleVolume.text(sets)) Sätze · \(MuscleVolume.band(sets)?.title ?? "")" : "Keine Sätze in 7 Tagen")
+        } else if hasRecentWork {
+            parts.append(MuscleRecovery.state(load[muscle] ?? 0).title)
+        }
+        parts.append(last.map { "zuletzt \(MuscleVolume.lastText($0))" } ?? "noch nie trainiert")
+        return Button { tappedMuscle = muscle } label: {
+            HStack(spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(muscle.name).font(.formaRowTitle).foregroundStyle(Theme.textPrimary)
+                    Text(parts.joined(separator: " · ")).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.formaCaptionStrong).foregroundStyle(Theme.textTertiary)
+            }
+            .padding(.horizontal, Space.s4)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(muscle.name), \(parts.joined(separator: ", "))")
+        .accessibilityHint("Zeigt Übungen für diesen Muskel")
+    }
+
+    /// Stufen relativ zum Wochenziel; grau = nicht trainiert.
+    private var volumeLegend: some View {
+        let target = MuscleVolume.weeklyTarget
+        let items = MuscleVolume.Band.allCases.map { band in
+            (band, band == .target ? "\(band.title) \(Int(target.lowerBound))–\(Int(target.upperBound))" : band.title)
+        }
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: Space.s3) { ForEach(items, id: \.0) { legendSwatch($0.0, $0.1) } }
+            Grid(alignment: .leading, horizontalSpacing: Space.s4, verticalSpacing: Space.s2) {
+                GridRow {
+                    legendSwatch(items[0].0, items[0].1)
+                    legendSwatch(items[1].0, items[1].1)
+                }
+                GridRow {
+                    legendSwatch(items[2].0, items[2].1)
+                    legendSwatch(items[3].0, items[3].1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Space.s3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Stufen nach Sätzen pro Woche: wenig, unter Ziel, im Ziel \(Int(target.lowerBound)) bis \(Int(target.upperBound)), über Ziel. Grau heißt nicht trainiert.")
+    }
+
+    private func legendSwatch(_ band: MuscleVolume.Band, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 3).fill(Theme.cardRaised)
+                .overlay { RoundedRectangle(cornerRadius: 3).fill(MuscleMapView.fill(band.level)) }
+                .frame(width: 10, height: 10)
+            Text(label).font(.formaMicro).foregroundStyle(Theme.textSecondary).fixedSize()
         }
     }
 

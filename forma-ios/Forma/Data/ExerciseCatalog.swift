@@ -412,9 +412,63 @@ enum MuscleVolume {
         return result
     }
 
-    /// Leuchtstärke für die Karte: ab 10 Sätzen voll, jeder trainierte Muskel sichtbar.
-    static func level(_ sets: Double) -> Double {
-        sets <= 0 ? 0 : min(1, 0.25 + 0.075 * sets)
+    /// Wochenziel je Muskel in harten Sätzen (übliche Spanne für Muskelaufbau).
+    static let weeklyTarget: ClosedRange<Double> = 10...20
+
+    /// Stufe relativ zum Wochenziel. Untrainierte Muskeln haben keine Stufe (grau).
+    enum Band: Int, CaseIterable, Sendable {
+        case low, below, target, above
+        var title: String {
+            switch self {
+            case .low: "Wenig"
+            case .below: "Unter Ziel"
+            case .target: "Im Ziel"
+            case .above: "Über Ziel"
+            }
+        }
+        /// Füllstärke auf der Karte; deutlich getrennte Stufen statt fließender Verlauf.
+        var level: Double {
+            switch self {
+            case .low: 0.18
+            case .below: 0.42
+            case .target: 0.72
+            case .above: 1
+            }
+        }
+    }
+
+    static func band(_ sets: Double) -> Band? {
+        guard sets.isFinite, sets > 0 else { return nil }
+        if sets < weeklyTarget.lowerBound / 2 { return .low }
+        if sets < weeklyTarget.lowerBound { return .below }
+        return sets <= weeklyTarget.upperBound ? .target : .above
+    }
+
+    /// Füllstärke für die Karte (0 = grau, nicht trainiert).
+    static func level(_ sets: Double) -> Double { band(sets)?.level ?? 0 }
+
+    /// Letzte Belastung je Muskel (Hauptmuskel oder mithelfend), aus allen erfassten Arbeitssätzen.
+    static func lastTrained(_ sets: [(exercise: String, date: Date)], groups: [String: String] = [:],
+                            now: Date = .now) -> [Muscle: Date] {
+        var result: [Muscle: Date] = [:]
+        for set in sets where set.date <= now {
+            let muscles = ExerciseCatalog.muscles(for: set.exercise, group: groups[set.exercise])
+            for m in muscles.primary + muscles.secondary where set.date > (result[m] ?? .distantPast) {
+                result[m] = set.date
+            }
+        }
+        return result
+    }
+
+    /// „heute“, „gestern“, „vor 3 Tagen“, ab einer Woche das Datum.
+    static func lastText(_ date: Date, now: Date = .now, calendar: Calendar = .forma) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        switch days {
+        case ..<1: return "heute"
+        case 1: return "gestern"
+        case 2..<7: return "vor \(days) Tagen"
+        default: return date.formatted(Date.FormatStyle(locale: Locale(identifier: "de_DE")).day().month(.abbreviated))
+        }
     }
 
     /// „12“ oder „4,5“.

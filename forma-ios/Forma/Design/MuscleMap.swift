@@ -27,6 +27,11 @@ struct MuscleMapView: View {
         _side = State(initialValue: MuscleMapView.preferredSide(for: intensity))
     }
 
+    /// Füllfarbe eines Muskels: gedämpfte Akzentfarbe, Stärke nach Stufe (0 = neutral grau).
+    static func fill(_ level: Double, tint: Color = Theme.strain) -> Color {
+        level > 0 ? tint.mix(with: Color(white: 0.62), by: 0.3).opacity(0.08 + 0.92 * level) : Color.white.opacity(0.05)
+    }
+
     /// Die Seite, auf der die meisten markierten Muskeln liegen.
     static func preferredSide(for intensity: [Muscle: Double]) -> BodySide {
         let front = intensity.filter { $0.key.onFront && !$0.key.onBack }.values.reduce(0, +)
@@ -121,13 +126,12 @@ private struct MuscleFigure: View {
                 ForEach(MuscleArt.silhouette.indices, id: \.self) { i in
                     BodyShape(polygons: [MuscleArt.silhouette[i]], head: i == 0).fill(Theme.cardRaised)
                 }
-                // Gedämpfte Akzentfarbe, fein nach Belastung abgestuft; nur Hauptmuskeln leuchten leise.
-                let muted = tint.mix(with: Color(white: 0.62), by: 0.3)
+                // Gedämpfte Akzentfarbe in deutlichen Stufen; nur die stärkste Stufe leuchtet leise.
                 ForEach(muscles) { m in
                     let level = intensity[m] ?? 0
                     let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
                     shape
-                        .fill(level > 0 ? muted.opacity(0.14 + 0.46 * level) : Color.white.opacity(0.045))
+                        .fill(MuscleMapView.fill(level, tint: tint))
                         .shadow(color: tint.opacity(level >= 0.9 ? 0.3 : 0), radius: 6)
                         .overlay { if selected == m { shape.stroke(Theme.textPrimary.opacity(0.85), lineWidth: 1) } }
                         .animation(.smooth(duration: 0.4), value: level)
@@ -264,7 +268,7 @@ enum MuscleArt {
 
     static let front: [Muscle: [[CGPoint]]] = [
         .traps: [poly([(109, 61), (122, 67), (137, 74), (125, 76), (112, 70)])],
-        .chest: [poly([(102, 84), (118, 80), (134, 82), (141, 90), (140, 103), (131, 113), (115, 116), (102, 113)])],
+        .chest: [poly([(102, 85), (115, 80), (129, 80), (138, 85), (141, 94), (137, 104), (126, 113), (112, 117), (102, 115)])],
         .frontDelts: [poly([(139, 79), (146, 82), (148, 94), (146, 108), (142, 104), (140, 92)])],
         .sideDelts: [sideDelt],
         .biceps: [poly([(143, 118), (150, 115), (153, 131), (152, 152), (148, 162), (144, 150), (142, 132)])],
@@ -284,9 +288,9 @@ enum MuscleArt {
         .sideDelts: [sideDelt],
         .triceps: [poly([(142, 116), (150, 114), (153, 130), (152, 152), (148, 162), (144, 150), (142, 132)])],
         .forearms: [forearm],
-        .lats: [poly([(106, 120), (117, 100), (131, 88), (135, 100), (134, 124), (127, 148), (113, 166), (104, 154), (104, 136)])],
+        .lats: [poly([(106, 128), (114, 110), (124, 95), (134, 92), (136, 108), (132, 128), (123, 150), (111, 168), (104, 158), (104, 142)])],
         .lowerBack: [poly([(101, 176), (110, 172), (118, 186), (118, 204), (110, 210), (101, 210)])],
-        .glutes: [poly([(102, 222), (114, 215), (128, 216), (135, 232), (136, 250), (130, 266), (114, 270), (102, 264)])],
+        .glutes: [poly([(102, 224), (112, 216), (125, 215), (133, 224), (136, 240), (134, 257), (126, 268), (112, 271), (102, 266)])],
         .hamstrings: [poly([(122, 278), (133, 276), (134, 300), (129, 322), (122, 320), (120, 298)]),
                       poly([(106, 280), (116, 278), (117, 300), (119, 322), (112, 324), (106, 302)])],
         .calves: [poly([(108, 344), (117, 340), (119, 364), (116, 388), (109, 378)]),
