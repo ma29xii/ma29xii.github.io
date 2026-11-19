@@ -109,7 +109,7 @@ struct TodayView: View {
         case .coach:
             return AnyView(coachLine(snapshot))
         case .healthMonitor:
-            return AnyView(HealthMonitor(snapshot: snapshot))
+            return AnyView(HealthMonitor(snapshot: snapshot, compact: true))
         case .stress:
             return AnyView(StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
                                              isLoading: false, history: history))
