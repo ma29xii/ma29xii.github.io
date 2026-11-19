@@ -6,8 +6,10 @@ import WidgetKit
 struct HealthWidgets: WidgetBundle {
     var body: some Widget {
         TodayHealthWidget()
+        WaterWidget()
         TrainingLiveWidget()
         StartTrainingControl()
+        AddWaterControl()
     }
 }
 
