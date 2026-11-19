@@ -48,6 +48,15 @@ struct TodayView: View {
                         InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
                             tile(kind, snapshot: snapshot, history: history, stress: stress, period: period)
                         }
+                        .editHeader {
+                            // T2: Kopf-Variante im Anpassen-Modus wählen (zusätzlich per langem Druck auf den Kopf).
+                            Picker("Kopf", selection: $headerStyle) {
+                                Text("Kapseln").tag(TodayHeaderStyle.capsules.rawValue)
+                                Text("Ringe").tag(TodayHeaderStyle.rings.rawValue)
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityIdentifier("today.headerStyle")
+                        }
                     }
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
                     .padding(.horizontal, Space.page)
