@@ -124,8 +124,10 @@ jobs:
             -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" \
             -resultBundlePath "$RUNNER_TEMP/unit.xcresult" > "$RUNNER_TEMP/unit.log" 2>&1
           status=$?
-          grep -E "error:|failed|XCTAssert|Executed|TEST (SUCCEEDED|FAILED)|Test Case .* (passed|failed)" "$RUNNER_TEMP/unit.log" \
-            | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -120
+          echo "=== Fehlgeschlagene Unit-Tests ==="
+          grep -E "error: -\[|Test Case .* failed" "$RUNNER_TEMP/unit.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | head -40
+          echo "=== Übersicht ==="
+          grep -E "Executed [0-9]+ test|TEST (SUCCEEDED|FAILED)" "$RUNNER_TEMP/unit.log" | tail -3
           {
             echo "### Unit-Tests"
             grep -E "Executed [0-9]+ test" "$RUNNER_TEMP/unit.log" | tail -1
