@@ -52,6 +52,7 @@ private struct FoodHomeContent: View {
     @AppStorage(FoodSettings.waterGoalKey) private var waterGoal = FoodSettings.defaultWaterMl
     @State private var route: FoodHomeRoute?
     @State private var showTrack = false
+    @State private var trackMeal: FoodMeal?
     @State private var deleteError = false
 
     init(day: Date) {
@@ -88,7 +89,8 @@ private struct FoodHomeContent: View {
                 }
                 Section {
                     Button { route = .goals } label: {
-                        FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget)
+                        FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget,
+                                 fiberGoal: goal.fiberGrams)
                     }
                     .buttonStyle(.plain)
                     .id("food.top")
@@ -117,6 +119,7 @@ private struct FoodHomeContent: View {
             }
             .listSectionSpacing(Space.s3)
             .formaScreen()
+            .refreshable { await hub.syncAndNotify(background: false) }
             // Doppeltipp auf den Tab bringt das System nach oben; das hier fängt nur den Wechsel des Tages auf.
             .onChange(of: day) { _, _ in proxy.scrollTo("food.top", anchor: .top) }
         }
@@ -129,7 +132,7 @@ private struct FoodHomeContent: View {
             case .goals: FoodGoalsView(target: target, proteinAuto: goal.proteinGrams, carbsAuto: goal.carbGrams)
             }
         }
-        .sheet(isPresented: $showTrack) { FoodTrackSheet() }
+        .sheet(isPresented: $showTrack) { FoodTrackSheet(meal: trackMeal) }
         .alert("Eintrag konnte nicht gelöscht werden", isPresented: $deleteError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -185,7 +188,10 @@ private struct FoodHomeContent: View {
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
                 }
-                Button { showTrack = true } label: {
+                Button {
+                    trackMeal = meal
+                    showTrack = true
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .semibold))
                         .frame(width: 44, height: 32)
@@ -212,19 +218,50 @@ private struct FoodHero: View {
     let target: Double
     let proteinGoal: Double
     let carbGoal: Double
+    let fiberGoal: Double
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let energy = FoodSum(entries.map(\.energy))
         let protein = FoodSum(entries.map(\.protein))
         let carbs = FoodSum(entries.map(\.carbohydrates))
+        VStack(spacing: Space.s3) {
+            rings(energy, protein, carbs)
+            fiberRow
+        }
+        .padding(.vertical, Space.s3)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+
+    /// Ballaststoffe: Menge und Ziel in einer ruhigen Zeile unter den Ringen.
+    private var fiberRow: some View {
+        let values = entries.map(\.fiber)
+        let grams = FoodSum(values).known
+        return VStack(spacing: 6) {
+            HStack {
+                Text("Ballaststoffe").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text("\(FoodAmountText.text(values)) / \(FoodText.number(fiberGoal)) g")
+                    .font(.formaCaptionStrong)
+                    .monospacedDigit()
+            }
+            ProgressLine(fraction: fiberGoal > 0 ? grams / fiberGoal : 0, color: Theme.sleep, height: 4)
+        }
+        .padding(.horizontal, Space.s4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ballaststoffe")
+        .accessibilityValue("\(FoodAmountText.isPartial(values) ? "mindestens " : "")\(FoodText.number(grams)) von \(FoodText.number(fiberGoal)) Gramm")
+    }
+
+    private func rings(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum) -> some View {
         Group {
             if typeSize.isAccessibilitySize {
                 VStack(spacing: Space.s4) {
                     calories(energy, size: 180)
                     HStack(alignment: .top, spacing: Space.s4) {
-                        macro("Protein", protein, goal: proteinGoal, tint: Theme.younger, size: 110)
-                        macro("Kohlenhydrate", carbs, goal: carbGoal, tint: Theme.warning, size: 110)
+                        macro("Protein", protein, values: entries.map(\.protein), goal: proteinGoal, tint: Theme.younger, size: 110)
+                        macro("Kohlenhydrate", carbs, values: entries.map(\.carbohydrates), goal: carbGoal, tint: Theme.warning, size: 110)
                     }
                 }
             } else {
@@ -234,17 +271,14 @@ private struct FoodHero: View {
                 }
             }
         }
-        .padding(.vertical, Space.s3)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
     }
 
     private func row(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum,
                      side: CGFloat, middle: CGFloat, spacing: CGFloat) -> some View {
         HStack(alignment: .center, spacing: spacing) {
-            macro("Protein", protein, goal: proteinGoal, tint: Theme.younger, size: side)
+            macro("Protein", protein, values: entries.map(\.protein), goal: proteinGoal, tint: Theme.younger, size: side)
             calories(energy, size: middle)
-            macro("Kohlenhydrate", carbs, goal: carbGoal, tint: Theme.warning, size: side)
+            macro("Kohlenhydrate", carbs, values: entries.map(\.carbohydrates), goal: carbGoal, tint: Theme.warning, size: side)
         }
     }
 
@@ -255,7 +289,7 @@ private struct FoodHero: View {
         return FoodRing(fraction: target > 0 ? consumed / target : 0,
                         tint: over ? Theme.older : Theme.strain, lineWidth: size > 150 ? 14 : 11) {
             VStack(spacing: 2) {
-                Text(FoodText.number(abs(left ?? consumed)))
+                Text(left.map { FoodText.number(abs($0)) } ?? FoodAmountText.text(entries.map(\.energy)))
                     .font(.system(size: size * 0.24, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .minimumScaleFactor(0.6)
@@ -275,11 +309,11 @@ private struct FoodHero: View {
         .accessibilityValue("\(energy.complete ? "" : "mindestens ")\(FoodText.number(consumed)) von \(FoodText.number(target)) Kilokalorien gegessen")
     }
 
-    private func macro(_ title: String, _ sum: FoodSum, goal: Double, tint: Color, size: CGFloat) -> some View {
+    private func macro(_ title: String, _ sum: FoodSum, values: [Double?], goal: Double, tint: Color, size: CGFloat) -> some View {
         let grams = sum.known
         return VStack(spacing: Space.s2) {
             FoodRing(fraction: goal > 0 ? grams / goal : 0, tint: tint, lineWidth: size > 100 ? 11 : 9) {
-                Text(FoodText.number(grams))
+                Text(FoodAmountText.text(values))
                     .font(.system(size: size * 0.26, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .minimumScaleFactor(0.6)
@@ -297,5 +331,20 @@ private struct FoodHero: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue("\(sum.complete ? "" : "mindestens ")\(FoodText.number(grams)) von \(FoodText.number(goal)) Gramm")
+    }
+}
+
+/// Summen mit Lücken: ohne Einträge „0“, ganz unbekannt „–“, teilweise bekannt „≥ n“.
+enum FoodAmountText {
+    static func text(_ values: [Double?]) -> String {
+        guard !values.isEmpty else { return "0" }
+        let known = values.compactMap { $0 }.filter(\.isFinite)
+        guard !known.isEmpty else { return "–" }
+        return (isPartial(values) ? "≥ " : "") + FoodText.number(known.reduce(0, +))
+    }
+
+    /// Mindestens ein Eintrag hat keinen (gültigen) Wert.
+    static func isPartial(_ values: [Double?]) -> Bool {
+        !values.isEmpty && !values.allSatisfy { $0?.isFinite == true }
     }
 }

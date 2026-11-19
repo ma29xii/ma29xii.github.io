@@ -299,10 +299,6 @@ struct FoodProductLabel: View {
             if let trailing {
                 Text(trailing).font(.formaValue).foregroundStyle(Theme.textSecondary)
             }
-            Image(systemName: "chevron.right")
-                .font(.formaMicro)
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())

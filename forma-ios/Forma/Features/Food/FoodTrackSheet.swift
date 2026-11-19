@@ -32,6 +32,8 @@ struct FoodTrackSheet: View {
         }
     }
 
+    /// Mahlzeit, zu der hinzugefügt wird; `nil` wählt nach Uhrzeit.
+    var meal: FoodMeal?
     @Environment(\.dismiss) private var dismiss
     @State private var method: Method?
 
@@ -69,9 +71,9 @@ struct FoodTrackSheet: View {
         .presentationDragIndicator(.visible)
         .sheet(item: $method, onDismiss: { dismiss() }) { item in
             switch item {
-            case .scan: FoodScanSheet()
-            case .photo: FoodPhotoSheet()
-            case .search: FoodScanSheet(startInSearch: true)
+            case .scan: FoodScanSheet(meal: meal)
+            case .photo: FoodPhotoSheet(meal: meal)
+            case .search: FoodScanSheet(startInSearch: true, meal: meal)
             }
         }
     }

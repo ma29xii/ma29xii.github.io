@@ -47,6 +47,9 @@ final class AppState {
     var showProfile = false
     /// Plus-Menü (Kacheln: Nährwerte tracken, Essen planen, Training, Wasser, Fasten, Gewicht).
     var showPlus = false
+    /// Die Trainingsseite ist als Blatt aus dem Plus-Menü offen. Dann zeigt sie Live-Training und Zusammenfassung
+    /// selbst, und die Wurzel präsentiert beides nicht.
+    var trainingHomeOpen = false
     var profilePhoto = ProfilePhotoStore.load()
 
     var weightUnit: WeightUnit {

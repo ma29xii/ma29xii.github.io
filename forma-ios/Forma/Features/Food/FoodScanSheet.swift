@@ -26,8 +26,12 @@ struct FoodScanSheet: View {
 
     private let catalog = FoodCatalog.shared
 
-    init(startInSearch: Bool = false) {
+    /// Vorgewählte Mahlzeit für den Eintrag; `nil` wählt nach Uhrzeit.
+    private let meal: FoodMeal?
+
+    init(startInSearch: Bool = false, meal: FoodMeal? = nil) {
         _mode = State(initialValue: startInSearch ? .search : .scanner)
+        self.meal = meal
     }
 
     var body: some View {
@@ -91,7 +95,7 @@ struct FoodScanSheet: View {
                 }
             }
             .navigationDestination(item: $selection) { product in
-                FoodEntryView(product: product, fromCache: fromCache) { dismiss() }
+                FoodEntryView(product: product, fromCache: fromCache, meal: meal) { dismiss() }
             }
         }
         .task {
@@ -223,10 +227,6 @@ struct FoodScanSheet: View {
                     }
                 }
                 Spacer(minLength: Space.s2)
-                Image(systemName: "chevron.right")
-                    .font(.formaMicro)
-                    .foregroundStyle(Theme.textTertiary)
-                    .accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())

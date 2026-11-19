@@ -18,12 +18,17 @@ struct FoodPhotoSheet: View {
     @State private var phase = Phase.idle
     @State private var photo: UIImage?
     @State private var portions: [FoodPhotoPortion] = []
-    @State private var meal = FoodMeal.current()
+    @State private var meal: FoodMeal
     @State private var pickerItem: PhotosPickerItem?
     @State private var showCamera = false
     @State private var task: Task<Void, Never>?
     @State private var saveError = false
     @State private var camera = CameraAccess.State.unavailable
+    /// `meal`: vorgewählte Mahlzeit (z. B. aus „Frühstück hinzufügen“); ohne Angabe nach Uhrzeit.
+    init(meal: FoodMeal? = nil) {
+        _meal = State(initialValue: meal ?? .current())
+    }
+
     private var chosen: [FoodPhotoPortion] { portions.filter(\.included) }
     private var totalKcal: Double { chosen.compactMap { $0.nutrients?.values[.energy] }.reduce(0, +) }
 

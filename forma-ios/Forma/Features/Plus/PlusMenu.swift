@@ -174,8 +174,12 @@ private struct PlusFlow: ViewModifier {
             .onChange(of: app.finishedSession?.id) { _, _ in routeIntent() }
             .onChange(of: app.isWorkoutSummaryActive) { _, _ in routeIntent() }
             .onChange(of: app.liveWorkout?.draftID) { _, _ in routeIntent() }
-            .onChange(of: destination) { _, _ in routeIntent() }
-            .sheet(item: $destination) { action in
+            .onChange(of: destination) { _, new in
+                if new == .training { app.trainingHomeOpen = true }
+                routeIntent()
+            }
+            // Erst nach dem Schließen darf die Wurzel ein laufendes Training wieder zeigen.
+            .sheet(item: $destination, onDismiss: { app.trainingHomeOpen = false }) { action in
                 switch action {
                 case .track: PlusFood.track()
                 case .scan: PlusFood.scan()

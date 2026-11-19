@@ -44,15 +44,17 @@ struct FoodEntryView: View {
     @FocusState private var editingAmount: Bool
     @State private var amountText: String
     @State private var unit: FoodAmountUnit
-    @State private var meal = FoodMeal.snack
+    @State private var meal: FoodMeal
     @State private var basis = Basis.amount
     @State private var saving = false
     @State private var saveError = false
 
-    init(product: FoodProduct, fromCache: Bool, onSave: @escaping () -> Void) {
+    /// `meal`: vorgewählte Mahlzeit (z. B. aus „Frühstück hinzufügen“); ohne Angabe nach Uhrzeit.
+    init(product: FoodProduct, fromCache: Bool, meal: FoodMeal? = nil, onSave: @escaping () -> Void) {
         self.product = product
         self.fromCache = fromCache
         self.onSave = onSave
+        _meal = State(initialValue: meal ?? .current())
         _amountText = State(initialValue: product.canUseServings ? "1" : "100")
         _unit = State(initialValue: product.canUseServings ? .servings : .base)
     }
