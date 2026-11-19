@@ -15,6 +15,9 @@ struct CoachView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Ausdrückliche Zustimmung, bevor Gesundheitswerte an Anthropic gehen (Codex R-01-07, App-Review 5.1.2).
     @AppStorage(CoachProviders.consentKey) private var externalConsent = false
+    /// Eigene Zustimmung für Fotos: Wer nur Text freigegeben hat, wird vor dem ersten Foto noch einmal gefragt.
+    @AppStorage("forma.coach.photoConsent.v1") private var photoConsent = false
+    @State private var photosLoading = false
     @State private var pendingConsentText: String?
     @State private var claudeTask: Task<Void, Never>?
     /// Kurz nach einer Antwort freut sich das Maskottchen.
@@ -114,11 +117,12 @@ struct CoachView: View {
             }
             // Widerruf bricht eine laufende Anfrage sofort ab (Codex R-02-15).
             .onChange(of: externalConsent) { _, allowed in
-                if !allowed { claudeTask?.cancel(); claudeTask = nil; thinking = false }
+                if !allowed { photoConsent = false; claudeTask?.cancel(); claudeTask = nil; thinking = false }
             }
             .confirmationDialog("Frage an den Online-Coach senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
                 Button("Senden und merken") {
                     externalConsent = true
+                    if !attachments.isEmpty { photoConsent = true }
                     if let t = pendingConsentText { pendingConsentText = nil; send(t) }
                 }
                 Button("Nur lokal antworten") {
@@ -273,7 +277,7 @@ struct CoachView: View {
             }
             CoachPhotoStrip(photos: $attachments)
             HStack(spacing: Space.s2) {
-                CoachPhotoButton(photos: $attachments)
+                CoachPhotoButton(photos: $attachments, isLoading: $photosLoading)
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($inputFocused)
@@ -287,7 +291,7 @@ struct CoachView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)
-                .disabled((input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) || thinking)
+                .disabled((input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) || thinking || photosLoading)
                 .accessibilityLabel("Senden")
             }
             .padding(.horizontal, Space.page)
@@ -328,24 +332,18 @@ struct CoachView: View {
         return """
         Gesendet werden deine Frage und der bisherige Online-Chat (ohne nur lokal beantwortete Nachrichten). \(values)\(photos)
 
-        Empfänger ist Anthropic. Antwortet Anthropic nicht rechtzeitig oder unbrauchbar, bekommt OpenAI dieselben Daten und antwortet stattdessen. Ist nur ein OpenAI-Schlüssel hinterlegt, geht alles direkt an OpenAI.
+        Empfänger ist Anthropic. Antwortet Anthropic nicht rechtzeitig oder unbrauchbar, bekommt OpenAI dieselben Daten und antwortet stattdessen. Ist nur ein OpenAI-Schlüssel hinterlegt, geht alles direkt an OpenAI. Frühere Fotos bleiben in deinem Chat.
 
         Widerrufen kannst du das oben im Coach über „Online-Coach“.
         """
     }
 
-    /// Online-Antwort. Mit Fotos ruft das die Bildfunktion des Anbieters auf.
-    private func onlineReply(summary: String, history: [ChatMessage], photos: [CoachPhoto]) async throws -> String {
-        guard photos.isEmpty else { throw CoachPhotoError.notReady }
-        return try await CoachProviders.reply(context: summary, history: history)
-    }
-
     private func send(_ raw: String) {
         let typed = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
         let photos = attachments
-        guard !typed.isEmpty || !photos.isEmpty, !thinking else { return }
+        guard !typed.isEmpty || !photos.isEmpty, !thinking, !photosLoading else { return }
         let text = typed.isEmpty ? "Schau dir das bitte an." : typed
-        if hasKey && !externalConsent {
+        if hasKey && (!externalConsent || (!photos.isEmpty && !photoConsent)) {
             input = ""
             pendingConsentText = text
             return
@@ -366,7 +364,7 @@ struct CoachView: View {
             let summary = CoachEngine.contextSummary(ctx, for: text)
             claudeTask = Task {
                 do {
-                    let reply = try await onlineReply(summary: summary, history: history, photos: photos)
+                    let reply = try await CoachProviders.reply(context: summary, history: history, images: photos.map(\.jpeg))
                     guard !Task.isCancelled, externalConsent else {
                         messages.markLocalOnly(question.id)
                         thinking = false
@@ -377,9 +375,9 @@ struct CoachView: View {
                     // Abgebrochene Frage nie später im Verlauf mitsenden (Gegenprüfung 01, Punkt 5).
                     messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: "Abgebrochen. Nichts weiter wurde gesendet.", localOnly: true))
-                } catch CoachPhotoError.notReady {
+                } catch CoachProviders.ReplyError.invalidImage {
                     messages.markLocalOnly(question.id)
-                    messages.append(ChatMessage(role: .coach, text: "Fotos kann ich noch nicht ansehen. Das kommt mit dem nächsten Update. Es wurde nichts gesendet.", localOnly: true))
+                    messages.append(ChatMessage(role: .coach, text: "Dieses Foto konnte ich nicht lesen. Probier ein anderes. Es wurde nichts gesendet.", localOnly: true))
                 } catch {
                     messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Der Online-Coach ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
@@ -393,9 +391,6 @@ struct CoachView: View {
         }
     }
 }
-
-/// Fotos an den Online-Coach: wartet auf die Bildfunktion in `CoachProviders` (codex-coach).
-private enum CoachPhotoError: Error { case notReady }
 
 extension Array where Element == ChatMessage {
     /// Markiert eine Nachricht als nur lokal, damit sie in keiner späteren Online-Anfrage auftaucht.

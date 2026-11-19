@@ -52,6 +52,8 @@ struct CoachPhoto: Identifiable, Equatable {
 /// Foto-Knopf links im Eingabefeld: Kamera oder Fotos. Legt bis zu vier Fotos in `photos` ab.
 struct CoachPhotoButton: View {
     @Binding var photos: [CoachPhoto]
+    /// Solange Fotos aus der Auswahl geladen werden, bleibt Senden gesperrt.
+    @Binding var isLoading: Bool
     @State private var showLibrary = false
     @State private var showCamera = false
     @State private var items: [PhotosPickerItem] = []
@@ -83,10 +85,12 @@ struct CoachPhotoButton: View {
         .onChange(of: items) { _, picked in
             guard !picked.isEmpty else { return }
             items = []
+            isLoading = true
             Task {
                 for item in picked {
                     if let data = try? await item.loadTransferable(type: Data.self) { add(data) }
                 }
+                isLoading = false
             }
         }
     }
