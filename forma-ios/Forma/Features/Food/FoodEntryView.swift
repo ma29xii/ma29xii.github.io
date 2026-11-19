@@ -100,6 +100,9 @@ struct FoodEntryView: View {
         .formaScreen()
         .navigationTitle("Eintragen")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { FoodFavoriteButton(product: product) }
+        }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
             Button(action: save) {

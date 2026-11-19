@@ -5,7 +5,7 @@ import VisionKit
 
 struct FoodScanSheet: View {
     private enum Mode: String, CaseIterable {
-        case scanner = "Barcode", search = "Produktsuche"
+        case scanner = "Barcode", search = "Suche", mine = "Meine"
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -47,6 +47,11 @@ struct FoodScanSheet: View {
                     cameraSection
                 } else if mode == .search {
                     searchSections
+                } else if mode == .mine {
+                    FoodMineSections { product in
+                        fromCache = false
+                        selection = product
+                    }
                 }
 
                 if operation != nil {

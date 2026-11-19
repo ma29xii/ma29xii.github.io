@@ -187,6 +187,67 @@ final class FoodTests: XCTestCase {
         XCTAssertEqual(entry.reusableProduct?.nutrients(for: 75, in: .base)?.values[.energy], 300)
     }
 
+    func testMacroGoalsSplitEnergyAndKeepManualValues() {
+        let auto = FoodMacroGoals.automatic(kcal: 2_000)
+        XCTAssertEqual(auto.protein, 125, accuracy: 0.001)
+        XCTAssertEqual(auto.carbs, 225, accuracy: 0.001)
+        XCTAssertEqual(auto.fat, 2_000 * 0.3 / 9, accuracy: 0.001)
+        let mixed = FoodMacroGoals.resolve(kcal: 2_000, protein: 160, carbs: 0, fat: .nan)
+        XCTAssertEqual(mixed.protein, 160)
+        XCTAssertEqual(mixed.carbs, auto.carbs, accuracy: 0.001)
+        XCTAssertEqual(mixed.fat, auto.fat, accuracy: 0.001)
+    }
+
+    func testCustomFoodNeedsNameAndEnergyAndRejectsImpossibleValues() throws {
+        let product = try XCTUnwrap(FoodRecipeMath.custom(code: "c", name: " Salat ", base: .grams,
+                                                          per100: [.energy: 120, .protein: 3], servingSize: 250))
+        XCTAssertEqual(product.name, "Salat")
+        XCTAssertEqual(product.perServing.values[.energy], 300)
+        XCTAssertNil(FoodRecipeMath.custom(code: "c", name: "Salat", base: .grams, per100: [.protein: 3], servingSize: nil))
+        XCTAssertNil(FoodRecipeMath.custom(code: "c", name: "", base: .grams, per100: [.energy: 100], servingSize: nil))
+        XCTAssertNil(FoodRecipeMath.custom(code: "c", name: "Salat", base: .grams, per100: [.energy: 100, .fat: 140], servingSize: nil))
+    }
+
+    func testRecentAndFrequentListsAreDistinctAndRanked() {
+        let product = FoodProduct(code: "a", name: "Apfel", brand: nil, base: .grams, servingSize: nil,
+                                  per100: FoodNutrients(values: [.energy: 52]), perServing: .init())
+        let bread = FoodProduct(code: "b", name: "Brot", brand: "Bäcker", base: .grams, servingSize: nil,
+                                per100: FoodNutrients(values: [.energy: 250]), perServing: .init())
+        let now = Date.now
+        func entry(_ p: FoodProduct, _ minutesAgo: Double) -> FoodEntry {
+            FoodEntry(date: now.addingTimeInterval(-minutesAgo * 60), meal: .snack, product: p, amount: 100, in: .base,
+                      nutrients: p.per100)
+        }
+        let entries = [entry(product, 30), entry(bread, 10), entry(product, 90), entry(product, 200), entry(bread, 300)]
+        XCTAssertEqual(FoodTracking.recent(entries).map(\.name), ["Brot", "Apfel"])
+        XCTAssertEqual(FoodTracking.frequent(entries).map(\.name), ["Apfel", "Brot"])
+        XCTAssertEqual(FoodTracking.frequent([entry(product, 5)]).count, 0)
+    }
+
+    func testWeeklyWeightChangeNeedsAWeekOfData() throws {
+        let now = Date.now
+        let change = try XCTUnwrap(FoodTracking.weeklyWeightChange(
+            [(date: now.addingTimeInterval(-14 * 86_400), kg: 80), (date: now, kg: 79)], now: now))
+        XCTAssertEqual(change, -0.5, accuracy: 0.0001)
+        XCTAssertNil(FoodTracking.weeklyWeightChange([(date: now.addingTimeInterval(-86_400), kg: 80), (date: now, kg: 79)], now: now))
+    }
+
+    func testMealSuggestionFollowsTimeOfDay() throws {
+        var components = Calendar.forma.dateComponents([.year, .month, .day], from: .now)
+        components.hour = 8
+        XCTAssertEqual(FoodMeal.current(try XCTUnwrap(Calendar.forma.date(from: components))), .breakfast)
+        components.hour = 19
+        XCTAssertEqual(FoodMeal.current(try XCTUnwrap(Calendar.forma.date(from: components))), .dinner)
+        components.hour = 23
+        XCTAssertEqual(FoodMeal.current(try XCTUnwrap(Calendar.forma.date(from: components))), .snack)
+    }
+
+    @MainActor
+    func testPhotoErrorsHaveOwnMessages() {
+        XCTAssertNotEqual(FoodPhotoSheet.text(for: .missingCredentials), FoodPhotoSheet.text(for: .invalidImage))
+        XCTAssertTrue(FoodPhotoSheet.text(for: .missingCredentials).contains("Schlüssel"))
+    }
+
     @MainActor
     func testEntrySavesAndDeletesWithoutReplacingMissingNutrients() throws {
         let data = Data(#"{"status":1,"code":"20003166","product":{"nutriments":{"energy-kcal_100g":400}}}"#.utf8)
