@@ -11,6 +11,7 @@ struct ProfileView: View {
     @AppStorage("forma.birthYear") private var birthYear = 0
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
     @AppStorage("forma.bodyWeightKg") private var weightKg = 0.0
+    @AppStorage(CoachNotifier.wakeKey) private var wakeStored = 0
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var photoError: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -49,8 +50,13 @@ struct ProfileView: View {
                                         detail: ProfileText.notifications(notificationStatus), external: true)
                         }
                     }
+                    DatePicker("Weckzeit", selection: wakeTime, displayedComponents: .hourAndMinute)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("profile.wake")
                 } header: {
                     Text("Mitteilungen").formaLabelStyle()
+                } footer: {
+                    Text("Die Weckzeit bestimmt, wann dich die Schlafenszeit-Erinnerung ans Bett schickt.")
                 }
                 .listRowBackground(Theme.card)
 
@@ -63,6 +69,7 @@ struct ProfileView: View {
                 }
             }
             .formaScreen()
+            .refreshable { await hub.syncAndNotify(background: false) }
             .navigationTitle("Profil")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -92,6 +99,22 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    /// Weckzeit als Uhrzeit. Gespeichert werden Minuten nach Mitternacht.
+    /// shortcut: 00:00 ist als „nicht gesetzt“ reserviert und wird als 00:01 gespeichert, bis die Logik beides trennt.
+    private var wakeTime: Binding<Date> {
+        Binding(
+            get: {
+                let minutes = CoachNotifier.wakeMinutes
+                return Calendar.forma.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
+            },
+            set: { date in
+                let parts = Calendar.forma.dateComponents([.hour, .minute], from: date)
+                wakeStored = max(1, (parts.hour ?? 0) * 60 + (parts.minute ?? 0))
+                Task { await CoachNotifier.scheduleBedtimeReminder(hub) }
+            }
+        )
     }
 
     private var bodySummary: String? {
@@ -251,8 +274,8 @@ struct GoogleStatus: Equatable {
     init(_ connection: GoogleConnection, now: Date = .now) {
         switch connection {
         case .notConfigured:
-            title = "Nicht eingerichtet"
-            detail = "In diesem Build fehlt die Google-Anmeldung. Die Anleitung steht im README."
+            title = "Vorschau-Version"
+            detail = "Google ist noch nicht eingerichtet. Mit den Beispieldaten kannst du Health trotzdem ausprobieren."
             tone = .off
         case .disconnected:
             title = "Nicht verbunden"

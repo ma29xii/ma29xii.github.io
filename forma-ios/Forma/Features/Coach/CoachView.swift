@@ -94,6 +94,7 @@ struct CoachView: View {
                     .padding(.bottom, Space.s5)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .refreshable { await hub.syncAndNotify(background: false) }
                 .onChange(of: messages.count) { _, _ in
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo("end", anchor: .bottom) }
                 }
@@ -117,7 +118,14 @@ struct CoachView: View {
             }
             // Widerruf bricht eine laufende Anfrage sofort ab (Codex R-02-15).
             .onChange(of: externalConsent) { _, allowed in
-                if !allowed { photoConsent = false; claudeTask?.cancel(); claudeTask = nil; thinking = false }
+                if !allowed { photoConsent = false; endOnlineSession() }
+            }
+            // Trennen von Google oder Wechsel zu Beispieldaten beendet die laufende Online-Anfrage
+            // und sperrt den bisherigen Verlauf für weitere Anfragen (K-03-13).
+            .onChange(of: hub.isSample) { _, _ in endOnlineSession() }
+            .onChange(of: hub.google) { _, new in
+                if case .connected = new { return }
+                endOnlineSession()
             }
             .confirmationDialog("Frage an den Online-Coach senden?", isPresented: Binding(get: { pendingConsentText != nil }, set: { if !$0 { pendingConsentText = nil } }), titleVisibility: .visible) {
                 Button("Senden und merken") {
@@ -229,7 +237,14 @@ struct CoachView: View {
     private func bubble(_ m: ChatMessage) -> some View {
         HStack(alignment: .bottom, spacing: Space.s2) {
             if m.role == .user { Spacer(minLength: 48) }
-            if m.role == .coach { MascotBadge(size: 26) }
+            if m.role == .coach {
+                // Das Maskottchen steht nur an der letzten Antwort; die Spalte bleibt für alle gleich breit.
+                if m.id == messages.last(where: { $0.role == .coach })?.id {
+                    MascotBadge(size: 26)
+                } else {
+                    Color.clear.frame(width: 26, height: 1)
+                }
+            }
             VStack(alignment: m.role == .user ? .trailing : .leading, spacing: 6) {
                 if let photos = messagePhotos[m.id], !photos.isEmpty { CoachBubblePhotos(photos: photos) }
                 Text(m.text)
@@ -307,6 +322,20 @@ struct CoachView: View {
     }
 
     /// Nur lokal antworten: Frage und Antwort bleiben auf dem iPhone. Fotos kann der lokale Coach nicht ansehen.
+    /// Bricht eine laufende Online-Anfrage ab. Alle bisherigen Nachrichten bleiben auf dem iPhone
+    /// und gehen in keiner späteren Anfrage mehr mit.
+    private func endOnlineSession() {
+        claudeTask?.cancel()
+        claudeTask = nil
+        thinking = false
+        for index in messages.indices { messages[index].localOnly = true }
+    }
+
+    /// Wie viele frühere Online-Nachrichten der nächste Versand mitnimmt (Obergrenze steht in `CoachProviders`).
+    private var historyCountForNextRequest: Int {
+        min(11, messages.filter { !$0.localOnly && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count)
+    }
+
     private func answerLocally(_ text: String) {
         let photos = attachments
         let question = ChatMessage(role: .user, text: text, localOnly: true)
@@ -329,8 +358,12 @@ struct CoachView: View {
         let photos = attachments.isEmpty
             ? ""
             : " Außerdem \(attachments.count == 1 ? "dein Foto" : "deine \(attachments.count) Fotos")."
+        let earlier = historyCountForNextRequest
+        let history = earlier == 0
+            ? "Es gibt noch keinen früheren Online-Chat."
+            : "Mitgeschickt \(earlier == 1 ? "wird deine letzte Nachricht" : "werden die letzten \(earlier) Nachrichten") aus dem Online-Chat, auch mit darin genannten Werten."
         return """
-        Gesendet werden deine Frage und der bisherige Online-Chat (ohne nur lokal beantwortete Nachrichten). \(values)\(photos)
+        Gesendet wird deine Frage. \(history) \(values)\(photos)
 
         Empfänger ist Anthropic. Antwortet Anthropic nicht rechtzeitig oder unbrauchbar, bekommt OpenAI dieselben Daten und antwortet stattdessen. Ist nur ein OpenAI-Schlüssel hinterlegt, geht alles direkt an OpenAI. Frühere Fotos bleiben in deinem Chat.
 

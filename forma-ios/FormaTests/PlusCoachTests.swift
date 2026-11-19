@@ -14,7 +14,7 @@ final class PlusCoachTests: XCTestCase {
                        ["Mahlzeit scannen", "Essen fotografieren", "Essen suchen", "Ernährung heute", "Wasser",
                         "Fasten", "Gewicht", "Training starten"])
         XCTAssertEqual(PlusAction.groups.flatMap(\.actions), PlusAction.allCases, "Jede Aktion steht in genau einer Gruppe")
-        XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.subtitle.isEmpty && !$0.systemImage.isEmpty })
+        XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.systemImage.isEmpty })
     }
 
     func testNextRoutinePrefersNeverUsedThenOldest() {

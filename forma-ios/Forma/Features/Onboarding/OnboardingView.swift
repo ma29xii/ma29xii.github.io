@@ -8,6 +8,9 @@ struct OnboardingView: View {
 
     var body: some View {
         let status = GoogleStatus(hub.google)
+        // ScrollView, damit bei großer Schrift nichts abgeschnitten wird; auf großen Bildschirmen füllt der Inhalt die Höhe.
+        GeometryReader { proxy in
+        ScrollView {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: Space.s6)
             HStack(spacing: -10) {
@@ -64,6 +67,10 @@ struct OnboardingView: View {
         }
         .padding(.horizontal, Space.s5)
         .padding(.bottom, Space.s4)
+        .frame(minHeight: proxy.size.height)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        }
         .background(ScreenBackground())
         .foregroundStyle(Theme.textPrimary)
         .interactiveDismissDisabled()

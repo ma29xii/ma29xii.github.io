@@ -21,19 +21,6 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var subtitle: String {
-        switch self {
-        case .scan: "Barcode mit der Kamera lesen"
-        case .photo: "Die KI schätzt, du bestätigst"
-        case .search: "Nach Name oder Marke suchen"
-        case .food: "Kalorien und Nährwerte"
-        case .water: "Ein Glas eintragen"
-        case .fasting: "Fastenzeit starten oder beenden"
-        case .weight: "Gewicht eintragen"
-        case .training: "Die nächste Routine beginnen"
-        }
-    }
-
     var systemImage: String {
         switch self {
         case .scan: "barcode.viewfinder"
@@ -108,9 +95,10 @@ struct PlusMenuSheet: View {
             Glyph(systemName: action.systemImage)
             VStack(alignment: .leading, spacing: 2) {
                 Text(action.title).font(.formaRowTitle)
-                Text(action == .training ? (trainingSubtitle ?? action.subtitle) : action.subtitle)
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
+                // Nur das Training braucht eine Zeile dazu: welche Routine startet.
+                if action == .training, let trainingSubtitle {
+                    Text(trainingSubtitle).font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                }
             }
             Spacer(minLength: Space.s2)
             Image(systemName: "chevron.right")
@@ -119,7 +107,7 @@ struct PlusMenuSheet: View {
                 .accessibilityHidden(true)
         }
         .padding(.horizontal, Space.s4)
-        .frame(minHeight: 64)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
     }
 }
