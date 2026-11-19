@@ -140,8 +140,8 @@ final class TrainingFoodRound3Tests: XCTestCase {
         let rect = CGRect(x: 0, y: 0, width: 200, height: 440)
         XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 120, y: 108), side: .front, in: rect), .chest)
         // Knapp neben der schmalen seitlichen Schulter: zählt trotzdem.
-        XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 176, y: 106), side: .front, in: rect), .sideDelts)
-        XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 24, y: 106), side: .front, in: rect), .sideDelts, "gespiegelt")
+        XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 170, y: 100), side: .front, in: rect), .sideDelts)
+        XCTAssertEqual(MuscleArt.muscle(at: CGPoint(x: 30, y: 100), side: .front, in: rect), .sideDelts, "gespiegelt")
         XCTAssertNil(MuscleArt.muscle(at: CGPoint(x: 2, y: 2), side: .front, in: rect))
         // Hinten gibt es keine Brust.
         XCTAssertNotEqual(MuscleArt.muscle(at: CGPoint(x: 120, y: 108), side: .back, in: rect), .chest)

@@ -44,7 +44,6 @@ struct TrainingView: View {
     @Environment(AppState.self) private var app
     @Query(sort: \Routine.createdAt) private var routines: [Routine]
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
-    @State private var editingTiles = false
     @State private var path: [TrainingRoute] = []
     @State private var tappedMuscle: Muscle?
     @State private var muscleMode = MuscleMode.week
@@ -58,7 +57,8 @@ struct TrainingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if app.isDemo { SampleDataBadge() }
-                    TileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training", screenTitle: "Training", isEditing: $editingTiles) { tile in
+                    // Wie auf Today: „Anpassen“ steht unter der letzten Karte, kein Symbol oben.
+                    InlineTileStack<TrainingTile, AnyView>(storageKey: "forma.tiles.training") { tile in
                         AnyView(view(for: tile))
                     }
                     .padding(.top, Space.s3)
@@ -69,10 +69,6 @@ struct TrainingView: View {
             .formaScreen()
             .navigationTitle("Training")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { editingTiles = true } label: { Image(systemName: "square.grid.2x2") }
-                        .accessibilityLabel("Training anpassen")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { app.showProfile = true } label: { Image(systemName: "person.crop.circle") }
                         .accessibilityLabel("Profil und Einstellungen")
