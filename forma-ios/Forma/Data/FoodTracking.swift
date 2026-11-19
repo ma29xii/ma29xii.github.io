@@ -284,9 +284,11 @@ extension FoodSettings {
         // shortcut: fester, gültiger Suite-Name; nil gibt es nur für die eigene Bundle-ID.
         let defaults = UserDefaults(suiteName: previewSuite)!
         defaults.removePersistentDomain(forName: previewSuite)
-        defaults.register(defaults: [
+        // Nicht register(defaults:): die Registrierung gilt prozessweit und würde auch .standard vorbelegen.
+        let profile: [String: Any] = [
             bodyWeightKey: 78.0, FoodGoal.heightKey: 180.0, "forma.birthYear": 1994, "forma.sex": BiologicalSex.male.rawValue
-        ])
+        ]
+        for (key, value) in profile { defaults.set(value, forKey: key) }
         return defaults
     }()
 

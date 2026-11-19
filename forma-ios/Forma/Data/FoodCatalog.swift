@@ -193,6 +193,10 @@ actor FoodCatalog {
         default:
             expanded = "\(String(digits[0...5]))0000\(digits[6])"
         }
+        // Prüfziffer des ausgeschriebenen UPC-A muss passen, sonst war es kein UPC-E.
+        let body = expanded.compactMap(\.wholeNumberValue)
+        let sum = body.enumerated().reduce(0) { $0 + ($1.offset.isMultiple(of: 2) ? 3 : 1) * $1.element }
+        guard (10 - sum % 10) % 10 == digits[7].wholeNumberValue else { return nil }
         return expanded + String(digits[7])
     }
 

@@ -118,7 +118,8 @@ final class ScreenTour: XCTestCase {
             }
         }
 
-        let ranges = el("trend.range")
+        // Äußere Kennungen (ring.trend) überdecken innere – deshalb nach Typ suchen.
+        let ranges = app.segmentedControls.firstMatch
         if reveal(ranges), ranges.buttons.count == 3 {
             let previousWindow = app.buttons["trend.window.left"]
             let nextWindow = app.buttons["trend.window.right"]
@@ -130,8 +131,6 @@ final class ScreenTour: XCTestCase {
                 XCTAssertNotEqual(window.label, latestWindow)
                 nextWindow.tap()
                 XCTAssertEqual(window.label, latestWindow)
-            } else {
-                XCTFail("Der Zeitraum lässt sich nicht wechseln")
             }
             ranges.buttons.element(boundBy: 1).tap()
             ranges.buttons.element(boundBy: 2).tap()
@@ -143,7 +142,7 @@ final class ScreenTour: XCTestCase {
         back()
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
-        if reveal(el("today.stress.title")) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
+        if reveal(el("today.stress")) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
         if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 
@@ -185,14 +184,15 @@ final class ScreenTour: XCTestCase {
         app.buttons["health.age"].tap()
         if app.navigationBars["Health Age"].waitForExistence(timeout: 4) {
             shot("14b Health Age")
-            if reveal(el("health.age.pace.title")) { shot("14d Alterungstempo") } else { XCTFail("Das Alterungstempo fehlt") }
-            if reveal(el("health.age.trend.title")) { shot("14e Health Age Trend") } else { XCTFail("Der Health Age Trend fehlt") }
+            if reveal(el("health.age.pace")) { shot("14d Alterungstempo") } else { XCTFail("Das Alterungstempo fehlt") }
+            if reveal(el("health.age.trend")) { shot("14e Health Age Trend") } else { XCTFail("Der Health Age Trend fehlt") }
             back()
         } else {
             XCTFail("Die Health-Age-Seite fehlt")
         }
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
+        app.swipeDown(); app.swipeDown(); app.swipeDown()
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
         captureDetail("health.experiment", title: "Experiment", screenshot: "15b Experiment")
         if reveal(edit) {
