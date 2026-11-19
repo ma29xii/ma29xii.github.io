@@ -59,6 +59,7 @@ struct HealthView: View {
                         }
                     }
 
+                    ExperimentTile()
                     HealthMonitor(snapshot: snapshot)
                 }
                 .padding(.horizontal, Space.page)
