@@ -56,9 +56,9 @@ private struct TodayWidgetView: View {
 
     private var metrics: [Metric] {
         [
-            Metric(name: "Recovery", value: snapshot?.recovery, tint: recoveryTint),
-            Metric(name: "Sleep", value: snapshot?.sleep, tint: color(0x8E8CFF)),
-            Metric(name: "Strain", value: snapshot?.strain, tint: color(0x0093E7))
+            Metric(name: "Recovery", abbreviation: "R", value: snapshot?.recovery, tint: recoveryTint),
+            Metric(name: "Sleep", abbreviation: "S", value: snapshot?.sleep, tint: color(0x8E8CFF)),
+            Metric(name: "Strain", abbreviation: "St", value: snapshot?.strain, tint: color(0x0093E7))
         ]
     }
 
@@ -88,10 +88,9 @@ private struct TodayWidgetView: View {
             ForEach(metrics) { metric in
                 VStack(spacing: 6) {
                     ring(for: metric, labeled: labeled)
-                    if labeled {
-                        Text(metric.name)
-                            .font(.caption2.weight(.semibold))
-                    }
+                    Text(labeled ? metric.name : metric.abbreviation)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(!labeled && usesAppColors && metric.value != nil ? metric.tint : ink)
                 }
                 .frame(maxWidth: .infinity)
                 .lineLimit(1)
@@ -137,7 +136,8 @@ private struct TodayWidgetView: View {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
                 ForEach(metrics) { metric in
-                    number(metric, font: .system(size: 11, weight: .semibold, design: .rounded))
+                    number(metric, text: metric.compactDisplayValue,
+                           font: .system(size: 11, weight: .semibold, design: .rounded))
                 }
             }
             .padding(3)
@@ -161,13 +161,13 @@ private struct TodayWidgetView: View {
     }
 
     private var inline: some View {
-        Text(verbatim: metrics.map(\.displayValue).joined(separator: " · "))
+        Text(verbatim: metrics.map(\.compactDisplayValue).joined(separator: " · "))
             .accessibilityLabel(metrics.map { "\($0.name): \($0.spokenValue)" }.joined(separator: ", "))
             .privacySensitive()
     }
 
-    private func number(_ metric: Metric, font: Font) -> some View {
-        Text(verbatim: metric.displayValue)
+    private func number(_ metric: Metric, text: String? = nil, font: Font) -> some View {
+        Text(verbatim: text ?? metric.displayValue)
             .font(font.monospacedDigit())
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -185,11 +185,13 @@ private struct TodayWidgetView: View {
 
     private struct Metric: Identifiable {
         let name: String
+        let abbreviation: String
         let value: Int?
         let tint: Color
 
         var id: String { name }
         var displayValue: String { value.map { $0.formatted() } ?? "–" }
+        var compactDisplayValue: String { "\(abbreviation) \(displayValue)" }
         var spokenValue: String { value.map { "\($0.formatted()) von 100" } ?? "Keine Messung" }
     }
 }
