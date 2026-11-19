@@ -1,4 +1,4 @@
-import Combine
+import SwiftData
 import SwiftUI
 
 struct TodayView: View {
@@ -6,6 +6,8 @@ struct TodayView: View {
     @Environment(AppState.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Eigene Trainings, damit ein Eintrag in „Mein Tag“ sein konkretes Training öffnet.
+    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @Namespace private var zoomSpace
     @State private var compact = false
     /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
@@ -78,14 +80,8 @@ struct TodayView: View {
                     }
                 }
             }
-            .background(alignment: .top) {
-                if let recovery = snapshot.recovery {
-                    // Reicht bis unter die Statusleiste, sonst endet der Schimmer an einer harten Kante.
-                    TodayRecoveryGlow(recovery: recovery)
-                        .ignoresSafeArea(edges: .top)
-                }
-            }
-            .dashboardScreen()
+            // Schimmer bis unter die Statusleiste; folgt dem gewählten Theme, im Standard der Recovery-Farbe.
+            .formaScreen(tint: snapshot.recovery.map(Theme.recovery))
             .navigationTitle("Today")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -463,9 +459,13 @@ struct TodayView: View {
                 if entries.isEmpty { DashboardEmpty(title: "Noch nichts aufgezeichnet") }
                 ForEach(entries) { entry in
                     if entry.id != entries.first?.id { RowDivider(inset: 60) }
-                    // Nur Schlaf hat ein eigenes Detail; Trainings öffnen nicht mehr pauschal Strain.
+                    // Schlaf öffnet Sleep, ein eigenes Training seine Zusammenfassung, nie pauschal Strain.
                     if entry.kind == .sleep {
                         NavigationLink(value: RingRoute(kind: .sleep)) { activityRow(entry) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("today.activity." + entry.id)
+                    } else if let session = Self.session(for: entry, in: sessions) {
+                        NavigationLink { WorkoutSummaryView(session: session) } label: { activityRow(entry) }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("today.activity." + entry.id)
                     } else {
@@ -510,6 +510,14 @@ struct TodayView: View {
     }
 }
 
+extension TodayView {
+    /// Eigene Trainings tragen dieselbe Startzeit wie ihr Eintrag (FormaApp übergibt `session.start`).
+    static func session(for entry: DayActivity, in sessions: [WorkoutSession]) -> WorkoutSession? {
+        guard entry.kind == .strain else { return nil }
+        return sessions.first { abs($0.start.timeIntervalSince(entry.date)) < 1 }
+    }
+}
+
 /// Kopf-Variante; gespeichert unter `forma.today.header`.
 enum TodayHeaderStyle: String {
     case capsules, rings
@@ -537,37 +545,6 @@ private extension View {
             navigationTransition(.zoom(sourceID: source, in: space))
         } else {
             self
-        }
-    }
-}
-
-private struct TodayRecoveryGlow: View {
-    let recovery: Int
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-    @State private var visible = false
-
-    var body: some View {
-        let calm = reduceMotion || scenePhase != .active || lowPower || !visible
-        let tint = Theme.recovery(recovery)
-        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: calm)) { context in
-            let drift: Float = calm ? 0 : Float(sin(context.date.timeIntervalSinceReferenceDate * 0.6)) * 0.055
-            MeshGradient(width: 3, height: 3,
-                         points: [SIMD2<Float>(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-                                  SIMD2(0, 0.5), SIMD2(0.5 + drift, 0.26 + drift / 2), SIMD2(1, 0.5),
-                                  SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)],
-                         colors: [.clear, tint.opacity(0.2), .clear,
-                                  .clear, tint.opacity(0.13), .clear,
-                                  .clear, .clear, .clear])
-        }
-        .frame(height: 235)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
-        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
-            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         }
     }
 }

@@ -56,7 +56,7 @@ struct StressMonitorCard: View {
     }
 }
 
-/// Eigene Seite: Skala, Tagesverlauf, Zeit in Zonen, Energie.
+/// Eigene Seite: Skala, Zeit in Zonen und Langzeit-Verlauf, alles ohne weiteren Tipp.
 struct StressDetail: View {
     @Environment(DataHub.self) private var hub
     let day: DayMetrics
@@ -69,11 +69,8 @@ struct StressDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.gap) {
                 if hub.isSample { SampleDataBadge() }
-                Text(Format.dayTitle(day.date))
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
                 StressMonitorPanel(day: day, slots: slots, isLoading: isLoading)
-                StressTrendLink(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
+                StressTrendCard(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
             }
             .padding(.horizontal, Space.page)
             .padding(.vertical, Space.s4)
@@ -185,7 +182,7 @@ struct StressGauge: View {
     }
 }
 
-/// Der ganze Monitor: großer Wert, Tagesverlauf, Zeit in Zonen.
+/// Der ganze Monitor: großer Wert und Zeit in Zonen.
 struct StressMonitorPanel: View {
     let day: DayMetrics
     let slots: [StressSlot]
@@ -196,9 +193,8 @@ struct StressMonitorPanel: View {
     var body: some View {
         DashboardCard {
             VStack(alignment: .leading, spacing: Space.s4) {
-                if let latest = measurements.last, let value = latest.value {
-                    stressReading(value, at: latest.end)
-                    StressDayChart(day: day, slots: slots)
+                if let value = measurements.last?.value {
+                    stressReading(value)
                     RowDivider(inset: 0)
                     zoneSummary
                 } else if isLoading {
@@ -215,7 +211,7 @@ struct StressMonitorPanel: View {
         }
     }
 
-    private func stressReading(_ value: Double, at date: Date) -> some View {
+    private func stressReading(_ value: Double) -> some View {
         let zone = StressZone(value: value)
         let diameter: CGFloat = 200
         return VStack(spacing: Space.s2) {
@@ -235,14 +231,13 @@ struct StressMonitorPanel: View {
                 Text("3")
             }
             .frame(width: diameter)
-            Text("Stand \(Format.clock(date))")
         }
         .font(.formaCaption)
         .foregroundStyle(Theme.textSecondary)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Geschätzter Stress")
-        .accessibilityValue("\(StressMonitorCard.spokenValue(value)), Stand \(Format.clock(date))")
+        .accessibilityLabel("Stress")
+        .accessibilityValue(StressMonitorCard.spokenValue(value))
     }
 
     private var zoneSummary: some View {
@@ -277,9 +272,6 @@ struct StressMonitorPanel: View {
                     ForEach(zones) { zone in zoneTime(zone, duration: durations[zone.rawValue]) }
                 }
             }
-            Text("Nur Stunden mit Messwerten")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textTertiary)
         }
     }
 
@@ -299,119 +291,6 @@ extension StressZone {
         case .low: Theme.younger
         case .medium: Color(hex: 0xE7CD65)
         case .high: Theme.older
-        }
-    }
-}
-
-private struct StressDayChart: View {
-    let day: DayMetrics
-    let slots: [StressSlot]
-    @State private var selection: Date?
-
-    private struct Reading: Identifiable {
-        let date: Date
-        let value: Double
-        let segment: Int
-        var id: Date { date }
-    }
-
-    private struct Event: Identifiable {
-        let hour: Date
-        var sleep = false
-        var activity = false
-        var id: Date { hour }
-    }
-
-    private var readings: [Reading] {
-        var result: [Reading] = []
-        var previousEnd: Date?
-        var segment = 0
-        for slot in slots {
-            guard let value = slot.value else { continue }
-            if previousEnd != slot.start { segment += 1 }
-            let midpoint = slot.start.addingTimeInterval(slot.end.timeIntervalSince(slot.start) / 2)
-            result.append(Reading(date: midpoint, value: value, segment: segment))
-            previousEnd = slot.end
-        }
-        return result
-    }
-
-    private var events: [Event] {
-        var entries: [Date: Event] = [:]
-        if let night = day.sleep, let hour = Calendar.forma.dateInterval(of: .hour, for: night.end)?.start {
-            entries[hour] = Event(hour: hour, sleep: true)
-        }
-        for workout in day.workouts {
-            guard let hour = Calendar.forma.dateInterval(of: .hour, for: workout.start)?.start else { continue }
-            entries[hour, default: Event(hour: hour)].activity = true
-        }
-        return entries.values.sorted { $0.hour < $1.hour }
-    }
-
-    var body: some View {
-        let end = day.date.adding(days: 1)
-        let selectedDate = selection.map { min(end.addingTimeInterval(-1), max(day.date, $0)) }
-        let selectedHour = selectedDate.flatMap { Calendar.forma.dateInterval(of: .hour, for: $0)?.start }
-        let selectedSlot = selectedDate.flatMap { date in slots.first { $0.start <= date && date < $0.end } }
-        return VStack(alignment: .leading, spacing: Space.s2) {
-            Chart {
-                ForEach(readings) { point in
-                    LineMark(x: .value("Uhrzeit", point.date), y: .value("Stress", point.value),
-                             series: .value("Abschnitt", point.segment))
-                        .foregroundStyle(Theme.younger)
-                        .lineStyle(StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-                    PointMark(x: .value("Uhrzeit", point.date), y: .value("Stress", point.value))
-                        .symbolSize(14)
-                        .foregroundStyle(StressZone(value: point.value).tint)
-                }
-                ForEach(events.filter { $0.hour >= day.date && $0.hour < end }) { event in
-                    PointMark(x: .value("Uhrzeit", event.hour), y: .value("Ereignis", 0))
-                        .symbolSize(1)
-                        .annotation(position: .top, spacing: 2) {
-                            HStack(spacing: 2) {
-                                if event.sleep { Image(systemName: "moon.fill") }
-                                if event.activity { Image(systemName: "figure.walk") }
-                            }
-                            .font(.caption2)
-                            .foregroundStyle(Theme.textSecondary)
-                            .accessibilityHidden(true)
-                        }
-                }
-                if let selectedHour {
-                    RuleMark(x: .value("Auswahl", selectedHour.addingTimeInterval(1800)))
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                }
-            }
-            .chartXScale(domain: day.date...end)
-            .chartYScale(domain: 0.0...3.0)
-            .chartXAxis {
-                AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 6)) { _ in
-                    AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: [0, 1, 2, 3]) { _ in
-                    AxisGridLine().foregroundStyle(Theme.hairline)
-                    AxisValueLabel().foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .frame(height: 125)
-            .chartXSelection(value: $selection)
-            .sensoryFeedback(.selection, trigger: selectedHour) { _, new in new != nil }
-            .accessibilityLabel("Geschätzter Stress im Tagesverlauf")
-            if let selectedHour {
-                Text("\(Format.clock(selectedHour)) · \(StressMonitorCard.spokenValue(selectedSlot?.value))")
-                    .font(.formaCaptionStrong)
-                    .formaNumberTransition(selectedSlot?.value ?? 0)
-            }
-            HStack(spacing: Space.s4) {
-                Label("Schlafende", systemImage: "moon.fill")
-                Label("Aktivität", systemImage: "figure.walk")
-            }
-            .font(.formaCaption)
-            .foregroundStyle(Theme.textSecondary)
         }
     }
 }

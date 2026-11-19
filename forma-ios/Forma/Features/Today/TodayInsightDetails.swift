@@ -81,10 +81,9 @@ private struct StrainPathDetail: View {
     let path: [InsightDay<StrainInsight>]
     let end: Date
     let tint: Color
-    @State private var selection: Date?
 
     var body: some View {
-        let selected = selection.map { min(end, $0.startOfDay) }
+        let selected: Date? = nil  // A4: keine Tagesauswahl im Diagramm
         let date = selected ?? end
         let value = path.first { $0.date == date }?.value
         InsightPage(title: "Belastungspfad") {
@@ -112,9 +111,6 @@ private struct StrainPathDetail: View {
                 }
                 .padding(Space.s4)
             }
-            Text("Geschätzter Strain abgeschlossener Tage. Aufbau beginnt über 10 % und Zu viel über 25 % über dem 28-Tage-Schnitt. Der Vergleich braucht mindestens 5 von 7 und 20 von 28 Tagen.")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -159,8 +155,6 @@ private struct StrainPathDetail: View {
         .insightDateAxis(from: start, through: end, stride: 7)
         .chartYScale(domain: 0.0...100.0)
         .chartYAxis { insightScale([0, 50, 100]) }
-        .chartXSelection(value: $selection)
-        .sensoryFeedback(.selection, trigger: selected) { _, new in new != nil }
         .frame(height: 168)
         .accessibilityLabel("Strain im Vergleich über 7 und 28 Tage")
         .accessibilityIdentifier("strain.path.chart")
@@ -184,10 +178,9 @@ struct SleepConsistencyLink: View {
 private struct SleepConsistencyDetail: View {
     let result: SleepConsistency
     let end: Date
-    @State private var selection: Date?
 
     var body: some View {
-        let selected = selection.map { min(end, $0.startOfDay) }
+        let selected: Date? = nil  // A4: keine Tagesauswahl im Diagramm
         let times = result.nights.first { $0.date == selected }?.value
         InsightPage(title: "Schlafkonstanz") {
             DashboardCard {
@@ -221,9 +214,6 @@ private struct SleepConsistencyDetail: View {
                 .font(.formaCaption)
                 .padding(Space.s4)
             }
-            Text("Gezählt werden Nächte, deren Bett- und Aufwachzeit jeweils höchstens eine Stunde von deinem häufigsten Rhythmus abweichen. Dafür brauchst du mindestens vier gemessene Nächte.")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -261,8 +251,6 @@ private struct SleepConsistencyDetail: View {
                 }
             }
         }
-        .chartXSelection(value: $selection)
-        .sensoryFeedback(.selection, trigger: selected) { _, new in new != nil }
         .frame(height: 168)
         .accessibilityLabel("Bett- und Aufwachzeiten über 14 Nächte")
         .accessibilityIdentifier("sleep.consistency.chart")
@@ -271,37 +259,23 @@ private struct SleepConsistencyDetail: View {
     private func plotMinute(_ minute: Int) -> Int { (minute + 720) % 1440 }
 }
 
-struct StressTrendLink: View {
+/// Langzeit-Stress direkt im Stress-Detail (A8: alles beim Scrollen sichtbar).
+struct StressTrendCard: View {
     let end: Date
     let history: [DayMetrics]
 
     var body: some View {
-        let trend = StressInsight.trend(endingAt: end, history: InsightHistory(history))
-        let latest = trend.last?.value
-        InsightLink(title: "Langzeit-Stress", subtitle: latest.map { "\(Format.number($0.mean, decimals: 1)) von 3 · 7 Tage" }
-                    ?? "Noch kein 7-Tage-Schnitt", icon: "waveform.path", tint: Theme.younger,
-                    identifier: "stress.trend.open", number: latest?.mean) {
-            StressTrendDetail(trend: trend, end: end)
-        }
-    }
-}
-
-private struct StressTrendDetail: View {
-    let trend: [InsightDay<InsightAverage>]
-    let end: Date
-    @State private var selection: Date?
-
-    var body: some View {
-        let selected = selection.map { min(end, $0.startOfDay) }
+        let selected: Date? = nil  // A4: keine Tagesauswahl im Diagramm
         let date = selected ?? end
+        let trend = StressInsight.trend(endingAt: end, history: InsightHistory(history))
         let value = trend.first { $0.date == date }?.value
-        InsightPage(title: "Langzeit-Stress") {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            DashboardHeading(title: "Langzeit-Stress")
             DashboardCard {
                 VStack(alignment: .leading, spacing: Space.s3) {
                     if let start = trend.first?.date, trend.contains(where: { $0.value != nil }) {
-                        chart(start: start, selected: selected)
+                        chart(trend, start: start, selected: selected)
                     }
-                    DashboardHeading(title: "7-Tage-Schnitt bis \(Format.shortDate(date))")
                     Text(value.map { "\(Format.number($0.mean, decimals: 1)) von 3" } ?? "Kein Schnitt für diesen Tag")
                         .font(value == nil ? .formaRowTitle : .formaBigNumber)
                         .formaNumberTransition(value?.mean ?? 0)
@@ -314,13 +288,10 @@ private struct StressTrendDetail: View {
                 }
                 .padding(Space.s4)
             }
-            Text("Schätzung aus HRV und Ruhepuls im Vergleich zu deinem persönlichen Verlauf. Der Schnitt berücksichtigt abgeschlossene Tage und braucht mindestens vier vergleichbare Tage in einer Woche.")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textSecondary)
         }
     }
 
-    private func chart(start: Date, selected: Date?) -> some View {
+    private func chart(_ trend: [InsightDay<InsightAverage>], start: Date, selected: Date?) -> some View {
         Chart {
             ForEach(insightSegments(trend), id: \.date) { point in
                 let x = PlottableValue.value("Tag", insightDayCenter(point.date))
@@ -337,8 +308,6 @@ private struct StressTrendDetail: View {
         .insightDateAxis(from: start, through: end, stride: 7)
         .chartYScale(domain: 0.0...3.0)
         .chartYAxis { insightScale([0, 1, 2, 3]) }
-        .chartXSelection(value: $selection)
-        .sensoryFeedback(.selection, trigger: selected) { _, new in new != nil }
         .frame(height: 168)
         .accessibilityLabel("Geschätzter Stress als gleitender Schnitt über 7 Tage")
         .accessibilityIdentifier("stress.trend.chart")
