@@ -17,6 +17,8 @@ enum GoogleHealthMerge {
         let main: Bool
         let updated: Date?
         let origin: GoogleMetricOrigin
+
+        var isPlausibleMain: Bool { main && value.asleep >= 3 * 3600 }
     }
 
     private struct NightRecording: Hashable {
@@ -201,15 +203,17 @@ enum GoogleHealthMerge {
             recordings[date, default: [:]][key] = candidate
         }
         return recordings.compactMapValues { daily in
-            // Gerätepriorität gilt nur für Aufzeichnungen in der Größenordnung der längsten Nacht.
-            let longest = daily.values.map { $0.value.asleep }.max() ?? 0
-            return daily.values.filter { $0.value.asleep >= longest * 0.75 }
+            let mainNights = daily.values.filter(\.isPlausibleMain)
+            let candidates = mainNights.isEmpty ? Array(daily.values) : mainNights
+            // Vergleichbare Länge und Gerätepriorität zählen innerhalb derselben Kandidatengruppe.
+            let longest = candidates.map { $0.value.asleep }.max() ?? 0
+            return candidates.filter { $0.value.asleep >= longest * 0.75 }
                 .min { preferredNight($0, over: $1) }
         }
     }
 
     private static func preferredNight(_ lhs: Night, over rhs: Night) -> Bool {
-        if lhs.main != rhs.main { return lhs.main }
+        if lhs.isPlausibleMain != rhs.isPlausibleMain { return lhs.isPlausibleMain }
         if lhs.origin.family != rhs.origin.family { return lhs.origin.family == .fitbit }
         if lhs.value.asleep != rhs.value.asleep { return lhs.value.asleep > rhs.value.asleep }
         if lhs.updated != rhs.updated { return (lhs.updated ?? .distantPast) > (rhs.updated ?? .distantPast) }

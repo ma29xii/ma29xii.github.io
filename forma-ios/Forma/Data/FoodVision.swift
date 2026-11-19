@@ -57,13 +57,13 @@ enum FoodVision {
         let keys = try CoachProviders.externalCredentials()
         return try await estimate(
             photo: photo, anthropicKey: keys.anthropic, openAIKey: keys.openAI,
-            maySend: CoachProviders.allowsExternalData
+            maySend: { CoachProviders.allowsFoodPhoto() }
         )
     }
 
     static func estimate(
-        photo: Data, anthropicKey: String?, openAIKey: String?, maySend: @Sendable () -> Bool,
-        send: CoachProviders.Transport = CoachProviders.fetch
+        photo: Data, anthropicKey: String?, openAIKey: String?, maySend: @escaping @Sendable () -> Bool,
+        send: @escaping CoachProviders.Transport = CoachProviders.fetch
     ) async throws -> [FoodGuess] {
         try await CoachProviders.structuredImageReply(
             photo: photo, system: instructions, schema: schema,

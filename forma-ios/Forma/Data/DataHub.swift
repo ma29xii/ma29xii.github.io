@@ -466,6 +466,14 @@ final class DataHub {
         generation == self.generation && accountID != nil && activeSource == .google && !Task.isCancelled
     }
 
+    var bedtimeBasisIsConfirmedMissing: Bool {
+        let calendar = calendar()
+        guard let latestRecentCheck, calendar.isDate(latestRecentCheck, inSameDayAs: now()) else { return false }
+        let strainMissing = !availability.strain && recentFailed.isDisjoint(with: [.activeEnergy, .workouts])
+        let sleepHistoryMissing = !ScoreEngine.hasSleepHistory(history) && !recentFailed.contains(.sleep)
+        return strainMissing || sleepHistoryMissing
+    }
+
     func reportNotificationIssue(_ issue: String?, generation: Int) {
         if generation == self.generation { notificationIssue = issue }
     }

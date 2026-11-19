@@ -11,14 +11,17 @@ enum WidgetBridge {
     static func publish(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) -> Bool {
         do {
             let changed = try WidgetSnapshotStore.shared.replace(with: snapshot)
-            if changed || invalidateTimeline {
-                WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshotStore.widgetKind)
-            }
+            if changed || invalidateTimeline { reload(all: invalidateTimeline && snapshot == nil) }
             return true
         } catch {
             // Die Lesefreigabe kann bereits widerrufen sein, auch wenn sich die Datei nicht löschen ließ.
-            WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshotStore.widgetKind)
+            reload(all: invalidateTimeline && snapshot == nil)
             return false
         }
+    }
+
+    private static func reload(all: Bool) {
+        if all { WidgetCenter.shared.reloadAllTimelines() }
+        else { WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshotStore.widgetKind) }
     }
 }

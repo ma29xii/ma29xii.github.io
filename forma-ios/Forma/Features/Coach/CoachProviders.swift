@@ -29,7 +29,46 @@ enum CoachProviders {
     static let photoConsentKey = "forma.coach.photoConsent.v1"
     static let maxImagesPerMessage = 4
     private static let conversation = Mutex(UUID())
-    private static let foodPhotoConsent = Mutex((revision: UUID(), allowed: false))
+    private enum PhotoKind: Equatable, Sendable { case chat, food }
+
+    private struct PhotoRequests: Sendable {
+        var revision = UUID()
+        var allowed = false
+        var transports: [UUID: Task<Data, any Error>] = [:]
+
+        mutating func revoke() -> [Task<Data, any Error>] {
+            revision = UUID()
+            let active = Array(transports.values)
+            transports.removeAll()
+            return active
+        }
+    }
+
+    private struct PhotoAccess: Sendable {
+        let kind: PhotoKind
+        let revision: UUID
+
+        init(_ kind: PhotoKind) {
+            self.kind = kind
+            revision = photoRequests.withLock { $0[kind].revision }
+        }
+
+        var isCurrent: Bool { photoRequests.withLock { $0[kind].revision == revision } }
+    }
+
+    private struct PhotoPermissions: Sendable {
+        private var chat = PhotoRequests()
+        private var food = PhotoRequests()
+
+        subscript(kind: PhotoKind) -> PhotoRequests {
+            get { kind == .chat ? chat : food }
+            set {
+                if kind == .chat { chat = newValue } else { food = newValue }
+            }
+        }
+    }
+
+    private static let photoRequests = Mutex(PhotoPermissions())
     @MainActor private static var activeReplies: [UUID: Task<String, any Error>] = [:]
     @MainActor private static var credentialSignature: [Data?]?
     @MainActor private static let consentObserver = NotificationCenter.default.addObserver(
@@ -74,7 +113,7 @@ enum CoachProviders {
     }
 
     static func revokeFoodPhotoConsent(defaults: UserDefaults = .standard) {
-        foodPhotoConsent.withLock { $0.revision = UUID() }
+        revokePhotoRequests(.food)
         defaults.removeObject(forKey: FoodSettings.photoConsentKey)
     }
 
@@ -82,6 +121,8 @@ enum CoachProviders {
     static func revokeChatConsent(defaults: UserDefaults = .standard) {
         defaults.set(false, forKey: consentKey)
         clearPhotoConsentIfChatIsOff(defaults: defaults)
+        revokePhotoRequests(.chat)
+        revokePhotoRequests(.food)
         invalidateConversation()
     }
 
@@ -92,12 +133,23 @@ enum CoachProviders {
     }
 
     private static func observeConsentChange() {
-        let allowed = allowsFoodPhoto()
-        foodPhotoConsent.withLock {
-            if $0.allowed && !allowed { $0.revision = UUID() }
-            $0.allowed = allowed
+        let chat = allowsCoachReply(withPhotos: true)
+        let food = allowsFoodPhoto()
+        let cancelled = photoRequests.withLock { requests in
+            var cancelled: [Task<Data, any Error>] = []
+            for (kind, allowed) in [(PhotoKind.chat, chat), (.food, food)] {
+                if requests[kind].allowed && !allowed { cancelled += requests[kind].revoke() }
+                requests[kind].allowed = allowed
+            }
+            return cancelled
         }
+        for task in cancelled { task.cancel() }
         clearPhotoConsentIfChatIsOff(defaults: .standard)
+    }
+
+    private static func revokePhotoRequests(_ kind: PhotoKind) {
+        let cancelled = photoRequests.withLock { $0[kind].revoke() }
+        for task in cancelled { task.cancel() }
     }
 
     private static func clearPhotoConsentIfChatIsOff(defaults: UserDefaults) {
@@ -149,14 +201,16 @@ enum CoachProviders {
         maySend: @Sendable @escaping () -> Bool, send: @escaping Transport = fetch
     ) async throws -> String {
         let current = conversationID
+        let photoAccess = images.isEmpty ? nil : PhotoAccess(.chat)
+        let allowed: @Sendable () -> Bool = { conversationID == current && (photoAccess?.isCurrent ?? true) && maySend() }
         guard history.last?.conversationID == current else { throw CancellationError() }
-        try checkConsent(maySend)
+        try checkConsent(allowed)
         let eligible = history.filter { $0.conversationID == current }
         let id = UUID()
         let task = Task {
             try await reply(
                 context: context, history: eligible, images: images, anthropicKey: anthropicKey,
-                openAIKey: openAIKey, maySend: { conversationID == current && maySend() }, send: send
+                openAIKey: openAIKey, maySend: allowed, send: send
             )
         }
         activeReplies[id] = task
@@ -166,7 +220,7 @@ enum CoachProviders {
         } onCancel: {
             task.cancel()
         }
-        try checkConsent { conversationID == current && maySend() }
+        try checkConsent(allowed)
         return answer
     }
 
@@ -186,8 +240,9 @@ enum CoachProviders {
 
     static func reply(
         context: String, history: [ChatMessage], images: [Data] = [], anthropicKey: String?, openAIKey: String?,
-        maySend: @Sendable () -> Bool, send: Transport = fetch
+        maySend: @escaping @Sendable () -> Bool, send: @escaping Transport = fetch
     ) async throws -> String {
+        let photoAccess = images.isEmpty ? nil : PhotoAccess(.chat)
         try checkConsent(maySend)
         guard images.count <= maxImagesPerMessage else { throw ReplyError.tooManyImages }
         // Die aktuelle Frage muss selbst extern sein. Sonst könnte die letzte ältere Frage erneut rausgehen.
@@ -221,24 +276,24 @@ enum CoachProviders {
             images: try images.map(prepareImage), model: model
         )
         return try await requestReply(
-            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: maySend, send: send
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, photoAccess: photoAccess,
+            maySend: maySend, send: send
         ) { try checkedAnswer($0, short: short) }
     }
 
     static func structuredImageReply<Result: Sendable>(
         photo: Data, system: String, schema: String, anthropicKey: String?, openAIKey: String?,
-        maySend: @Sendable () -> Bool, send: Transport, parse: (String) throws -> Result
+        maySend: @escaping @Sendable () -> Bool, send: @escaping Transport, parse: (String) throws -> Result
     ) async throws -> Result {
-        let revision = foodPhotoConsent.withLock { $0.revision }
+        let photoAccess = PhotoAccess(.food)
         try checkConsent(maySend)
         let prompt = Prompt(
             system: system, messages: [["role": "user", "content": "Schätze die sichtbare Portion auf dem Foto."]],
             images: [try prepareImage(photo)], model: .sonnet, jsonSchema: schema
         )
         return try await requestReply(
-            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, maySend: {
-                foodPhotoConsent.withLock { $0.revision } == revision && maySend()
-            }, send: send
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, photoAccess: photoAccess,
+            maySend: maySend, send: send
         ) { blocks in
             guard blocks.count == 1, let json = blocks.first else { throw ReplyError.invalidResponse }
             return try parse(json)
@@ -267,10 +322,11 @@ enum CoachProviders {
     }
 
     private static func requestReply<Result: Sendable>(
-        _ prompt: Prompt, anthropicKey: String?, openAIKey: String?, maySend: @Sendable () -> Bool,
-        send: Transport, parse: ([String]) throws -> Result
+        _ prompt: Prompt, anthropicKey: String?, openAIKey: String?, photoAccess: PhotoAccess?,
+        maySend: @escaping @Sendable () -> Bool, send: @escaping Transport, parse: ([String]) throws -> Result
     ) async throws -> Result {
-        try checkConsent(maySend)
+        let allowed: @Sendable () -> Bool = { (photoAccess?.isCurrent ?? true) && maySend() }
+        try checkConsent(allowed)
         let primaryKey = anthropicKey.flatMap { $0.isEmpty ? nil : $0 }
         let fallbackKey = openAIKey.flatMap { $0.isEmpty ? nil : $0 }
         // Ein erstmalig verwendetes JSON-Schema braucht Zeit zur Kompilierung beim Anbieter.
@@ -281,9 +337,8 @@ enum CoachProviders {
                 let request = try anthropicRequest(
                     key: primaryKey, prompt: prompt, timeout: fallbackKey == nil ? totalTimeout : primaryTimeout
                 )
-                try checkConsent(maySend)
-                let data = try await send(request)
-                try checkConsent(maySend)
+                let data = try await sendRequest(request, photoAccess: photoAccess, allowed: allowed, send: send)
+                try checkConsent(allowed)
                 let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
                 if let reason = response.stopReason,
                    ["max_tokens", "model_context_window_exceeded", "refusal"].contains(reason) {
@@ -294,27 +349,51 @@ enum CoachProviders {
                 if error is CancellationError || (error as? URLError)?.code == .cancelled {
                     throw CancellationError()
                 }
+                try checkConsent(allowed)
                 guard fallbackKey != nil else { throw error }
-                try checkConsent(maySend)
             }
         }
 
         guard let fallbackKey else { throw ReplyError.missingCredentials }
         let timeout = primaryKey == nil ? totalTimeout : totalTimeout - primaryTimeout
         let request = try openAIRequest(key: fallbackKey, prompt: prompt, timeout: timeout)
-        try checkConsent(maySend)
         let data: Data
         do {
-            data = try await send(request)
-        } catch let error as URLError where error.code == .cancelled {
-            throw CancellationError()
+            data = try await sendRequest(request, photoAccess: photoAccess, allowed: allowed, send: send)
+        } catch {
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            try checkConsent(allowed)
+            throw error
         }
-        try checkConsent(maySend)
+        try checkConsent(allowed)
         let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
         guard response.status == "completed" else { throw ReplyError.invalidResponse }
         let blocks = response.output.filter { $0.type == "message" }.flatMap { $0.content ?? [] }
         guard !blocks.contains(where: { $0.type == "refusal" }) else { throw ReplyError.invalidResponse }
         return try parse(blocks.filter { $0.type == "output_text" }.compactMap(\.text))
+    }
+
+    private static func sendRequest(_ request: URLRequest, photoAccess: PhotoAccess?,
+                                    allowed: @escaping @Sendable () -> Bool, send: @escaping Transport) async throws -> Data {
+        try checkConsent(allowed)
+        guard let photoAccess else { return try await send(request) }
+        let id = UUID()
+        // Registrierung und Widerruf verwenden dieselbe Sperre. Ein veralteter Auftrag kann nicht nachrücken.
+        let task: Task<Data, any Error> = try photoRequests.withLock { requests in
+            guard requests[photoAccess.kind].revision == photoAccess.revision else { throw CancellationError() }
+            let task = Task {
+                try checkConsent(allowed)
+                return try await send(request)
+            }
+            requests[photoAccess.kind].transports[id] = task
+            return task
+        }
+        defer { photoRequests.withLock { $0[photoAccess.kind].transports[id] = nil } }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     private static func checkConsent(_ maySend: () -> Bool) throws {

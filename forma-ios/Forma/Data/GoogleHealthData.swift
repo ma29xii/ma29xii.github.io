@@ -117,6 +117,7 @@ enum GoogleHealthPoint: Sendable {
 struct GoogleHealthPage: Sendable {
     var points: [GoogleHealthPoint]
     var nextPageToken: String?
+    let hasRows: Bool
 
     static func decode(_ data: Data, kind: GoogleHealthKind) throws -> Self {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -132,12 +133,12 @@ struct GoogleHealthPage: Sendable {
         }
         if let token = json["nextPageToken"], !(token is String) { throw GoogleHealthError.invalidResponse }
         return Self(points: try entries.compactMap { try point($0, kind: kind) },
-                    nextPageToken: json["nextPageToken"] as? String)
+                    nextPageToken: json["nextPageToken"] as? String, hasRows: !entries.isEmpty)
     }
 
     private static func point(_ entry: [String: Any], kind: GoogleHealthKind) throws -> GoogleHealthPoint? {
         guard let payload = entry[kind.jsonKey] as? [String: Any] else { throw GoogleHealthError.invalidResponse }
-        guard let source = origin(entry["dataSource"] as? [String: Any]) else { return nil }
+        guard let source = try origin(entry["dataSource"]) else { return nil }
         switch kind {
         case .steps, .energy:
             let key = kind == .steps ? "count" : "kcal"
@@ -151,9 +152,15 @@ struct GoogleHealthPage: Sendable {
                 throw GoogleHealthError.invalidResponse
             }
             let metadata = payload["metadata"] as? [String: Any]
-            let stages = payload["stages"] as? [[String: Any]] ?? []
+            guard payload["metadata"] == nil || metadata != nil else { throw GoogleHealthError.invalidResponse }
+            let main = try sleepFlag(metadata?["mainSleep"])
+            let nap = try sleepFlag(metadata?["nap"])
+            let updated = date(payload["updateTime"])
+            guard payload["updateTime"] == nil || updated != nil else { throw GoogleHealthError.invalidResponse }
+            let stages = payload["stages"] as? [[String: Any]]
+            guard payload["stages"] == nil || stages != nil else { throw GoogleHealthError.invalidResponse }
             var segments: [SleepNight.Segment] = []
-            for stage in stages {
+            for stage in stages ?? [] {
                 guard let (stageStart, stageEnd) = interval(stage) else { throw GoogleHealthError.invalidResponse }
                 let lower = max(start, stageStart)
                 let upper = min(end, stageEnd)
@@ -174,8 +181,7 @@ struct GoogleHealthPage: Sendable {
             let reported = asleepSeconds > 0 && asleepSeconds <= end.timeIntervalSince(start) ? asleepSeconds : nil
             let night = SleepNight(start: start, end: end, segments: segments, reportedAsleep: reported)
             guard night.asleep > 0 else { return nil }
-            return .sleep(night, main: metadata?["mainSleep"] as? Bool == true,
-                          nap: metadata?["nap"] as? Bool == true, updated: date(payload["updateTime"]), source: source)
+            return .sleep(night, main: main, nap: nap, updated: updated, source: source)
         case .exercise:
             guard let (start, end) = interval(payload["interval"]), end.timeIntervalSince(start) <= 86_400 else {
                 throw GoogleHealthError.invalidResponse
@@ -223,31 +229,51 @@ struct GoogleHealthPage: Sendable {
         guard let value = number(payload[key]), let civil = payload["date"] as? [String: Any],
               let year = civil["year"] as? Int, (1900...2200).contains(year),
               let month = civil["month"] as? Int, (1...12).contains(month),
-              let day = civil["day"] as? Int, (1...31).contains(day) else {
+              let day = civil["day"] as? Int,
+              DateComponents(year: year, month: month, day: day).isValidDate(in: Calendar(identifier: .gregorian)) else {
             throw GoogleHealthError.invalidResponse
         }
         return .daily(value, year, month, day, source: source)
     }
 
-    private static func origin(_ raw: [String: Any]?) -> GoogleMetricOrigin? {
-        guard let raw, raw["recordingMethod"] as? String != "MANUAL" else { return nil }
+    private static func origin(_ value: Any?) throws -> GoogleMetricOrigin? {
+        guard let raw = value as? [String: Any],
+              let platform = raw["platform"] as? String, !platform.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              platform != "PLATFORM_UNSPECIFIED",
+              raw["recordingMethod"] == nil || raw["recordingMethod"] is String else {
+            throw GoogleHealthError.invalidResponse
+        }
+        if raw["recordingMethod"] as? String == "MANUAL" { return nil }
         let device = raw["device"] as? [String: Any]
+        guard raw["device"] == nil || device != nil,
+              ["displayName", "manufacturer", "formFactor"].allSatisfy({ device?[$0] == nil || device?[$0] is String }) else {
+            throw GoogleHealthError.invalidResponse
+        }
         let name = (device?["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let manufacturer = (device?["manufacturer"] as? String)?.lowercased()
         let model = name.flatMap { $0.isEmpty ? nil : String($0.prefix(120)) }
         let form = device?["formFactor"] as? String
-        switch raw["platform"] as? String {
+        switch platform {
         case "FITBIT":
             guard form != "PHONE", manufacturer != "apple",
                   model?.localizedCaseInsensitiveContains("pixel watch") != true else { return nil }
             return .init(family: .fitbit, device: model)
         case "HEALTH_KIT":
+            guard model != nil || form != nil else { throw GoogleHealthError.invalidResponse }
             guard model?.localizedCaseInsensitiveContains("apple watch") == true
                     || (manufacturer == "apple" && form == "WATCH") else { return nil }
             return .init(family: .appleWatch, device: model)
         default:
             return nil
         }
+    }
+
+    private static func sleepFlag(_ value: Any?) throws -> Bool {
+        guard let value else { return false }
+        guard let boolean = value as? NSNumber, CFGetTypeID(boolean) == CFBooleanGetTypeID() else {
+            throw GoogleHealthError.invalidResponse
+        }
+        return boolean.boolValue
     }
 
     private static func number(_ value: Any?) -> Double? {

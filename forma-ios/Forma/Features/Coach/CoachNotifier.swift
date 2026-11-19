@@ -46,7 +46,7 @@ enum CoachNotifier {
     static func afterSync(_ hub: DataHub, confirmedSleep: CivilDay?, generation: Int) async -> String? {
         guard hub.canScheduleCoach(generation), !FormaApp.isUITest else { return nil }
         let morningIssue = await sendMorningReportIfDue(hub, confirmedSleep: confirmedSleep, generation: generation)
-        let bedtimeIssue = await reconcileBedtime(hub, generation: generation)
+        let bedtimeIssue = await reconcileBedtime(hub, generation: generation, confirmedBySync: true)
         return morningIssue ?? bedtimeIssue
     }
 
@@ -136,21 +136,30 @@ enum CoachNotifier {
         hub.reportNotificationIssue(issue, generation: generation)
     }
 
-    static func reconcileBedtime(_ hub: DataHub, generation: Int, now: Date = .now) async -> String? {
+    static func reconcileBedtime(
+        _ hub: DataHub, generation: Int, now: Date = .now, confirmedBySync: Bool = false,
+        defaults: UserDefaults = .standard, authorization: @MainActor () async -> UNAuthorizationStatus = { await authorizationStatus() },
+        remove: @MainActor ([String]) -> Void = removeBedtimeRequests
+    ) async -> String? {
+        func enabled() -> Bool { defaults.object(forKey: bedtimeKey) as? Bool ?? true }
         guard hub.generation == generation, !Task.isCancelled, !FormaApp.isUITest else { return nil }
-        guard bedtimeEnabled else {
-            removeBedtimeReminder()
+        guard enabled() else {
+            removeBedtimeReminder(defaults: defaults, remove: remove)
             return nil
         }
         let token = UUID()
         bedtimeRevision = token
-        let center = UNUserNotificationCenter.current()
-        let status = await authorizationStatus()
-        guard bedtimeRevision == token, hub.canScheduleCoach(generation), bedtimeEnabled else { return nil }
-        if status == .denied { removeBedtimeReminder() }
-        guard status == .authorized,
-              let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history),
-              let plan = bedtimePlan(sleepNeed: need, now: now) else { return nil }
+        let status = await authorization()
+        guard bedtimeRevision == token, hub.canScheduleCoach(generation), enabled() else { return nil }
+        if status == .denied { removeBedtimeReminder(defaults: defaults, remove: remove) }
+        guard status == .authorized else { return nil }
+        guard let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history) else {
+            if confirmedBySync && hub.bedtimeBasisIsConfirmedMissing {
+                removeBedtimeReminder(defaults: defaults, remove: remove)
+            }
+            return nil
+        }
+        guard let plan = bedtimePlan(sleepNeed: need, now: now) else { return nil }
         let remind = plan.bed.addingTimeInterval(-30 * 60)
         guard remind > now.addingTimeInterval(60) else { return nil }
         let content = UNMutableNotificationContent()
@@ -165,24 +174,28 @@ enum CoachNotifier {
         utc.timeZone = .gmt
         var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: remind)
         components.timeZone = utc.timeZone
-        return await replaceBedtimeReminder(id: id, isCurrent: {
-            bedtimeRevision == token && hub.canScheduleCoach(generation) && bedtimeEnabled
+        return await replaceBedtimeReminder(id: id, defaults: defaults, isCurrent: {
+            bedtimeRevision == token && hub.canScheduleCoach(generation) && enabled()
         }, enqueue: {
-            try await center.add(UNNotificationRequest(identifier: id, content: content,
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content,
                 trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)))
-        }, remove: { ids in
-            center.removePendingNotificationRequests(withIdentifiers: ids)
-            center.removeDeliveredNotifications(withIdentifiers: ids)
-        })
+        }, remove: remove)
     }
 
     static func removeBedtimeReminder() {
+        removeBedtimeReminder(defaults: .standard, remove: removeBedtimeRequests)
+    }
+
+    private static func removeBedtimeReminder(defaults: UserDefaults, remove: @MainActor ([String]) -> Void) {
         bedtimeRevision = UUID()
+        remove(bedtimeIDs(in: defaults))
+        clearBedtimeIDs(in: defaults)
+    }
+
+    private static func removeBedtimeRequests(_ ids: [String]) {
         let center = UNUserNotificationCenter.current()
-        let ids = bedtimeIDs(in: .standard)
         center.removePendingNotificationRequests(withIdentifiers: ids)
         center.removeDeliveredNotifications(withIdentifiers: ids)
-        clearBedtimeIDs(in: .standard)
     }
 
     /// Hält den bestehenden Termin, bis iOS den neuen angenommen hat.

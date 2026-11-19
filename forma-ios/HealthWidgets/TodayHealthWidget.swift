@@ -29,8 +29,9 @@ private struct TodayWidgetProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<TodayWidgetEntry>) -> Void) {
         let entry = currentEntry(at: .now)
         if let snapshot = entry.snapshot {
-            let expiry = TodayWidgetEntry(date: snapshot.expiry(in: .autoupdatingCurrent), snapshot: nil)
-            completion(Timeline(entries: [entry, expiry], policy: .atEnd))
+            let cutoff = snapshot.timelineExpiry(forEntryAt: entry.date, calendar: .autoupdatingCurrent)
+            let expiry = TodayWidgetEntry(date: cutoff, snapshot: nil)
+            completion(Timeline(entries: [entry, expiry], policy: .after(cutoff)))
         } else {
             completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(30 * 60))))
         }

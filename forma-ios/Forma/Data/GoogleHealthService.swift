@@ -293,24 +293,30 @@ final class GoogleHealthService: GoogleHealthImporting {
             return values
         }
         try check(generation)
-        let failed = Set(kinds.compactMap { imported[$0] == nil ? $0.series : nil })
-        if failed.count == MetricSeries.allCases.count, let limitedUntil, limitedUntil > .now {
-            throw GoogleHealthError.rateLimited(limitedUntil)
-        }
         let result = await Task.detached(priority: .utility) {
-            let activity = GoogleHealthMerge.hours(steps: imported[.steps] ?? [], energy: imported[.energy] ?? [],
-                                                   from: from, until: measuredUntil, calendar: calendar)
-            let pulses = imported[.pulse].map {
-                GoogleHealthMerge.hours(steps: [], energy: [], pulse: $0, from: from, until: measuredUntil, calendar: calendar)
-            }
-            return Import(days: GoogleHealthMerge.days(points: imported, from: from, until: until,
-                                                       calendar: calendar, activity: activity),
-                          hours: imported[.steps] == nil ? nil : activity,
-                          pulses: pulses, failed: failed,
-                          unpairedEnergy: imported[.steps] == nil ? imported[.energy] : nil)
+            Self.makeImport(imported, from: from, until: until, measuredUntil: measuredUntil,
+                            calendar: calendar, kinds: kinds)
         }.value
         try check(generation)
+        if result.failed.count == MetricSeries.allCases.count, let limitedUntil, limitedUntil > .now {
+            throw GoogleHealthError.rateLimited(limitedUntil)
+        }
         return result
+    }
+
+    nonisolated static func makeImport(_ imported: [GoogleHealthKind: [GoogleHealthPoint]], from: Date, until: Date,
+                                       measuredUntil: Date, calendar: Calendar, kinds: [GoogleHealthKind]) -> Import {
+        let failed = Set(kinds.compactMap { imported[$0] == nil ? $0.series : nil })
+        let activity = GoogleHealthMerge.hours(steps: imported[.steps] ?? [], energy: imported[.energy] ?? [],
+                                               from: from, until: measuredUntil, calendar: calendar)
+        let pulses = imported[.pulse].map {
+            GoogleHealthMerge.hours(steps: [], energy: [], pulse: $0, from: from, until: measuredUntil, calendar: calendar)
+        }
+        return Import(days: GoogleHealthMerge.days(points: imported, from: from, until: until,
+                                                   calendar: calendar, activity: activity),
+                      hours: imported[.steps] == nil ? nil : activity,
+                      pulses: pulses, failed: failed,
+                      unpairedEnergy: imported[.steps] == nil ? imported[.energy] : nil)
     }
 
     func loadPulse(from: Date, until: Date, calendar: Calendar) async throws -> [HourlyMetrics] {
@@ -325,10 +331,8 @@ final class GoogleHealthService: GoogleHealthImporting {
             URLQueryItem(name: "filter", value: kind.filter(from: from, until: until, calendar: calendar)),
             URLQueryItem(name: "pageSize", value: kind == .sleep || kind == .exercise ? "25" : "10000")
         ]
-        var result: [GoogleHealthPoint] = []
-        var pageToken: String?
-        var seen: Set<String> = []
-        repeat {
+        let result = try await Self.readPoints(kind) { pageToken in
+            try check(generation)
             let pageQuery = query + (pageToken.map { [URLQueryItem(name: "pageToken", value: $0)] } ?? [])
             let path = "dataTypes/\(kind.rawValue)/dataPoints"
             let bearer = try await accessToken(generation: generation)
@@ -343,14 +347,32 @@ final class GoogleHealthService: GoogleHealthImporting {
                     throw GoogleHealthError.reauthorize
                 }
             }
-            let page = try await Task.detached(priority: .utility) { try GoogleHealthPage.decode(data, kind: kind) }.value
             try check(generation)
+            return data
+        }
+        try check(generation)
+        return result
+    }
+
+    static func readPoints(_ kind: GoogleHealthKind,
+                           fetch: @MainActor (String?) async throws -> Data) async throws -> [GoogleHealthPoint] {
+        var result: [GoogleHealthPoint] = []
+        var pageToken: String?
+        var seen: Set<String> = []
+        var hasRows = false
+        repeat {
+            let data = try await fetch(pageToken)
+            let page = try await Task.detached(priority: .utility) { try GoogleHealthPage.decode(data, kind: kind) }.value
+            try Task.checkCancellation()
             result.append(contentsOf: page.points)
+            hasRows = hasRows || page.hasRows
             pageToken = page.nextPageToken.flatMap { $0.isEmpty ? nil : $0 }
             if let pageToken, !seen.insert(pageToken).inserted || seen.count >= 100 {
                 throw GoogleHealthError.invalidResponse
             }
         } while pageToken != nil
+        // Eine Reihe ohne auswertbare Zeilen bestätigt Leerstand nur, wenn Google keine Zeilen geliefert hat.
+        guard !hasRows || !result.isEmpty else { throw GoogleHealthError.invalidResponse }
         return result
     }
 

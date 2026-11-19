@@ -24,6 +24,10 @@ struct WidgetSnapshot: Codable, Equatable, Sendable {
         min(validUntil, calendar.dateInterval(of: .day, for: updatedAt)?.end ?? validUntil)
     }
 
+    func timelineExpiry(forEntryAt date: Date, calendar: Calendar) -> Date {
+        min(expiry(in: calendar), date.addingTimeInterval(15 * 60))
+    }
+
     func isCurrent(at date: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
         updatedAt <= date && date < expiry(in: calendar)
     }
