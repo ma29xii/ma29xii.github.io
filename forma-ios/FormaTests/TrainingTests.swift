@@ -229,4 +229,64 @@ final class TrainingTests: XCTestCase {
         XCTAssertEqual(groups.map(\.folder), [nil, "Kraft", "Reha"])
         XCTAssertEqual(groups[0].routines.map(\.name), ["A"])
     }
+
+    // MARK: Supersätze
+
+    func testSupersetGroups() {
+        XCTAssertEqual(Superset.linking([nil, nil, nil], at: 0), [1, 1, nil])
+        XCTAssertEqual(Superset.linking([1, 1, nil], at: 1), [1, 1, 1])
+        XCTAssertEqual(Superset.linking([1, 1, 2, 2], at: 1), [1, 1, 1, 1], "zwei Gruppen verschmelzen")
+        XCTAssertEqual(Superset.unlinking([1, 1, 1], at: 2), [1, 1, nil])
+        XCTAssertEqual(Superset.unlinking([1, 1], at: 0), [nil, nil], "allein bleibt keine Gruppe")
+        XCTAssertEqual(Superset.normalized([5, 5, nil, 5]), [1, 1, nil, nil], "getrennte Reste lösen sich")
+        XCTAssertEqual(Superset.normalized([2, 2, 1, 1]), [1, 1, 2, 2])
+        XCTAssertEqual(Superset.position([1, 1, nil], at: 0), .first)
+        XCTAssertEqual(Superset.position([1, 1, 1], at: 1), .middle)
+        XCTAssertEqual(Superset.position([1, 1, nil], at: 1), .last)
+        XCTAssertNil(Superset.position([1, 1, nil], at: 2))
+        XCTAssertTrue(Superset.isLinkedWithNext([1, 1, nil], at: 0))
+        XCTAssertFalse(Superset.isLinkedWithNext([1, 1, nil], at: 1))
+    }
+
+    func testSupersetNextStep() {
+        let groups: [Int?] = [1, 1, nil]
+        XCTAssertEqual(Superset.next(after: 0, groups: groups, open: [true, true, true])?.index, 1)
+        XCTAssertEqual(Superset.next(after: 0, groups: groups, open: [true, true, true])?.rests, false)
+        XCTAssertEqual(Superset.next(after: 1, groups: groups, open: [true, true, true])?.index, 0)
+        XCTAssertEqual(Superset.next(after: 1, groups: groups, open: [true, true, true])?.rests, true)
+        // Mehr Sätze in der zweiten Übung: nach der Pause dort weiter.
+        XCTAssertEqual(Superset.next(after: 1, groups: groups, open: [false, true, true])?.index, 1)
+        XCTAssertNil(Superset.next(after: 1, groups: groups, open: [false, false, true]), "Gruppe fertig")
+        XCTAssertNil(Superset.next(after: 2, groups: groups, open: [true, true, true]), "einzelne Übung")
+    }
+
+    func testLiveSupersetAlternatesAndRestsAfterRound() {
+        func sets(_ n: Int) -> [LiveSet] { (0..<n).map { _ in LiveSet(weight: 40, reps: 10, isWarmup: false) } }
+        let workout = LiveWorkout(title: "Test", exercises: [
+            LiveExercise(name: "Bankdrücken", muscle: "Brust", restSeconds: 60, sets: sets(2), superset: 1),
+            LiveExercise(name: "Rudern", muscle: "Rücken", restSeconds: 90, sets: sets(2), superset: 1),
+            LiveExercise(name: "Seitheben", muscle: "Schultern", restSeconds: 60, sets: sets(1))
+        ])
+        workout.isDemo = true
+        workout.completeCurrentSet()
+        XCTAssertEqual([workout.exerciseIndex, workout.setIndex], [1, 0])
+        XCTAssertFalse(workout.isResting, "keine Pause innerhalb der Runde")
+        workout.completeCurrentSet()
+        XCTAssertEqual([workout.exerciseIndex, workout.setIndex], [0, 1])
+        XCTAssertTrue(workout.isResting)
+        XCTAssertEqual(workout.restTotal, 90, "Pause der letzten Übung der Runde")
+        workout.completeCurrentSet()
+        XCTAssertEqual([workout.exerciseIndex, workout.setIndex], [1, 1])
+        XCTAssertFalse(workout.isResting)
+        workout.completeCurrentSet()
+        XCTAssertEqual([workout.exerciseIndex, workout.setIndex], [2, 0])
+        XCTAssertTrue(workout.isResting)
+    }
+
+    func testRestExtensionShowsWhatIsPossible() {
+        XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 0), 15)
+        XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 600), 15)
+        XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 898), 2)
+        XCTAssertEqual(LiveWorkout.possibleExtension(15, remaining: 900), 0)
+    }
 }

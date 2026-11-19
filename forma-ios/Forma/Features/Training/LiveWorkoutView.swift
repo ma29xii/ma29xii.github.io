@@ -99,9 +99,15 @@ struct LiveWorkoutView: View {
     // MARK: Übungen
 
     private func exerciseBlock(_ exIndex: Int, _ exercise: LiveExercise) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let groups = workout.exercises.map(\.superset)
+        let position = Superset.position(groups, at: exIndex)
+        let partners = Superset.members(groups, at: exIndex).filter { $0 != exIndex }.map { workout.exercises[$0].name }
+        return VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(height: Space.s6)
+                .supersetThread(position == .middle || position == .last)
             HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
                 Text(exercise.name).font(.formaTitle)
+                    .accessibilityLabel(position == nil ? exercise.name : "\(exercise.name), Supersatz")
                 Spacer(minLength: 0)
                 Button { guide = exercise } label: {
                     Image(systemName: "figure.strengthtraining.traditional")
@@ -113,7 +119,12 @@ struct LiveWorkoutView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Ausführung und Muskeln")
             }
-            .padding(.top, Space.s6)
+            .supersetNode(position)
+            VStack(alignment: .leading, spacing: 0) {
+            if !partners.isEmpty {
+                Text("Im Wechsel mit \(partners.joined(separator: ", "))")
+                    .font(.formaCaptionStrong).foregroundStyle(SupersetStyle.tint)
+            }
             Text(lastTimeText(exercise.name) ?? exercise.muscle).font(.formaBody).foregroundStyle(Theme.textSecondary).padding(.top, 4)
             if let progression = progressionText(exercise) {
                 HStack(spacing: Space.s2) {
@@ -151,6 +162,8 @@ struct LiveWorkoutView: View {
                 .buttonStyle(.plain)
             }
             .padding(.top, Space.s4)
+            }
+            .supersetThread(position == .first || position == .middle)
         }
     }
 
@@ -298,13 +311,16 @@ struct LiveWorkoutView: View {
             }
             // Eine Glasebene (der Dock), darin matte Knöpfe – kein Glas auf Glas (Codex R-01-27).
             HStack(spacing: Space.s2) {
-                Button { workout.extendRest(by: 15) } label: {
-                    Text("+15 s").font(.system(size: 16, weight: .semibold))
+                // Nur so viel anbieten, wie bis zur Obergrenze wirklich geht (Gegenprüfung 04 #7).
+                let extra = LiveWorkout.possibleExtension(15, remaining: remaining)
+                Button { workout.extendRest(by: extra) } label: {
+                    Text(extra > 0 ? "+\(extra) s" : "Maximum").font(.system(size: 16, weight: .semibold))
                         .frame(maxWidth: .infinity).frame(height: 52)
                         .background(Capsule().fill(Color.white.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("15 Sekunden mehr Pause")
+                .disabled(extra == 0)
+                .accessibilityLabel(extra > 0 ? "\(extra) Sekunden mehr Pause" : "Längste Pause erreicht")
                 Button("Pause beenden") { workout.skipRest() }
                     .buttonStyle(PrimaryButtonStyle())
                     .accessibilityIdentifier("rest.skip")
@@ -415,11 +431,14 @@ struct LiveWorkoutView: View {
             saveError = error.localizedDescription
             return
         }
+        // Lücke zwischen Vollbild-Ende und Zusammenfassung als belegt markieren (Gegenprüfung 04 #5).
+        app.workoutSummaryIncoming = session != nil
         app.liveWorkout = nil
         if let session {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(450))
                 app.finishedSession = session
+                app.workoutSummaryIncoming = false
             }
         }
     }

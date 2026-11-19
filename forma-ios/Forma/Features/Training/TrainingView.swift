@@ -83,7 +83,7 @@ struct TrainingView: View {
                 }
             }
             .sheet(item: $tappedMuscle) { m in
-                MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0, recovery: sessions.isEmpty ? nil : MuscleRecovery.state(recoveryLoad[m] ?? 0))
+                MuscleExercisesSheet(muscle: m, weeklySets: weeklyVolume[m] ?? 0, recovery: hasRecentWork ? MuscleRecovery.state(recoveryLoad[m] ?? 0) : nil)
             }
         }
     }
@@ -212,6 +212,11 @@ struct TrainingView: View {
         MuscleVolume.lastSevenDays(entries(since: Self.weekCutoff()), groups: exerciseGroups)
     }
 
+    /// Mindestens ein Arbeitssatz in den letzten 72 h – sonst gibt es keine Einstufung.
+    private var hasRecentWork: Bool {
+        !entries(since: Date.now.addingTimeInterval(-MuscleRecovery.window)).isEmpty
+    }
+
     /// Restbelastung je Muskel aus den letzten 72 h.
     private var recoveryLoad: [Muscle: Double] {
         MuscleRecovery.load(entries(since: Date.now.addingTimeInterval(-MuscleRecovery.window)), groups: exerciseGroups)
@@ -274,9 +279,12 @@ struct TrainingView: View {
     @ViewBuilder private func recoveryRows(_ load: [Muscle: Double]) -> some View {
         let byState = Dictionary(grouping: Muscle.allCases) { MuscleRecovery.state(load[$0] ?? 0) }
         VStack(alignment: .leading, spacing: Space.s2) {
-            if sessions.isEmpty {
-                // Ohne Verlauf gibt es keine Einstufung, auch kein „frisch“.
+            // Einstufung nur aus auswertbaren Arbeitssätzen; Aufwärmsätze zählen nicht (Gegenprüfung 04 #8).
+            if !sessions.contains(where: { !$0.workSets.isEmpty }) {
                 Text("Noch keine Trainingsdaten.")
+                    .font(.formaBody).foregroundStyle(Theme.textSecondary)
+            } else if !hasRecentWork {
+                Text("Keine Arbeitssätze in den letzten 72 Stunden erfasst.")
                     .font(.formaBody).foregroundStyle(Theme.textSecondary)
             } else {
                 ForEach([RecoveryState.loaded, .recovering], id: \.self) { state in

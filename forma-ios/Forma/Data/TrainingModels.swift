@@ -43,6 +43,7 @@ final class Routine {
             let c = RoutineItem(order: item.order, exerciseName: item.exerciseName, muscle: item.muscle, sets: item.sets,
                                 reps: item.reps, weight: item.weight, restSeconds: item.restSeconds)
             context.insert(c)
+            c.superset = item.superset
             c.routine = copy
         }
         return copy
@@ -87,6 +88,8 @@ final class RoutineItem {
     var reps: Int
     var weight: Double
     var restSeconds: Int
+    /// Supersatz-Gruppe: benachbarte Übungen mit gleicher Nummer wechseln sich ab. nil = einzeln. (Neues optionales Feld.)
+    var superset: Int?
     var routine: Routine?
 
     init(order: Int, exerciseName: String, muscle: String, sets: Int = 3, reps: Int = 8, weight: Double = 20, restSeconds: Int = 90) {

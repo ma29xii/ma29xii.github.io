@@ -40,6 +40,10 @@ final class AppState {
     /// Start abgeschlossen (Onboarding entschieden, Entwurf wiederhergestellt): erst dann werden Kurzbefehle ausgeführt.
     var launchReady = false
     var finishedSession: WorkoutSession?
+    /// Training gespeichert, Zusammenfassung kommt gleich (zwischen Vollbild-Ende und Sheet).
+    var workoutSummaryIncoming = false
+    /// Die Trainings-Zusammenfassung ist offen oder unterwegs. Andere Fenster (z. B. wartender Scan) warten so lange.
+    var isWorkoutSummaryActive: Bool { workoutSummaryIncoming || finishedSession != nil }
     var showProfile = false
     /// Plus-Menü (Mahlzeit scannen, Essen suchen, Ernährung heute, Training starten).
     var showPlus = false
@@ -112,6 +116,8 @@ struct LiveExercise: Identifiable, Equatable, Codable {
     var suggestedWeight: Double? = nil
     /// Übernommenes Gewicht in kg; die Anzeige rechnet in die gewählte Einheit um (Gegenprüfung 02 #13).
     var appliedWeight: Double? = nil
+    /// Supersatz-Gruppe aus der Routine (siehe `Superset`).
+    var superset: Int? = nil
 }
 
 /// Steigerungsregel: Wurden letztes Mal alle Arbeitssätze mit dem Ziel an Wiederholungen
@@ -267,6 +273,7 @@ final class LiveWorkout: Identifiable {
 
     static func from(_ routine: Routine, history: [WorkoutSession], adjustment: TrainingAdjustment?) -> LiveWorkout {
         let items = Array(routine.sortedItems.prefix(maxExercises))
+        let groups = Superset.normalized(items.map(\.superset))
         let exercises = items.enumerated().map { index, item -> LiveExercise in
             var setCount = item.sets
             let lastSession = history.first { $0.sets.contains { $0.exerciseName == item.exerciseName } }
@@ -286,7 +293,8 @@ final class LiveWorkout: Identifiable {
             }
             return LiveExercise(name: item.exerciseName, muscle: item.muscle, restSeconds: max(15, item.restSeconds), sets: sets,
                                 progression: plan.note,
-                                suggestedWeight: plan.increased && !(adjustment == .plusWeight && index == 0) ? plan.weight : nil)
+                                suggestedWeight: plan.increased && !(adjustment == .plusWeight && index == 0) ? plan.weight : nil,
+                                superset: groups[index])
         }
         return LiveWorkout(title: routine.name, exercises: exercises, adjustment: adjustment)
     }
@@ -372,9 +380,22 @@ final class LiveWorkout: Identifiable {
                 exercises[exerciseIndex].sets[next].plannedWeight = done.weight
             }
         }
-        restTotal = exercises[exerciseIndex].restSeconds
-        restEndsAt = .now.addingTimeInterval(TimeInterval(restTotal))
-        selectFirstOpen(keepRest: true)
+        // Supersatz: ohne Pause zur nächsten Übung der Runde, Pause erst nach der letzten.
+        let step = Superset.next(after: exerciseIndex, groups: exercises.map(\.superset),
+                                 open: exercises.map { ex in ex.sets.contains { !$0.done } })
+        if let step, !step.rests {
+            restEndsAt = nil
+            if !isDemo { RestNotifier.cancel() }
+        } else {
+            restTotal = exercises[exerciseIndex].restSeconds
+            restEndsAt = .now.addingTimeInterval(TimeInterval(restTotal))
+        }
+        if let step, let s = exercises[step.index].sets.firstIndex(where: { !$0.done }) {
+            exerciseIndex = step.index
+            setIndex = s
+        } else {
+            selectFirstOpen(keepRest: true)
+        }
         if allDone {
             restEndsAt = nil
             if !isDemo { RestNotifier.cancel() }
@@ -390,6 +411,11 @@ final class LiveWorkout: Identifiable {
     /// Es ist noch Platz für „+15 Sek.“ (Restzeit unter der Obergrenze).
     var canExtendRest: Bool {
         (restEndsAt ?? .now).timeIntervalSinceNow < Self.maxRestSeconds - 1
+    }
+
+    /// Wie viele Sekunden eine Verlängerung um `seconds` bei dieser Restzeit tatsächlich bringt (0 = am Limit).
+    static func possibleExtension(_ seconds: Int, remaining: Int) -> Int {
+        max(0, min(seconds, Int(maxRestSeconds) - max(0, remaining)))
     }
 
     func extendRest(by seconds: Int) {

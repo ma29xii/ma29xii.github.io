@@ -18,25 +18,46 @@ struct RoutineEditorView: View {
                     .font(.formaHeadline)
             }
             Section {
-                ForEach(routine.sortedItems) { item in
-                    RoutineItemRow(item: item, unit: app.weightUnit)
+                let items = routine.sortedItems
+                let groups = items.map(\.superset)
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    let partners = Superset.members(groups, at: index).filter { $0 != index }.map { items[$0].exerciseName }
+                    RoutineItemRow(item: item, unit: app.weightUnit,
+                                   superset: Superset.position(groups, at: index), partners: partners)
+                        .swipeActions(edge: .leading) {
+                            if Superset.position(groups, at: index) != nil {
+                                Button("Supersatz lösen", systemImage: "link.badge.minus") { setGroups(Superset.unlinking(groups, at: index)) }
+                            }
+                            if index + 1 < items.count, !Superset.isLinkedWithNext(groups, at: index) {
+                                Button("Supersatz mit nächster", systemImage: "link") { setGroups(Superset.linking(groups, at: index)) }
+                                    .tint(SupersetStyle.tint)
+                            }
+                        }
+                        .accessibilityActions {
+                            if index + 1 < items.count, !Superset.isLinkedWithNext(groups, at: index) {
+                                Button("Supersatz mit nächster Übung") { setGroups(Superset.linking(groups, at: index)) }
+                            }
+                            if Superset.position(groups, at: index) != nil {
+                                Button("Supersatz lösen") { setGroups(Superset.unlinking(groups, at: index)) }
+                            }
+                        }
                 }
                 .onDelete { offsets in
                     let items = routine.sortedItems
                     for i in offsets { context.delete(items[i]) }
-                    renumber()
+                    renumber(remaining: items.enumerated().filter { !offsets.contains($0.offset) }.map(\.element))
                 }
                 .onMove { from, to in
                     var items = routine.sortedItems
                     items.move(fromOffsets: from, toOffset: to)
                     for (i, item) in items.enumerated() { item.order = i }
-                    try? context.save()
+                    setGroups(Superset.normalized(items.map(\.superset)), items: items)
                 }
                 Button { showPicker = true } label: { Label("Übung hinzufügen", systemImage: "plus") }
             } header: {
                 Text("Übungen")
             } footer: {
-                Text("Wischen zum Löschen, gedrückt halten zum Verschieben.")
+                Text("Nach rechts wischen: Supersatz mit der nächsten Übung. Nach links: löschen. Gedrückt halten: verschieben.")
             }
             Section {
                 Button("Training starten") {
@@ -101,8 +122,17 @@ struct RoutineEditorView: View {
         }
     }
 
-    private func renumber() {
-        for (i, item) in routine.sortedItems.enumerated() { item.order = i }
+    private func renumber(remaining items: [RoutineItem]) {
+        for (i, item) in items.enumerated() { item.order = i }
+        setGroups(Superset.normalized(items.map(\.superset)), items: items)
+    }
+
+    /// Supersatz-Gruppen in der Reihenfolge der Übungen zurückschreiben.
+    private func setGroups(_ groups: [Int?], items: [RoutineItem]? = nil) {
+        let items = items ?? routine.sortedItems
+        withAnimation(.snappy) {
+            for (item, group) in zip(items, groups) where item.superset != group { item.superset = group }
+        }
         try? context.save()
     }
 }
@@ -110,10 +140,18 @@ struct RoutineEditorView: View {
 private struct RoutineItemRow: View {
     @Bindable var item: RoutineItem
     let unit: WeightUnit
+    var superset: Superset.Position? = nil
+    var partners: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s2) {
             Text(item.exerciseName).font(.formaRowTitle)
+                .supersetNode(superset, overhang: 16)
+            VStack(alignment: .leading, spacing: Space.s2) {
+            if !partners.isEmpty {
+                Text("Im Wechsel mit \(partners.joined(separator: ", "))")
+                    .font(.formaCaptionStrong).foregroundStyle(SupersetStyle.tint)
+            }
             HStack(spacing: Space.s4) {
                 Stepper("\(item.sets) Sätze", value: $item.sets, in: 1...10).font(.formaCaption)
             }
@@ -121,7 +159,13 @@ private struct RoutineItemRow: View {
                 Stepper("\(item.reps) Wdh", value: $item.reps, in: 1...50).font(.formaCaption)
             }
             Stepper("\(Format.weight(item.weight, unit: unit)) \(unit.rawValue)", value: $item.weight, in: 0...400, step: 2.5).font(.formaCaption)
-            Stepper("Pause \(Format.timer(item.restSeconds))", value: $item.restSeconds, in: 30...300, step: 15).font(.formaCaption)
+            // Im Supersatz zählt nur die Pause nach der letzten Übung der Runde.
+            if superset == nil || superset == .last {
+                Stepper("\(superset == nil ? "Pause" : "Pause nach der Runde") \(Format.timer(item.restSeconds))",
+                        value: $item.restSeconds, in: 30...300, step: 15).font(.formaCaption)
+            }
+            }
+            .supersetThread(superset == .first || superset == .middle, overhang: 20)
         }
         .padding(.vertical, 4)
     }
