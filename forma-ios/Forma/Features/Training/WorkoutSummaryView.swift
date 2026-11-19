@@ -5,6 +5,7 @@ struct WorkoutSummaryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
+    @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     let session: WorkoutSession
     @State private var confirmDelete = false
@@ -52,10 +53,12 @@ struct WorkoutSummaryView: View {
                                 if index > 0 { RowDivider() }
                                 let now = session.bestOneRepMax(for: name)
                                 let before = bestBefore(name)
+                                // Gleiche Regel wie Kopf und Live-Hinweis: kein Rekord aus Rundungsresten.
+                                let isRecord = PersonalRecord.isNew(weight: now, reps: 1, previousBest: before)
                                 MetricRow(title: name,
-                                          subtitle: before > 0 ? (now > before ? "Neuer Bestwert · +\(Format.weight(now - before, unit: app.weightUnit)) \(app.weightUnit.rawValue)" : "Bestwert \(Format.weight(before, unit: app.weightUnit)) \(app.weightUnit.rawValue)") : "erstes Mal erfasst",
+                                          subtitle: before > 0 ? (isRecord ? "Neuer Bestwert · +\(Format.weight(now - before, unit: app.weightUnit)) \(app.weightUnit.rawValue)" : "Bestwert \(Format.weight(before, unit: app.weightUnit)) \(app.weightUnit.rawValue)") : "erstes Mal erfasst",
                                           value: now > 0 ? Format.weight(now, unit: app.weightUnit) : "–", unit: app.weightUnit.rawValue,
-                                          valueColor: now > before && before > 0 ? Theme.record : Theme.textPrimary)
+                                          valueColor: isRecord ? Theme.record : Theme.textPrimary)
                             }
                         }
                     }
@@ -91,7 +94,15 @@ struct WorkoutSummaryView: View {
             }
             .formaScreen()
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } } }
+            .overlay(alignment: .top) {
+                AchievementUnlockBanner(scope: hub.achievementHealthScope, isSample: hub.isSample)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareCardButton { .training(session, unit: app.weightUnit, isSample: hub.isSample) }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }
+            }
             .confirmationDialog("Training löschen?", isPresented: $confirmDelete) {
                 Button("Löschen", role: .destructive) {
                     context.delete(session)
