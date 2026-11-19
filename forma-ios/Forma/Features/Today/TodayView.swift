@@ -5,6 +5,7 @@ struct TodayView: View {
     @Environment(DataHub.self) private var hub
     @Environment(AppState.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Namespace private var zoomSpace
     @State private var compact = false
 
@@ -31,16 +32,11 @@ struct TodayView: View {
                         header(snapshot)
                             .id(Self.top)
                             .padding(.bottom, Space.s2)
-                        coachLine(snapshot)
-                        HealthMonitor(snapshot: snapshot)
-                        StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
-                                          isLoading: false, history: history)
-                        if let period {
-                            WeeklyRecapLink(period: period)
-                                .transition(.opacity)
+                        // Bearbeiten direkt hier: „Anpassen“ steht unter der letzten Karte.
+                        InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
+                            tile(kind, snapshot: snapshot, history: history, stress: stress, period: period)
                         }
-                        activities(snapshot.day)
-                        comparison(snapshot, history: history)
+                        updateFooter
                     }
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
                     .padding(.horizontal, Space.page)
@@ -86,6 +82,29 @@ struct TodayView: View {
     /// Ab hier ist der Kopf größtenteils aus dem Bild; die Kompaktleiste übernimmt.
     static let compactOffset: CGFloat = 220
 
+    // MARK: Karten
+
+    private func tile(_ kind: TodayTile, snapshot: DashboardDay, history: [DayMetrics],
+                      stress: (slots: [StressSlot], energy: Int?), period: WeeklyInsight.Period?) -> AnyView {
+        switch kind {
+        case .coach:
+            return AnyView(coachLine(snapshot))
+        case .healthMonitor:
+            return AnyView(HealthMonitor(snapshot: snapshot))
+        case .stress:
+            return AnyView(StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
+                                             isLoading: false, history: history))
+        case .weekly:
+            // Nur im Zeitfenster Sonntagabend bis Montagmittag; sonst nimmt die Karte keinen Platz ein.
+            guard let period else { return AnyView(EmptyView()) }
+            return AnyView(WeeklyRecapLink(period: period).transition(.opacity))
+        case .activities:
+            return AnyView(activities(snapshot.day))
+        case .metrics:
+            return AnyView(comparison(snapshot, history: history))
+        }
+    }
+
     // MARK: Status
 
     @ViewBuilder private var sourceStatus: some View {
@@ -102,11 +121,17 @@ struct TodayView: View {
                         .frame(minHeight: 44)
                 }
             }
-        } else if let updated = hub.lastUpdate {
+        }
+    }
+
+    /// Leise Fußzeile ganz unten: Oben stehen nur die Anzeigen.
+    @ViewBuilder private var updateFooter: some View {
+        if !hub.isSample, hub.todayDataNotice == nil, let updated = hub.lastUpdate {
             Text(Calendar.forma.isDateInToday(updated) ? "Abgerufen um \(Format.clock(updated))"
                  : "Abgerufen am \(Format.shortDate(updated))")
                 .font(.formaCaption)
                 .foregroundStyle(Theme.textTertiary)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -124,19 +149,32 @@ struct TodayView: View {
     // MARK: Kopf
 
     /// Recovery groß in der Mitte, Strain und Sleep als Kapseln daneben, etwas tiefer gesetzt.
-    private func header(_ snapshot: DashboardDay) -> some View {
+    /// Bei großer Schrift steht Recovery allein oben und die Kapseln darunter, statt alles zu stauchen.
+    @ViewBuilder private func header(_ snapshot: DashboardDay) -> some View {
         let debt = snapshot.day.sleep == nil ? nil : Self.debtNote(ScoreEngine.sleepDebt(history: snapshot.history))
-        return HStack(alignment: .top, spacing: 0) {
-            side(.strain, snapshot, band: snapshot.recovery.map { ScoreEngine.target(recovery: $0) },
-                 note: nil, delay: 0.08)
-            gauge(.recovery, snapshot) {
-                DashboardRing(kind: .recovery, value: snapshot.recovery, size: 184)
-            }
-            .frame(width: 184)
-            side(.sleep, snapshot, band: nil, note: debt, delay: 0.16)
+        let strain = side(.strain, snapshot, band: snapshot.recovery.map { ScoreEngine.target(recovery: $0) },
+                          note: nil, delay: 0.08)
+        let recovery = gauge(.recovery, snapshot) {
+            DashboardRing(kind: .recovery, value: snapshot.recovery, size: 184)
         }
-        .frame(maxWidth: .infinity)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        let sleep = side(.sleep, snapshot, band: nil, note: debt, delay: 0.16)
+        if typeSize >= .xxLarge {
+            VStack(spacing: Space.s4) {
+                recovery
+                HStack(alignment: .top, spacing: Space.s4) {
+                    strain
+                    sleep
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            HStack(alignment: .top, spacing: 0) {
+                strain
+                recovery.frame(width: 184)
+                sleep
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     private func side(_ kind: RingKind, _ snapshot: DashboardDay, band: ClosedRange<Int>?, note: String?,
@@ -145,20 +183,22 @@ struct TodayView: View {
             VStack(spacing: Space.s2) {
                 DashboardRing(kind: kind, value: snapshot.value(for: kind), size: 104, band: band, delay: delay)
                 Text(kind.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.formaLabel)
                     .tracking(0.8)
                     .textCase(.uppercase)
                     .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 if let note {
                     Text(note)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.formaMicro)
                         .monospacedDigit()
                         .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.top, Space.s5)
+            .padding(.top, typeSize >= .xxLarge ? 0 : Space.s5)
         }
         .frame(maxWidth: .infinity)
     }
@@ -231,7 +271,7 @@ struct TodayView: View {
                 Text(sentence)
                     .font(.system(.body))
                     .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right")

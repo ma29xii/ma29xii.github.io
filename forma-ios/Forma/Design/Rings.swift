@@ -131,7 +131,7 @@ struct RecoveryArc: View, Animatable {
                 }
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.8)
                 .foregroundStyle(missing ? Theme.textSecondary : Theme.textPrimary)
             }
             .frame(width: size * 0.7)
@@ -139,7 +139,7 @@ struct RecoveryArc: View, Animatable {
                 .font(.system(size: max(12, size * 0.08), weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.8)
                 .frame(width: size * 0.6)
                 .offset(y: size * 0.4)
         }
@@ -178,7 +178,7 @@ struct LevelCapsule: View, Animatable {
             }
             .monospacedDigit()
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            .minimumScaleFactor(0.8)
             .foregroundStyle(missing ? Theme.textSecondary : Theme.textPrimary)
             ZStack(alignment: .bottom) {
                 shape.fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.035)],

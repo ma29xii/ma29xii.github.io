@@ -23,6 +23,9 @@ struct RingDetailView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, Space.s3)
 
+            if kind == .strain, let target = Self.strainTarget(strain: value, recovery: snapshot.recovery) {
+                strainTargetCard(target)
+            }
             if kind == .sleep, let night = day.sleep, let need = snapshot.sleepNeed {
                 sleepSummary(night: night, need: need)
             }
@@ -126,6 +129,37 @@ struct RingDetailView: View {
     }
 
     private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
+
+    /// Tagesziel für Strain aus der heutigen Recovery; ohne gültige Recovery gibt es kein Ziel.
+    nonisolated static func strainTarget(strain: Int?, recovery: Int?) -> (range: ClosedRange<Int>, status: String)? {
+        guard let recovery else { return nil }
+        let range = ScoreEngine.target(recovery: recovery)
+        guard let strain else { return (range, "Noch keine Belastung") }
+        if strain < range.lowerBound { return (range, "Unter dem Ziel") }
+        if strain > range.upperBound { return (range, "Über dem Ziel") }
+        return (range, "Im Ziel")
+    }
+
+    private func strainTargetCard(_ target: (range: ClosedRange<Int>, status: String)) -> some View {
+        DashboardCard {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    DashboardHeading(title: "Tagesziel")
+                    Text(target.status)
+                        .font(.formaBody)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Spacer(minLength: Space.s2)
+                Text("\(target.range.lowerBound)–\(target.range.upperBound)")
+                    .font(.formaNumber)
+            }
+            .padding(Space.s4)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Tagesziel")
+        .accessibilityValue("\(target.range.lowerBound) bis \(target.range.upperBound), \(target.status)")
+        .accessibilityIdentifier("strain.target")
+    }
 
     /// „6:08“ für Kapseln (Stunden:Minuten).
     nonisolated static func clock(_ seconds: TimeInterval) -> String {

@@ -38,3 +38,33 @@ struct StepsDetail: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
+
+/// Karten unter dem Today-Kopf. Kopf und Kennzahlen (mit Schritten) bleiben immer sichtbar.
+enum TodayTile: String, TileKind {
+    case coach, healthMonitor, stress, weekly, activities, metrics
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .coach: "Coach"
+        case .healthMonitor: "Health Monitor"
+        case .stress: "Stress Monitor"
+        case .weekly: "Wochenrückblick"
+        case .activities: "Mein Tag"
+        case .metrics: "Kennzahlen"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .coach: "sparkle"
+        case .healthMonitor: "heart.text.square"
+        case .stress: "gauge.with.dots.needle.33percent"
+        case .weekly: "calendar"
+        case .activities: "list.bullet"
+        case .metrics: "figure.walk"
+        }
+    }
+    var summary: String { title }
+    static var requiredVisible: Set<Self> { [.metrics] }
+    static func storedKinds(for id: String) -> [Self] { Self(rawValue: id).map { [$0] } ?? [] }
+}

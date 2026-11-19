@@ -100,4 +100,24 @@ final class DesignTodayTests: XCTestCase {
         XCTAssertEqual(StressMonitorCard.spokenValue(nil), "Keine Messung")
         XCTAssertEqual(StressMonitorCard.spokenValue(1.24), "1,2 von 3, Mittel")
     }
+
+    // MARK: Runde 3
+
+    func testStrainTargetOnlyWithValidRecovery() throws {
+        XCTAssertNil(RingDetailView.strainTarget(strain: 40, recovery: nil))
+        let good = try XCTUnwrap(RingDetailView.strainTarget(strain: 40, recovery: 80))
+        XCTAssertEqual(good.range, 35...55)
+        XCTAssertEqual(good.status, "Im Ziel")
+        XCTAssertEqual(RingDetailView.strainTarget(strain: 20, recovery: 80)?.status, "Unter dem Ziel")
+        XCTAssertEqual(RingDetailView.strainTarget(strain: 60, recovery: 80)?.status, "Über dem Ziel")
+        XCTAssertEqual(RingDetailView.strainTarget(strain: nil, recovery: 20)?.range, 10...25)
+        XCTAssertEqual(RingDetailView.strainTarget(strain: nil, recovery: 20)?.status, "Noch keine Belastung")
+    }
+
+    func testTodayCardsKeepMetricsVisibleAndReadOldIDs() {
+        XCTAssertEqual(TodayTile.requiredVisible, [.metrics])
+        XCTAssertEqual(TodayTile.storedKinds(for: "stress"), [.stress])
+        XCTAssertEqual(TodayTile.storedKinds(for: "unbekannt"), [])
+        XCTAssertEqual(Set(TodayTile.allCases.map(\.title)).count, TodayTile.allCases.count)
+    }
 }

@@ -70,12 +70,18 @@ final class DesignHealthTests: XCTestCase {
             MonitorReading(id: id, title: id, icon: "heart", shortTitle: id, value: value,
                            baseline: ScoreEngine.Baseline(mean: 60, sd: 5), decimals: 0, unit: "bpm")
         }
-        let all = MonitorSummary(readings: [reading("a", 60), reading("b", 62)])
-        XCTAssertEqual(all.text, "2/2 Werte im Normalbereich")
-        XCTAssertEqual(all.icon, "checkmark.circle.fill")
-        let some = MonitorSummary(readings: [reading("a", 60), reading("b", 80), reading("c", nil)])
-        XCTAssertEqual(some.text, "1/2 Werte im Normalbereich")
+        let all = MonitorSummary(readings: [reading("a", 60), reading("b", 62), reading("c", 58)])
+        XCTAssertEqual(all.text, "3 von 3 im üblichen Bereich")
+        XCTAssertEqual(all.icon, "checkmark.circle")
+        let some = MonitorSummary(readings: [reading("a", 60), reading("b", 80), reading("c", 61), reading("d", nil)])
+        XCTAssertEqual(some.text, "2 von 3 im üblichen Bereich")
+        // K-03-30: Unter drei vergleichbaren Werten keine Bewertung, sondern der ehrliche Stand.
+        let thin = MonitorSummary(readings: [reading("a", 60), reading("b", nil), reading("c", nil), reading("d", nil)])
+        XCTAssertEqual(thin.text, "Erst 1 von 4 vergleichbar")
         XCTAssertEqual(MonitorSummary(readings: [reading("a", nil)]).text, "Keine Messung")
+        XCTAssertEqual(reading("b", 80).isAbove, true)
+        XCTAssertEqual(reading("b", 40).statusIcon, "arrow.down.circle")
+        XCTAssertNil(reading("a", 60).isAbove)
     }
 
     func testSpO2RangeNeverExceeds100() throws {

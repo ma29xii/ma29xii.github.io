@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Vitalwerte des Tages mit Haken, wenn sie im persönlichen Normalbereich liegen.
+/// Vitalwerte des Tages mit Haken, wenn sie in deinem üblichen Bereich liegen.
 struct HealthMonitor: View {
     let snapshot: DashboardDay
 
@@ -71,8 +71,10 @@ struct HealthMonitor: View {
     }
 }
 
-/// Zeile unter den Symbolen, z. B. „4/4 Werte im Normalbereich“.
+/// Zeile unter den Symbolen, z. B. „4 von 4 im üblichen Bereich“.
+/// Bewertet erst ab drei vergleichbaren Werten, sonst wirkt ein einzelner Wert wie ein vollständiger Check.
 struct MonitorSummary {
+    static let minimumCompared = 3
     let text: String
     let icon: String
     let tint: Color
@@ -80,10 +82,14 @@ struct MonitorSummary {
     init(readings: [MonitorReading]) {
         let compared = readings.compactMap(\.inRange)
         let inside = compared.filter { $0 }.count
-        if !compared.isEmpty {
-            text = "\(inside)/\(compared.count) Werte im Normalbereich"
-            icon = inside == compared.count ? "checkmark.circle.fill" : "circle.lefthalf.filled"
-            tint = inside == compared.count ? Theme.younger : Theme.textSecondary
+        if compared.count >= Self.minimumCompared {
+            text = "\(inside) von \(compared.count) im üblichen Bereich"
+            icon = inside == compared.count ? "checkmark.circle" : "circle.lefthalf.filled"
+            tint = inside == compared.count ? Theme.textPrimary : Theme.textSecondary
+        } else if !compared.isEmpty {
+            text = "Erst \(compared.count) von \(readings.count) vergleichbar"
+            icon = "minus.circle"
+            tint = Theme.textSecondary
         } else {
             text = readings.contains { $0.value != nil } ? "Noch kein Vergleich" : "Keine Messung"
             icon = "minus.circle"
@@ -112,20 +118,22 @@ struct MonitorReading: Identifiable {
         return range.contains(value)
     }
 
+    /// Neutral: über oder unter dem eigenen üblichen Bereich, ohne „besser/schlechter“.
+    var isAbove: Bool? {
+        guard let value, let range, !range.contains(value) else { return nil }
+        return value > range.upperBound
+    }
+
     var statusIcon: String {
         switch inRange {
-        case true?: "checkmark.circle.fill"
-        case false?: "exclamationmark.circle.fill"
+        case true?: "checkmark.circle"
+        case false?: isAbove == true ? "arrow.up.circle" : "arrow.down.circle"
         case nil: "minus.circle"
         }
     }
 
     var tint: Color {
-        switch inRange {
-        case true?: Theme.younger
-        case false?: Theme.warning
-        case nil: Theme.textSecondary
-        }
+        inRange == nil ? Theme.textSecondary : Theme.textPrimary
     }
 
     func formatted(_ value: Double) -> String { Format.number(value, decimals: decimals) }
@@ -239,6 +247,7 @@ private struct HealthMonitorDetail: View {
         guard let value = reading.value else { return "Keine Messung" }
         let measured = "\(reading.formatted(value)) \(reading.unit)"
         guard let inRange = reading.inRange, let range = reading.rangeText else { return measured + ", noch kein Vergleich" }
-        return measured + (inRange ? ", im Normalbereich " : ", außerhalb des Normalbereichs ") + range
+        if inRange { return measured + ", im üblichen Bereich " + range }
+        return measured + (reading.isAbove == true ? ", über deinem üblichen Bereich " : ", unter deinem üblichen Bereich ") + range
     }
 }

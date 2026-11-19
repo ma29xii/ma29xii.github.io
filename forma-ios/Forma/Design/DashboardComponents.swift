@@ -147,7 +147,7 @@ struct ComparisonRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue([value.map(format) ?? "Keine Messung",
-                             delta > 0 ? "über den vorherigen 30 Tagen" : delta < 0 ? "unter den vorherigen 30 Tagen" : nil]
+                             delta > 0 ? "über deinem 30-Tage-Schnitt" : delta < 0 ? "unter deinem 30-Tage-Schnitt" : nil]
             .compactMap { $0 }.joined(separator: ", "))
     }
 }
@@ -157,13 +157,13 @@ struct ComparisonFooter: View {
         HStack(spacing: Space.s1) {
             Image(systemName: "arrowtriangle.up.fill")
             Image(systemName: "arrowtriangle.down.fill")
-            Text("Gewählter Tag vs. vorherige 30 Tage")
+            Text("Heute vs. dein 30-Tage-Schnitt")
         }
         .font(.formaMicro)
         .foregroundStyle(Theme.textTertiary)
         .padding(.leading, Space.s1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Pfeile vergleichen den gewählten Tag mit den vorherigen 30 Tagen")
+        .accessibilityLabel("Pfeile zeigen, ob ein Wert über oder unter deinem 30-Tage-Schnitt liegt")
     }
 }
 
