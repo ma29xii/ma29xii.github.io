@@ -131,60 +131,6 @@ struct HealthAgeDial: View {
     }
 }
 
-/// Kopf der Health-Age-Seite: Woche umschalten (Pfeile oder Wischen), darunter der Partikelkreis dieser Woche.
-private struct HealthAgeWeekHeader: View {
-    let result: BodyAge.Result
-    let trend: [BodyAge.Estimate]
-    @State private var index: Int?
-
-    var body: some View {
-        let points = trend.isEmpty
-            ? [BodyAge.Estimate(date: .now, bodyAge: result.bodyAge, age: result.age)]
-            : trend
-        let current = min(max(index ?? points.count - 1, 0), points.count - 1)
-        let shown = points[current]
-        let decimals = BodyAgeText.decimals(result)
-        VStack(spacing: Space.s2) {
-            HStack(spacing: Space.s3) {
-                stepButton("Woche davor", systemImage: "chevron.left", enabled: current > 0) { index = current - 1 }
-                Text(BodyAgeText.week(ending: shown.date))
-                    .formaLabelStyle()
-                    .accessibilityRemoveTraits(.isHeader)
-                    .frame(minWidth: 150)
-                    .contentTransition(.opacity)
-                stepButton("Woche danach", systemImage: "chevron.right", enabled: current < points.count - 1) {
-                    index = current + 1
-                }
-            }
-            HealthAgeDial(bodyAge: shown.bodyAge, difference: shown.bodyAge - shown.age,
-                          decimals: decimals, approximate: result.ageIsApproximate)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Health Age, \(BodyAgeText.week(ending: shown.date))")
-                .accessibilityValue(BodyAgeText.difference(shown.bodyAge - shown.age, decimals: decimals,
-                                                           approximate: result.ageIsApproximate))
-                .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
-                    if drag.translation.width > 40, current > 0 { index = current - 1 }
-                    if drag.translation.width < -40, current < points.count - 1 { index = current + 1 }
-                })
-        }
-        .frame(maxWidth: .infinity)
-        .animation(.smooth, value: current)
-        .sensoryFeedback(.selection, trigger: current)
-    }
-
-    private func stepButton(_ label: String, systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(enabled ? Theme.textPrimary : Theme.textQuaternary)
-        .disabled(!enabled)
-        .accessibilityLabel(label)
-    }
-}
-
 // MARK: - Abschnitte unter der Kugel
 
 struct HealthAgeSections: View {
@@ -483,7 +429,6 @@ private struct HealthAgeTrendCard: View {
     let points: [BodyAge.Estimate]
     /// Gleiche Rundung wie die Kopfansicht.
     var decimals = 0
-    @State private var selection: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s2) {
@@ -500,10 +445,7 @@ private struct HealthAgeTrendCard: View {
         .accessibilityIdentifier("health.age.trend")
     }
 
-    private var selected: BodyAge.Estimate? {
-        guard let selection else { return points.last }
-        return points.min { abs($0.date.timeIntervalSince(selection)) < abs($1.date.timeIntervalSince(selection)) }
-    }
+    private var selected: BodyAge.Estimate? { points.last }
 
     private var chart: some View {
         let last = points[points.count - 1]
@@ -549,14 +491,8 @@ private struct HealthAgeTrendCard: View {
                         .foregroundStyle(tint)
                         .symbolSize(60)
                 }
-                if selection != nil, let shown = selected {
-                    RuleMark(x: .value("Auswahl", shown.date))
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                }
             }
             .chartYScale(domain: scale)
-            .chartXSelection(value: $selection)
             .chartXAxis {
                 AxisMarks(preset: .aligned, values: .automatic(desiredCount: 4)) { _ in
                     AxisValueLabel(format: .dateTime.day().month(.abbreviated))
@@ -570,7 +506,6 @@ private struct HealthAgeTrendCard: View {
                 }
             }
             .frame(height: 168)
-            .sensoryFeedback(.selection, trigger: selected?.date) { _, new in new != nil }
             .accessibilityLabel("Health Age Trend, \(points.count) Wochen")
             .accessibilityValue("zuletzt \(Format.number(last.bodyAge, decimals: decimals)) Jahre bei echtem Alter \(Format.number(last.age, decimals: 0))")
             HStack(spacing: Space.s4) {
@@ -607,8 +542,19 @@ struct BodyAgeDetailView: View {
             VStack(alignment: .leading, spacing: Space.s5) {
                 if hub.isSample { SampleDataBadge() }
                 if case .ready(let result) = outcome {
-                    HealthAgeWeekHeader(result: result, trend: trend)
-                        .padding(.top, Space.s2)
+                    // Nur heute: alle Karten darunter beziehen sich auf denselben Stand (Gegenprüfung 05 #5).
+                    VStack(spacing: Space.s2) {
+                        Text(BodyAgeText.week(ending: .now))
+                            .formaLabelStyle()
+                            .accessibilityRemoveTraits(.isHeader)
+                        HealthAgeDial(bodyAge: result.bodyAge, difference: result.difference,
+                                      decimals: BodyAgeText.decimals(result), approximate: result.ageIsApproximate)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Health Age")
+                    .accessibilityValue("\(BodyAgeText.spokenAge(result)), \(BodyAgeText.difference(result))")
+                    .padding(.top, Space.s2)
 
                     HealthAgeSections(outcome: outcome, trend: trend)
 

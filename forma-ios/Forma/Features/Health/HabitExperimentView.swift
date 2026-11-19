@@ -187,7 +187,7 @@ struct ExperimentDetailView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Startet ein Experiment über 14 Tage")
+                    .accessibilityHint("Startet diese Gewohnheit für 14 Tage")
                 }
             }
         }

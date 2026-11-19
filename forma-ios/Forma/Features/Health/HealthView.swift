@@ -93,7 +93,6 @@ struct MetricDetailView: View {
     @Environment(DataHub.self) private var hub
     let kind: MetricKind
     @State private var range = 30
-    @State private var selection: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Fester Zeitraum der Auswahl, damit 7 Tage auch 7 Tage breit sind.
@@ -121,12 +120,6 @@ struct MetricDetailView: View {
             result.append(SegmentPoint(date: p.0, value: p.1, segment: segment))
         }
         return result
-    }
-
-    /// Nur eine Messung am gewählten Tag – in Lücken keine weiter entfernte Messung.
-    private func selectedPoint(_ points: [(Date, Double)]) -> (Date, Double)? {
-        guard let selection else { return nil }
-        return points.first { Calendar.forma.isDate($0.0, inSameDayAs: selection) }
     }
 
     var body: some View {
@@ -163,26 +156,15 @@ struct MetricDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.top, Space.s5)
-                .onChange(of: range) { _, _ in selection = nil }
 
                 DashboardCard {
                     VStack(alignment: .leading, spacing: Space.s2) {
-                        Group {
-                            if let sel = selectedPoint(points) {
-                                Text("\(sel.0.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): \(kind.measurement(sel.1))")
-                                    .foregroundStyle(Theme.textPrimary)
-                                    .formaNumberTransition(sel.1)
-                            } else if let selection {
-                                Text("\(selection.formatted(Date.FormatStyle(locale: .german).weekday(.abbreviated).day().month(.abbreviated))): keine Messung")
-                                    .foregroundStyle(Theme.textSecondary)
-                            } else if !points.isEmpty {
-                                Text("\(points.count) von \(range) Tagen gemessen")
-                                    .foregroundStyle(Theme.textSecondary)
-                                    .formaNumberTransition(Double(points.count))
-                            }
+                        if !points.isEmpty {
+                            Text("\(points.count) von \(range) Tagen gemessen")
+                                .font(.formaCaptionStrong)
+                                .foregroundStyle(Theme.textSecondary)
+                                .formaNumberTransition(Double(points.count))
                         }
-                        .font(.formaCaptionStrong)
-                        .contentTransition(.opacity)
 
                         if points.isEmpty {
                             Text("Keine Messungen in diesem Zeitraum")
@@ -239,18 +221,9 @@ struct MetricDetailView: View {
                     .symbolSize(range == 90 ? 6 : 14)
                     .foregroundStyle(Theme.textPrimary)
             }
-            if let sel = selectedPoint(points) {
-                RuleMark(x: .value("Auswahl", sel.0))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                PointMark(x: .value("Tag", sel.0), y: .value(kind.title, sel.1))
-                    .symbolSize(70)
-                    .foregroundStyle(Theme.textPrimary)
-            }
         }
         .chartXScale(domain: domain)
         .chartYScale(domain: .automatic(includesZero: false))
-        .chartXSelection(value: $selection)
         .chartXAxis {
             // .aligned hält die Randbeschriftungen im Diagramm.
             AxisMarks(preset: .aligned, values: .stride(by: .day, count: axisStride)) { _ in
@@ -266,7 +239,6 @@ struct MetricDetailView: View {
         }
         .chartPlotStyle { $0.padding(.trailing, 6) }
         .frame(height: 220)
-        .sensoryFeedback(.selection, trigger: selectedPoint(points)?.0) { _, new in new != nil }
         .accessibilityLabel("\(kind.title), \(points.count) Messungen in \(range) Tagen")
         .accessibilityValue(points.last.map { "zuletzt \(kind.measurement($0.1))" } ?? "keine Messung")
     }

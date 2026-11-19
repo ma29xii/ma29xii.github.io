@@ -72,7 +72,7 @@ struct AgeOrb: View {
     }
 
     /// Feste Verteilung (gleiches Bild bei jedem Start): viele Punkte am Rand, nach innen ausdünnend.
-    static let particles: [Particle] = {
+    nonisolated static let particles: [Particle] = {
         var seed: UInt64 = 0x9E3779B97F4A7C15
         func random() -> Double {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
