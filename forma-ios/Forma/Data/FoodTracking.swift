@@ -279,7 +279,8 @@ extension FoodSettings {
 
     /// Speicher der Vorschau: Beispieldaten schreiben nie in Profil, Gewicht oder echte Ziele.
     /// Wird bei jedem App-Start geleert und mit einem Beispielprofil vorbelegt.
-    static let previewDefaults: UserDefaults = {
+    // UserDefaults ist laut Apple threadsicher; Swift 6 kennt das nicht als Sendable.
+    nonisolated(unsafe) static let previewDefaults: UserDefaults = {
         // shortcut: fester, gültiger Suite-Name; nil gibt es nur für die eigene Bundle-ID.
         let defaults = UserDefaults(suiteName: previewSuite)!
         defaults.removePersistentDomain(forName: previewSuite)
