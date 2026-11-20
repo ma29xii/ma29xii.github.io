@@ -175,23 +175,20 @@ final class ScreenTour: XCTestCase {
             }
         }
 
-        // Äußere Kennungen (ring.trend) überdecken innere – deshalb nach Typ suchen.
         let ranges = app.segmentedControls.firstMatch
         if reveal(ranges), ranges.buttons.count == 3 {
-            let previousWindow = app.buttons["trend.window.left"]
-            let nextWindow = app.buttons["trend.window.right"]
-            let window = el("trend.window.date")
-            if reveal(previousWindow, swipes: 3) {
-                let latestWindow = window.label
-                previousWindow.tap()
-                XCTAssertTrue(nextWindow.isEnabled)
-                XCTAssertNotEqual(window.label, latestWindow)
-                nextWindow.tap()
-                XCTAssertEqual(window.label, latestWindow)
-            }
+            XCTAssertFalse(el("trend.window.date").exists)
             ranges.buttons.element(boundBy: 1).tap()
             ranges.buttons.element(boundBy: 2).tap()
             shot("08e Strain Trend")
+            let measurements = app.buttons["trend.measurements"]
+            if reveal(measurements, swipes: 3) {
+                measurements.tap()
+                XCTAssertEqual(measurements.value as? String, "Ausgeklappt")
+                measurements.tap()
+            } else {
+                XCTFail("Einzelwerte im Trend fehlen")
+            }
         } else {
             XCTFail("Die Trend-Zeiträume fehlen")
         }
@@ -199,18 +196,21 @@ final class ScreenTour: XCTestCase {
         back()
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
-        if reveal(el("today.stress")) { shot("08d Stress Monitor") } else { XCTFail("Stress Monitor fehlt") }
+        captureDetail("today.stress.open", title: "Stress Monitor", screenshot: "08d Stress Monitor")
+        captureDetail("today.energy", title: "Energie", screenshot: "08f Energie")
+        if reveal(el("today.food")) { shot("08g Heutiges Essen") } else { XCTFail("Essensanzeige fehlt") }
         if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 
-        // Runde 11: Training liegt im Plus-Menü.
-        XCTAssertTrue(openPlus("Training"), "Training im Plus-Menü fehlt")
+        XCTAssertTrue(openPlus("Fitness"), "Fitness im Plus-Menü fehlt")
         shot("09 Training")
-        app.swipeUp()
-        shot("09b Training unten")
-        app.swipeDown(); app.swipeDown()
+        if reveal(el("fitness.muscles")) { shot("09b Training unten") }
         let startButton = app.buttons["training.start"]
-        if startButton.waitForExistence(timeout: 4) {
+        for _ in 0..<8 {
+            if startButton.exists && startButton.isHittable { break }
+            app.swipeDown()
+        }
+        if reveal(startButton) {
             startButton.tap()
             sleep(1)
             shot("10 Live-Training")
@@ -252,8 +252,9 @@ final class ScreenTour: XCTestCase {
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
         app.swipeDown(); app.swipeDown(); app.swipeDown()
-        captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
         captureDetail("health.experiment", title: "Gewohnheit", screenshot: "15b Gewohnheit")
+        captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
+        let edit = app.buttons["tiles.edit"]
         if reveal(edit) {
             edit.tap()
             XCTAssertFalse(app.sheets.firstMatch.exists)

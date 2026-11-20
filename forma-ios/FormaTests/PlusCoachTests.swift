@@ -11,7 +11,7 @@ final class PlusCoachTests: XCTestCase {
         XCTAssertEqual(PlusAction.tiles.map(\.accessibilityID),
                        ["plus.track", "plus.plan", "plus.training", "plus.water", "plus.fasting", "plus.weight"])
         XCTAssertEqual(PlusAction.tiles.map(\.title),
-                       ["Nährwerte tracken", "Essen planen", "Training", "Wasser", "Fasten", "Gewicht"])
+                       ["Nährwerte tracken", "Essen planen", "Fitness", "Wasser", "Fasten", "Gewicht"])
         XCTAssertFalse(PlusAction.tiles.contains(.scan), "Scanner und Schnellstart sind nur intern")
         XCTAssertFalse(PlusAction.tiles.contains(.quickTraining))
         XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.systemImage.isEmpty })

@@ -98,9 +98,6 @@ struct WorkoutSummaryView: View {
                 AchievementUnlockBanner(scope: hub.achievementHealthScope, isSample: hub.isSample)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    ShareCardButton { .training(session, unit: app.weightUnit, isSample: hub.isSample) }
-                }
                 ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }
             }
             .confirmationDialog("Training löschen?", isPresented: $confirmDelete) {

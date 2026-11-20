@@ -18,7 +18,7 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .track: "Nährwerte tracken"
         case .plan: "Essen planen"
-        case .training: "Training"
+        case .training: "Fitness"
         case .water: "Wasser"
         case .fasting: "Fasten"
         case .weight: "Gewicht"
@@ -111,7 +111,7 @@ private struct PlusTileStyle: ButtonStyle {
     }
 }
 
-/// Abdunkelung plus Menü. Eine Feder lässt das Menü aus der unteren rechten Ecke aufspringen
+/// Eine Feder lässt das Menü aus der unteren rechten Ecke aufspringen
 /// (dort sitzt der Plus-Knopf); bei „Bewegung reduzieren“ blendet es nur ein.
 private struct PlusMenuOverlay: View {
     @Environment(AppState.self) private var app
@@ -123,11 +123,6 @@ private struct PlusMenuOverlay: View {
             ZStack(alignment: .bottomTrailing) {
                 if app.showPlus {
                     let tabBarClearance = proxy.safeAreaInsets.bottom + 76
-                    Color.black.opacity(0.38)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                        .transition(.opacity)
                     Button {
                         app.showPlus = false
                     } label: {
@@ -135,20 +130,19 @@ private struct PlusMenuOverlay: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Plus-Menü schließen")
+                    .accessibilityHidden(true)
                     .padding(.bottom, tabBarClearance)
                     PlusMenuPanel(onSelect: onSelect)
                         .padding(.trailing, Space.page)
                         // Knapp über der schwebenden Tab-Leiste (Sicherheitsrand unten plus Leiste).
                         .padding(.bottom, tabBarClearance)
                         .transition(reduceMotion ? .opacity : .scale(scale: 0.12, anchor: .bottomTrailing).combined(with: .opacity))
-                        .accessibilityAddTraits(.isModal)
                         .accessibilityAction(.escape) { app.showPlus = false }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.68), value: app.showPlus)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.34), value: app.showPlus)
         .sensoryFeedback(.impact(weight: .light), trigger: app.showPlus)
         .allowsHitTesting(app.showPlus)
     }

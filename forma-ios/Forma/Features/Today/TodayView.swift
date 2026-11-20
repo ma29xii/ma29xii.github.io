@@ -26,7 +26,8 @@ struct TodayView: View {
         let day = hub.days.first { $0.date == today } ?? DayMetrics(date: today)
         let snapshot = DashboardDay(day: day, history: history)
         let period = WeeklyInsight.period(at: now)
-        let stress = stressSlots(snapshot)
+        let hours = hub.isSample ? HourlyMetrics.samples(for: day) : hub.hours
+        let signals = DaySignals(day: day, hours: hours, history: snapshot.history)
 
         return NavigationStack {
             ScrollViewReader { proxy in
@@ -44,7 +45,7 @@ struct TodayView: View {
                             .padding(.bottom, Space.s2)
                         // Bearbeiten direkt hier: „Anpassen“ steht als Letztes auf der Seite.
                         InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
-                            tile(kind, snapshot: snapshot, history: history, stress: stress, period: period)
+                            tile(kind, snapshot: snapshot, history: history, signals: signals, period: period)
                         }
                     }
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
@@ -78,12 +79,6 @@ struct TodayView: View {
                 InsightPage(title: route.kind.title) {
                     RingDetailView(kind: route.kind, snapshot: snapshot, history: history)
                 }
-                // Teilen sitzt bewusst im Detail statt auf Today, damit der Kopf ruhig bleibt.
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ShareCardButton { .today(snapshot, isSample: hub.isSample) }
-                    }
-                }
                 .todayZoom(route.zoom && !reduceMotion ? route.kind : nil, in: zoomSpace)
             }
         }
@@ -96,17 +91,18 @@ struct TodayView: View {
     // MARK: Karten
 
     private func tile(_ kind: TodayTile, snapshot: DashboardDay, history: [DayMetrics],
-                      stress: (slots: [StressSlot], energy: Int?), period: WeeklyInsight.Period?) -> AnyView {
+                      signals: DaySignals, period: WeeklyInsight.Period?) -> AnyView {
         switch kind {
         case .coach:
             return AnyView(coachLine(snapshot))
         case .healthMonitor:
             return AnyView(HealthMonitor(snapshot: snapshot, compact: true))
         case .stress:
-            return AnyView(StressMonitorCard(day: snapshot.day, slots: stress.slots, energy: stress.energy,
-                                             isLoading: false, history: history))
+            return AnyView(StressMonitorCard(signals: signals, history: history))
         case .energy:
-            return AnyView(EnergyTile(energy: stress.energy))
+            return AnyView(EnergyTile(signals: signals))
+        case .food:
+            return AnyView(TodayFoodCard(day: snapshot.day).foodSettingsStore().id(hub.isSample))
         case .weekly:
             // Nur im Zeitfenster Sonntagabend bis Montagmittag; sonst nimmt die Karte keinen Platz ein.
             guard let period else { return AnyView(EmptyView()) }
@@ -317,17 +313,6 @@ struct TodayView: View {
         .accessibilityValue(sentence)
         .accessibilityHint("Öffnet den Coach")
         .accessibilityIdentifier("today.insight")
-    }
-
-    // MARK: Stress
-
-    private func stressSlots(_ snapshot: DashboardDay) -> (slots: [StressSlot], energy: Int?) {
-        let hours: [HourlyMetrics] = hub.isSample ? HourlyMetrics.samples(for: snapshot.day) : hub.hours
-        let estimates = HourlyEstimate.timeline(hours: hours, today: snapshot.day, history: snapshot.history)
-        let slots = zip(hours, estimates).map { hour, estimate in
-            StressSlot(start: hour.start, end: hour.end, value: estimate.stress)
-        }
-        return (slots, estimates.compactMap(\.energy).last)
     }
 
     // MARK: Schritte

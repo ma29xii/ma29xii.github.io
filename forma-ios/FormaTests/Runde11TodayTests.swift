@@ -49,4 +49,23 @@ final class Runde11TodayTests: XCTestCase {
         XCTAssertEqual(TodayView.recoverySize(width: 292), 132)
         XCTAssertEqual(TodayView.recoverySize(width: 360), 184)
     }
+
+    func testEnergyChangesOnlyCompareAdjacentMeasuredHours() {
+        let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let values: [(Int, Int?)] = [(0, 50), (1, 60), (2, 56), (3, nil), (4, 88), (7, 20)]
+        let samples = values.map { hour, energy in
+            HourlyEstimate(at: start.addingTimeInterval(Double(hour) * 3600), strain: nil, stress: nil, energy: energy)
+        }
+        let changes = DaySignals.energyChanges(samples)
+        XCTAssertEqual(changes?.gained, 10)
+        XCTAssertEqual(changes?.spent, 4)
+        XCTAssertNil(DaySignals.energyChanges([samples[0], samples[3]]))
+    }
+
+    func testFoodCardAppearsInExistingTodayLayout() {
+        let arrangement = TileArrangement<TodayTile>(storage: "energy,metrics|weekly")
+        XCTAssertTrue(arrangement.visible.contains(.food))
+        XCTAssertEqual(Array(arrangement.visible.prefix(2)), [.energy, .metrics])
+        XCTAssertTrue(arrangement.hidden.contains(.weekly))
+    }
 }

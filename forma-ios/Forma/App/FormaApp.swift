@@ -61,6 +61,7 @@ struct RootView: View {
     @Environment(AppState.self) private var app
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("forma.onboarded") private var onboarded = false
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var showOnboarding = false
@@ -87,8 +88,17 @@ struct RootView: View {
             }
             // Plus: Die Rolle `.search` setzt den Knopf als eigene runde Glas-Insel rechts neben die Leiste
             // (Systemplatz, keine nachgebaute Schwebefläche). Er wählt keinen Inhalt, sondern öffnet das Menü.
-            Tab("Plus", systemImage: "plus", value: AppTab.add, role: .search) {
+            Tab(value: AppTab.add, role: .search) {
                 Color.clear
+            } label: {
+                Label {
+                    Text(app.showPlus ? "Plus-Menü schließen" : "Plus")
+                } icon: {
+                    Image(systemName: app.showPlus ? "xmark" : "plus")
+                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                        .rotationEffect(.degrees(app.showPlus && !reduceMotion ? 90 : 0))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.26), value: app.showPlus)
+                }
             }
             .accessibilityIdentifier("tab.plus")
         }

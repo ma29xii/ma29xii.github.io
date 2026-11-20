@@ -13,16 +13,18 @@ struct MuscleMapView: View {
     var selected: Muscle? = nil
     var showsBoth = false
     var tint: Color = Theme.strain
+    var muscleTints: [Muscle: Color] = [:]
     var onSelect: ((Muscle) -> Void)? = nil
     @State private var side: BodySide
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(intensity: [Muscle: Double], selected: Muscle? = nil, showsBoth: Bool = false,
-         tint: Color = Theme.strain, onSelect: ((Muscle) -> Void)? = nil) {
+         tint: Color = Theme.strain, muscleTints: [Muscle: Color] = [:], onSelect: ((Muscle) -> Void)? = nil) {
         self.intensity = intensity
         self.selected = selected
         self.showsBoth = showsBoth
         self.tint = tint
+        self.muscleTints = muscleTints
         self.onSelect = onSelect
         _side = State(initialValue: MuscleMapView.preferredSide(for: intensity))
     }
@@ -68,7 +70,7 @@ struct MuscleMapView: View {
     }
 
     private func figure(_ side: BodySide) -> some View {
-        MuscleFigure(side: side, intensity: intensity, selected: selected, tint: tint, onSelect: onSelect)
+        MuscleFigure(side: side, intensity: intensity, selected: selected, tint: tint, muscleTints: muscleTints, onSelect: onSelect)
     }
 }
 
@@ -115,6 +117,7 @@ private struct MuscleFigure: View {
     let intensity: [Muscle: Double]
     let selected: Muscle?
     let tint: Color
+    let muscleTints: [Muscle: Color]
     let onSelect: ((Muscle) -> Void)?
 
     private var muscles: [Muscle] { Muscle.allCases.filter { MuscleArt.polygons($0, side) != nil } }
@@ -130,8 +133,9 @@ private struct MuscleFigure: View {
                     ForEach(muscles) { m in
                         let level = intensity[m] ?? 0
                         let shape = BodyShape(polygons: MuscleArt.polygons(m, side) ?? [])
-                        let fill = MuscleMapView.fill(level, tint: tint)
-                        let edge = level > 0 ? tint.opacity(0.27) : Color.white.opacity(0.12)
+                        let color = muscleTints[m] ?? tint
+                        let fill = MuscleMapView.fill(level, tint: color)
+                        let edge = level > 0 ? color.opacity(0.27) : Color.white.opacity(0.12)
                         shape
                             .fill(LinearGradient(colors: [fill, fill.opacity(0.66)],
                                                  startPoint: .topLeading, endPoint: .bottomTrailing))

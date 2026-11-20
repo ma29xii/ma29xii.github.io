@@ -188,8 +188,9 @@ enum BiomarkerComparison {
             return kind.value(previous)
         }
         guard values.count >= 7 else { return nil }
-        var baseline = ScoreEngine.baseline(values, minimumRelativeSpread: kind == .spo2 ? 0 : 0.04)
-        if kind == .spo2, let spread = baseline?.sd { baseline?.sd = max(1, spread) }
+        let absoluteSpread = kind == .spo2 || kind == .skinTemperature
+        var baseline = ScoreEngine.baseline(values, minimumRelativeSpread: absoluteSpread ? 0 : 0.04)
+        if absoluteSpread, let spread = baseline?.sd { baseline?.sd = max(kind == .spo2 ? 1 : 0.2, spread) }
         return NightVitals.range(for: kind.rawValue, baseline: baseline)
     }
 

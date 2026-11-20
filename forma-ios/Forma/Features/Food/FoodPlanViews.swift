@@ -80,16 +80,6 @@ private struct FoodPlanContent: View {
         .formaScreen()
         .navigationTitle(mode == .plan ? "Essen planen" : "Einkaufsliste")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if mode == .shopping {
-                ToolbarItem(placement: .primaryAction) {
-                    let text = FoodPlanLogic.shoppingText(shopping)
-                    ShareLink(item: text) { Image(systemName: "square.and.arrow.up") }
-                        .disabled(text.isEmpty)
-                        .accessibilityLabel("Einkaufsliste teilen")
-                }
-            }
-        }
         .sheet(item: $adding) { target in
             FoodPlanAddView(day: target.day)
         }
@@ -214,6 +204,15 @@ private struct FoodPlanContent: View {
                 }
             } footer: {
                 Text("Die Liste enthält nur, was noch nicht im Tagebuch steht.")
+            }
+            .listRowBackground(Theme.card)
+        }
+        let shareText = FoodPlanLogic.shoppingText(lines)
+        if !shareText.isEmpty {
+            Section {
+                ShareLink(item: shareText) {
+                    Text("Einkaufsliste teilen").frame(minHeight: 44)
+                }
             }
             .listRowBackground(Theme.card)
         }

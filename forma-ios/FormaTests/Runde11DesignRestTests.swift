@@ -39,6 +39,13 @@ final class Runde11DesignRestTests: XCTestCase {
         XCTAssertEqual(AppTheme.black.bottom, black)
     }
 
+    func testNewGradientsRetainRequestedColors() {
+        XCTAssertEqual(AppTheme.lagoon.glows.first, Color(hex: 0x4D8EB6))
+        XCTAssertEqual(AppTheme.aubergine.glows.last, Color(hex: 0x5C2624))
+        XCTAssertEqual(AppTheme.resolve("lagoon"), .lagoon)
+        XCTAssertEqual(AppTheme.resolve("aubergine"), .aubergine)
+    }
+
     func testStoreKeepsSelectionAndIgnoresGarbage() throws {
         let suite = "forma.test.theme.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

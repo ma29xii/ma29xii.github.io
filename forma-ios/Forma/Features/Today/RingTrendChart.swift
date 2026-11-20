@@ -7,11 +7,38 @@ enum DashboardTrends {
             let snapshot = DashboardDay(day: day, history: days)
             return snapshot.value(for: kind).map { HealthChartPoint(date: day.date, value: Double($0)) }
         }
+        .sorted { $0.date < $1.date }
     }
 
     static func mean(points: [HealthChartPoint], minimum: Int = 4) -> Double? {
         guard !points.isEmpty, points.count >= minimum else { return nil }
         return points.reduce(0) { $0 + $1.value } / Double(points.count)
+    }
+}
+
+enum RingTrendRange: String, CaseIterable, Identifiable {
+    case week = "W", month = "M", halfYear = "6M"
+    var id: String { rawValue }
+
+    var caption: String {
+        switch self {
+        case .week: "Eine Woche"
+        case .month: "Ein Monat"
+        case .halfYear: "Sechs Monate"
+        }
+    }
+
+    func domain(ending anchor: Date) -> ClosedRange<Date> {
+        let end = anchor.startOfDay
+        let boundary = end.adding(days: 1)
+        let start: Date
+        switch self {
+        case .week:
+            start = end.adding(days: -6)
+        case .month, .halfYear:
+            start = Calendar.forma.date(byAdding: .month, value: self == .month ? -1 : -6, to: boundary) ?? end
+        }
+        return min(start, end)...end
     }
 }
 
@@ -21,176 +48,203 @@ struct RingTrendChart: View {
     let days: [DayMetrics]
     let color: Color
 
-    private enum Range: String, CaseIterable, Identifiable {
-        case week = "W", month = "M", halfYear = "6M"
-        var id: String { rawValue }
-
-        var caption: String {
-            switch self {
-            case .week: "Eine Woche"
-            case .month: "Ein Monat"
-            case .halfYear: "Sechs Monate"
-            }
+    var body: some View {
+        RingTrendCard(title: kind.title, anchor: anchor, tint: color, percentScale: true,
+                      valueText: { Format.number($0) + (kind == .strain ? "" : " %") }) { domain in
+            DashboardTrends.points(kind: kind, days: days, domain: domain)
         }
-
-        var axisStride: Int {
-            switch self {
-            case .week: 2
-            case .month: 7
-            case .halfYear: 45
-            }
-        }
-
-        func border(for page: Int, anchor: Date) -> Date {
-            switch self {
-            case .week: anchor.adding(days: -7 * page)
-            case .month, .halfYear:
-                Calendar.forma.date(byAdding: .month, value: -(self == .month ? 1 : 6) * page, to: anchor) ?? anchor
-            }
-        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("ring.trend")
     }
+}
+
+struct RingTrendCard: View {
+    let title: String
+    let anchor: Date
+    let tint: Color
+    var percentScale = false
+    var usual: ClosedRange<Double>? = nil
+    let valueText: (Double) -> String
+    let measurements: (ClosedRange<Date>) -> [HealthChartPoint]
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var range = Range.week
-    @State private var page = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var range = RingTrendRange.week
+    @State private var expanded = false
 
     var body: some View {
-        let boundary = anchor.adding(days: 1)
-        let start = range.border(for: page + 1, anchor: boundary)
-        let end = range.border(for: page, anchor: boundary)
-        let lastDay = end.adding(days: -1)
-        let points = DashboardTrends.points(kind: kind, days: days, domain: start...lastDay)
+        let domain = range.domain(ending: anchor)
+        let points = measurements(domain)
         let average = DashboardTrends.mean(points: points, minimum: 1)
-        return VStack(alignment: .leading, spacing: Space.s2) {
+        VStack(alignment: .leading, spacing: Space.s2) {
             DashboardHeading(title: "Trend")
             DashboardCard {
                 VStack(alignment: .leading, spacing: Space.s3) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: Space.s1) {
-                            Text("Durchschnitt").font(.formaCaption).foregroundStyle(Theme.textSecondary)
-                            Text(average.map(valueText) ?? "–")
-                                .font(.formaBigNumber)
-                                .contentTransition(reduceMotion ? .opacity : .numericText(value: average ?? 0))
-                                .animation(reduceMotion ? nil : .snappy, value: average)
-                                .accessibilityIdentifier("trend.average")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: Space.s4) {
+                            averageLabel(average)
+                                .fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            rangePicker.frame(width: 150)
                         }
-                        Spacer(minLength: Space.s2)
-                        Picker("Zeitraum", selection: $range) {
-                            ForEach(Range.allCases) { period in
-                                Text(period.rawValue).accessibilityLabel(period.caption).tag(period)
-                            }
+                        VStack(alignment: .leading, spacing: Space.s2) {
+                            averageLabel(average)
+                            rangePicker
                         }
-                        .pickerStyle(.segmented)
-                        .frame(idealWidth: 150, maxWidth: 170, minHeight: 44)
-                        .accessibilityIdentifier("trend.range")
                     }
-                    windowPicker(start: start, lastDay: lastDay)
-                        .frame(maxWidth: .infinity)
-                    Text(points.isEmpty ? "Keine Messung in diesem Zeitraum" : "\(points.count) Tage mit Messung")
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
-                        .formaNumberTransition(Double(points.count))
                     if !points.isEmpty {
-                        chart(points, start: start, end: end, average: average)
+                        chart(points, domain: domain, average: average)
                             .animation(reduceMotion ? nil : .smooth, value: range)
+                        measurementList(points)
+                    } else {
+                        ChartEmptyState(text: "Keine Messung in diesem Zeitraum")
                     }
                 }
                 .padding(Space.s4)
             }
         }
-        .accessibilityIdentifier("ring.trend")
-        .onChange(of: range) { _, _ in page = 0 }
-        .onChange(of: anchor) { _, _ in page = 0 }
     }
 
-    private func windowPicker(start: Date, lastDay: Date) -> some View {
-        let title = "\(Format.shortDate(start)) – \(Format.shortDate(lastDay))"
-        return HStack(spacing: 0) {
-            windowButton("left", label: "Vorheriger Zeitraum", enabled: (days.first?.date ?? anchor) < start) {
-                page += 1
-            }
-            Text(title)
-                .font(.formaCaptionStrong)
-                .multilineTextAlignment(.center)
-                .contentTransition(.opacity)
-                .padding(.horizontal, Space.s1)
-                .accessibilityAddTraits(.updatesFrequently)
-                .accessibilityIdentifier("trend.window.date")
-            windowButton("right", label: "Nächster Zeitraum", enabled: page > 0) {
-                page -= 1
+    private func averageLabel(_ average: Double?) -> some View {
+        VStack(alignment: .leading, spacing: Space.s1) {
+            Text("Durchschnitt").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+            Text(average.map(valueText) ?? "–")
+                .font(.formaBigNumber)
+                .contentTransition(reduceMotion ? .opacity : .numericText(value: average ?? 0))
+                .animation(reduceMotion ? nil : .snappy, value: average)
+                .accessibilityIdentifier("trend.average")
+        }
+    }
+
+    private var rangePicker: some View {
+        Picker("Zeitraum", selection: $range) {
+            ForEach(RingTrendRange.allCases) { period in
+                Text(period.rawValue).accessibilityLabel(period.caption).tag(period)
             }
         }
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .sensoryFeedback(.selection, trigger: title)
+        .pickerStyle(.segmented)
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("trend.range")
     }
 
-    private func windowButton(_ direction: String, label: String, enabled: Bool,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "arrow." + direction)
-                .font(.system(.footnote, weight: .semibold))
-                .foregroundStyle(enabled ? Theme.textPrimary : Theme.textQuaternary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier("trend.window." + direction)
-    }
-
-    private func valueText(_ value: Double) -> String {
-        Format.number(value) + (kind == .strain ? "" : " %")
-    }
-
-    private func chart(_ points: [HealthChartPoint], start: Date, end: Date, average: Double?) -> some View {
-        let entries = segments(points)
-        return Chart {
-            ForEach(entries, id: \.point.date) { entry in
-                let point = entry.point
-                let center = insightDayCenter(point.date)
-                LineMark(x: .value("Tag", center), y: .value(kind.title, point.value),
-                         series: .value("Abschnitt", entry.segment))
-                    .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                PointMark(x: .value("Tag", center), y: .value(kind.title, point.value))
-                    .symbolSize(range == .week ? 25 : 9)
-                    .foregroundStyle(color)
-                    .annotation(position: .top, spacing: 3) {
-                        if range == .week {
-                            Text(Format.number(point.value))
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(Theme.textPrimary)
-                                .formaNumberTransition(point.value)
+    private func chart(_ points: [HealthChartPoint], domain: ClosedRange<Date>, average: Double?) -> some View {
+        let values = points.map(\.value) + (usual.map { [$0.lowerBound, $0.upperBound] } ?? [])
+        let low = values.min() ?? 0
+        let high = values.max() ?? 0
+        let margin = max((high - low) * 0.12, max(abs(high), 1) * 0.03)
+        let showWeekLabels = percentScale && range == .week && !typeSize.isAccessibilitySize
+        return VStack(alignment: .leading, spacing: Space.s1) {
+            Chart {
+                if let usual {
+                    RectangleMark(xStart: .value("Start", domain.lowerBound),
+                                  xEnd: .value("Ende", domain.upperBound.adding(days: 1)),
+                                  yStart: .value("Untergrenze", usual.lowerBound),
+                                  yEnd: .value("Obergrenze", usual.upperBound))
+                        .foregroundStyle(tint.opacity(0.1))
+                        .accessibilityHidden(true)
+                }
+                ForEach(RingChartSeries.segments(points), id: \.point.date) { entry in
+                    let point = entry.point
+                    let center = insightDayCenter(point.date)
+                    LineMark(x: .value("Tag", center), y: .value(title, point.value),
+                             series: .value("Abschnitt", entry.segment))
+                        .foregroundStyle(tint)
+                        .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                    PointMark(x: .value("Tag", center), y: .value(title, point.value))
+                        .symbolSize(range == .week ? 25 : range == .month ? 16 : 10)
+                        .foregroundStyle(tint)
+                        .annotation(position: .top, spacing: 3) {
+                            if showWeekLabels {
+                                Text(Format.number(point.value))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(Theme.textPrimary)
+                            }
                         }
+                }
+                if let average {
+                    RuleMark(y: .value("Durchschnitt", average))
+                        .foregroundStyle(Theme.textQuaternary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 4]))
+                        .accessibilityHidden(true)
+                }
+            }
+            .chartXScale(domain: domain.lowerBound...domain.upperBound.adding(days: 1))
+            .chartYScale(domain: percentScale ? 0...110 : (low - margin)...(high + margin))
+            .chartXAxis(.hidden)
+            .chartLegend(.hidden)
+            .chartYAxis {
+                if percentScale {
+                    AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
+                        AxisGridLine().foregroundStyle(Theme.hairline)
+                        AxisValueLabel().foregroundStyle(Theme.textSecondary)
                     }
+                } else {
+                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
+                        AxisGridLine().foregroundStyle(Theme.hairline)
+                        AxisValueLabel().foregroundStyle(Theme.textSecondary)
+                    }
+                }
             }
-            if let average {
-                RuleMark(y: .value("Durchschnitt", average))
-                    .foregroundStyle(Theme.textQuaternary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 4]))
+            .frame(height: 180)
+            // Randdaten außerhalb der Zeichenfläche halten, damit der erste und letzte Tag vollständig sichtbar sind.
+            HStack(alignment: .top, spacing: Space.s2) {
+                Text(Format.shortDate(domain.lowerBound))
+                Spacer(minLength: 0)
+                Text(Format.shortDate(domain.upperBound))
+                    .multilineTextAlignment(.trailing)
             }
+            .font(.formaCaption)
+            .foregroundStyle(Theme.textSecondary)
         }
-        .chartXScale(domain: start...end)
-        .chartYScale(domain: 0.0...110.0)
-        .chartXAxis {
-            AxisMarks(preset: .aligned, values: .stride(by: .day, count: range.axisStride)) { _ in
-                AxisValueLabel(format: .dateTime.day().month(.abbreviated))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
-                AxisGridLine().foregroundStyle(Theme.hairline)
-                AxisValueLabel().foregroundStyle(Theme.textSecondary)
-            }
-        }
-        .frame(height: 180)
-        .accessibilityLabel("\(kind.title)-Trend, \(range.caption)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)-Trend, \(range.caption)")
         .accessibilityValue(average.map { "Durchschnitt \(valueText($0)), \(points.count) Tage mit Messung" } ?? "Keine Messung")
     }
 
-    private func segments(_ points: [HealthChartPoint]) -> [(point: HealthChartPoint, segment: Int)] {
+    @ViewBuilder
+    private func measurementList(_ points: [HealthChartPoint]) -> some View {
+        RowDivider(inset: 0)
+        Button {
+            expanded.toggle()
+        } label: {
+            HStack(spacing: Space.s2) {
+                Text("Einzelwerte").font(.formaCaptionStrong)
+                Spacer(minLength: 0)
+                Image(systemName: expanded ? "minus" : "plus")
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(tint)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(expanded ? "Ausgeklappt" : "Eingeklappt")
+        .accessibilityIdentifier("trend.measurements")
+
+        if expanded {
+            LazyVStack(spacing: 0) {
+                ForEach(points.reversed()) { point in
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                        Text(Format.shortDate(point.date)).foregroundStyle(Theme.textSecondary)
+                        Spacer(minLength: 0)
+                        Text(valueText(point.value)).font(.formaCaptionStrong.monospacedDigit())
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .font(.formaCaption)
+                    .padding(.vertical, Space.s2)
+                    .accessibilityElement(children: .combine)
+                    if point.date != points.first?.date {
+                        RowDivider(inset: 0)
+                    }
+                }
+            }
+        }
+    }
+}
+
+enum RingChartSeries {
+    static func segments(_ points: [HealthChartPoint]) -> [(point: HealthChartPoint, segment: Int)] {
         var previous: Date?
         var segment = 0
         return points.map { point in

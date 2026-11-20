@@ -59,37 +59,29 @@ struct DailyHistoryChart: View {
     var anchor: Date? = nil
 
     @State private var range = 7
-    @State private var selection: Date?
 
     var body: some View {
         let end = anchor ?? Date.now.startOfDay
         let start = end.adding(days: 1 - range)
         let visible = points.filter { (start...end).contains($0.date) }
-        let selectedDay = selection.map { min(end, max(start, $0.startOfDay)) }
-        let selectedPoint = visible.first { $0.date == selectedDay }
         FormaSection(title: title) {
             Picker("Zeitraum", selection: $range) {
                 Text("7 Tage").tag(7)
                 Text("30 Tage").tag(30)
             }
             .pickerStyle(.segmented)
-            .onChange(of: range) { _, _ in selection = nil }
 
             Plate {
                 VStack(alignment: .leading, spacing: Space.s3) {
                     if visible.isEmpty {
                         ChartEmptyState(text: "Keine Daten in diesem Zeitraum")
                     } else {
-                        if let selectedDay {
-                            let value = selectedPoint.map { valueText($0.value) } ?? "Keine Messung"
-                            Text("\(Format.shortDate(selectedDay)) · \(value)").font(.formaCaptionStrong)
-                                .formaNumberTransition(selectedPoint?.value ?? 0)
-                        }
                         Chart {
                             ForEach(visible) { p in
                                 BarMark(x: .value("Tag", p.date, unit: .day), y: .value(title, p.value))
-                                    .foregroundStyle(color.opacity(selectedDay == nil || selectedDay == p.date ? 0.9 : 0.34))
+                                    .foregroundStyle(color.opacity(0.9))
                                     .cornerRadius(3)
+                                    .accessibilityValue(valueText(p.value))
                                 if p.value == 0 {
                                     PointMark(x: .value("Tag", p.date, unit: .day), y: .value(title, p.value))
                                         .foregroundStyle(color)
@@ -98,8 +90,6 @@ struct DailyHistoryChart: View {
                         }
                         .chartXScale(domain: start...end.adding(days: 1))
                         .chartYScale(domain: 0...max(1, maximum ?? 0, visible.map(\.value).max() ?? 0))
-                        .chartXSelection(value: $selection)
-                        .sensoryFeedback(.selection, trigger: selectedDay) { _, new in new != nil }
                         .chartXAxis {
                             AxisMarks(preset: .aligned, values: .stride(by: .day, count: range == 7 ? 2 : 7)) { _ in
                                 AxisValueLabel(format: .dateTime.day().month(.abbreviated))

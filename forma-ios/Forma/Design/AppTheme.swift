@@ -4,7 +4,7 @@ import Observation
 /// Wählbare Designs (Profil → Design). Sie färben Hintergrund, Karten, Schein und Akzent.
 /// Ringfarben (Recovery, Strain, Sleep) und Textfarben bleiben in jedem Design gleich und lesbar.
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
-    case standard, black, blue, bordeaux, blend, dusk, ember
+    case standard, black, blue, bordeaux, blend, dusk, ember, slate, lagoon, forest, aubergine
 
     var id: String { rawValue }
 
@@ -17,6 +17,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: "Verlauf"
         case .dusk: "Dämmerung"
         case .ember: "Glut"
+        case .slate: "Schiefer"
+        case .lagoon: "Lagune"
+        case .forest: "Wald"
+        case .aubergine: "Aubergine"
         }
     }
 
@@ -30,6 +34,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x2B1514)
         case .dusk: Color(hex: 0x201B33)
         case .ember: Color(hex: 0x2A1712)
+        case .slate: Color(hex: 0x172330)
+        case .lagoon: Color(hex: 0x10282B)
+        case .forest: Color(hex: 0x18241B)
+        case .aubergine: Color(hex: 0x28182E)
         }
     }
 
@@ -42,6 +50,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x181620)
         case .dusk: Color(hex: 0x151222)
         case .ember: Color(hex: 0x1B0F0C)
+        case .slate: Color(hex: 0x141D25)
+        case .lagoon: Color(hex: 0x112127)
+        case .forest: Color(hex: 0x151F16)
+        case .aubergine: Color(hex: 0x241523)
         }
     }
 
@@ -54,6 +66,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x0C171E)
         case .dusk: Color(hex: 0x0C0B14)
         case .ember: Color(hex: 0x100807)
+        case .slate: Color(hex: 0x0F151C)
+        case .lagoon: Color(hex: 0x0C171E)
+        case .forest: Color(hex: 0x0D150F)
+        case .aubergine: Color(hex: 0x16101A)
         }
     }
 
@@ -66,6 +82,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x1C1A24)
         case .dusk: Color(hex: 0x1A1729)
         case .ember: Color(hex: 0x23140F)
+        case .slate: Color(hex: 0x1B2833)
+        case .lagoon: Color(hex: 0x182B30)
+        case .forest: Color(hex: 0x1B291E)
+        case .aubergine: Color(hex: 0x281C2C)
         }
     }
 
@@ -78,6 +98,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x272431)
         case .dusk: Color(hex: 0x252136)
         case .ember: Color(hex: 0x2E1C16)
+        case .slate: Color(hex: 0x273544)
+        case .lagoon: Color(hex: 0x22383D)
+        case .forest: Color(hex: 0x28362B)
+        case .aubergine: Color(hex: 0x39283D)
         }
     }
 
@@ -91,6 +115,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: Color(hex: 0x9B80AE)
         case .dusk: Color(hex: 0x8F82D6)
         case .ember: Color(hex: 0xD98A4A)
+        case .slate: Color(hex: 0xA3BBD5)
+        case .lagoon: Color(hex: 0x71D5C9)
+        case .forest: Color(hex: 0xA8C793)
+        case .aubergine: Color(hex: 0xD5A8DB)
         }
     }
 
@@ -103,6 +131,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: [Color(hex: 0x4D8EB6), Color(hex: 0x5C2624)]
         case .dusk: [Color(hex: 0x6B5BA8), Color(hex: 0x4D8EB6)]
         case .ember: [Color(hex: 0x5C2624), Color(hex: 0xC57A3A)]
+        case .slate: [Color(hex: 0x6C8DAC)]
+        case .lagoon: [Color(hex: 0x4D8EB6), Color(hex: 0x348F78)]
+        case .forest: [Color(hex: 0x536D3E)]
+        case .aubergine: [Color(hex: 0x8764A7), Color(hex: 0x5C2624)]
         }
     }
 
@@ -115,6 +147,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .blend: 0.34
         case .dusk: 0.30
         case .ember: 0.38
+        case .slate: 0.14
+        case .lagoon: 0.13
+        case .forest: 0.24
+        case .aubergine: 0.22
         }
     }
 
@@ -172,7 +208,7 @@ struct ThemePicker: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: Space.s3) {
                 ForEach(AppTheme.allCases) { theme in
                     tile(theme)

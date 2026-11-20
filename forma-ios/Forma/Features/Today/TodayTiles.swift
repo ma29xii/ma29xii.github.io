@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct StepsDetail: View {
@@ -41,7 +42,7 @@ struct StepsDetail: View {
 
 /// Karten unter dem Today-Kopf. Kopf und Kennzahlen (mit Schritten) bleiben immer sichtbar.
 enum TodayTile: String, TileKind {
-    case coach, healthMonitor, stress, energy, weekly, activities, metrics
+    case coach, healthMonitor, stress, energy, food, weekly, activities, metrics
 
     var id: String { rawValue }
     var title: String {
@@ -50,6 +51,7 @@ enum TodayTile: String, TileKind {
         case .healthMonitor: "Health Monitor"
         case .stress: "Stress Monitor"
         case .energy: "Energie"
+        case .food: "Heutiges Essen"
         case .weekly: "Wochenrückblick"
         case .activities: "Mein Tag"
         case .metrics: "Schritte"
@@ -61,6 +63,7 @@ enum TodayTile: String, TileKind {
         case .healthMonitor: "heart.text.square"
         case .stress: "gauge.with.dots.needle.33percent"
         case .energy: "bolt.fill"
+        case .food: "fork.knife"
         case .weekly: "calendar"
         case .activities: "list.bullet"
         case .metrics: "figure.walk"
@@ -69,4 +72,77 @@ enum TodayTile: String, TileKind {
     var summary: String { title }
     static var requiredVisible: Set<Self> { [.metrics] }
     static func storedKinds(for id: String) -> [Self] { Self(rawValue: id).map { [$0] } ?? [] }
+}
+
+struct TodayFoodCard: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Query private var entries: [FoodEntry]
+    @AppStorage("forma.birthYear") private var birthYear = 0
+    @AppStorage("forma.sex") private var sex = BiologicalSex.unknown.rawValue
+    @AppStorage(FoodSettings.bodyWeightKey) private var weight = 0.0
+    @AppStorage(FoodGoal.heightKey) private var height = 0.0
+    let day: DayMetrics
+
+    init(day: DayMetrics) {
+        self.day = day
+        let start = day.date.startOfDay
+        let end = start.adding(days: 1)
+        _entries = Query(filter: #Predicate<FoodEntry> { $0.date >= start && $0.date < end })
+    }
+
+    var body: some View {
+        let values = entries.map(\.energy)
+        let sum = FoodSum(values)
+        let goal = FoodGoal.forDay(day.date, birthYear: birthYear, weight: weight, height: height, sex: sex,
+                                   activeEnergy: day.activeEnergy).target
+        let remainder = sum.remaining(of: goal)
+        Button {
+            app.selectTab(.food)
+        } label: {
+            DashboardCard {
+                VStack(alignment: .leading, spacing: Space.s3) {
+                    DashboardHeading(title: "Heutiges Essen")
+                    Text("\(FoodAmountText.text(values)) kcal")
+                        .font(.formaDisplay)
+                        .foregroundStyle(Theme.textPrimary)
+                    if let remainder {
+                        Text("\(FoodText.number(abs(remainder))) kcal \(remainder < 0 ? "über Ziel" : "übrig")")
+                            .font(.formaCaptionStrong)
+                            .foregroundStyle(remainder < 0 ? Theme.older : Theme.textSecondary)
+                    }
+                    if goal > 0 {
+                        MetricScale(value: 100 * sum.known / goal, tint: remainder.map { $0 < 0 } == true ? Theme.older : Theme.younger)
+                            .frame(height: 12)
+                            .accessibilityHidden(true)
+                    }
+                    let layout = typeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: Space.s2))
+                        : AnyLayout(HStackLayout(alignment: .top, spacing: Space.s2))
+                    layout {
+                        macro("Protein", entries.map(\.protein), tint: Theme.younger)
+                        macro("Kohlenhydrate", entries.map(\.carbohydrates), tint: Theme.warning)
+                        macro("Fett", entries.map(\.fat), tint: Theme.sleep)
+                    }
+                }
+                .padding(Space.s4)
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Öffnet Food")
+        .accessibilityIdentifier("today.food")
+    }
+
+    private func macro(_ title: String, _ values: [Double?], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: Space.s1) {
+            Text(title)
+                .font(.formaMicro)
+                .foregroundStyle(Theme.textSecondary)
+            Text("\(FoodAmountText.text(values)) g")
+                .font(.formaValue)
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }

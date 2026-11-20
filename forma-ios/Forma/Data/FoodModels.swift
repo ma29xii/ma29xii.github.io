@@ -180,6 +180,14 @@ final class FoodEntry {
 }
 
 struct FoodGoal {
+    static func forDay(_ day: Date, birthYear: Int, weight: Double, height: Double,
+                       sex: String, activeEnergy: Double?) -> Self {
+        let year = Calendar.forma.component(.year, from: day)
+        let age = (1900...year).contains(birthYear) ? year - birthYear : nil
+        return Self(weightKg: weight, heightCm: height, age: age,
+                    sex: BiologicalSex(rawValue: sex) ?? .unknown, activeEnergy: activeEnergy)
+    }
+
     static let heightKey = "forma.bodyHeightCm"
     static let heightRange = 80.0...250.0
 

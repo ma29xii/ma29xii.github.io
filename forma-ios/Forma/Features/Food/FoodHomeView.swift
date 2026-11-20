@@ -66,12 +66,9 @@ private struct FoodHomeContent: View {
 
     private var goal: FoodGoal {
         // In der Vorschau kommen Profilwerte aus dem getrennten Beispielspeicher (FoodSettings.previewDefaults).
-        let currentYear = Calendar.forma.component(.year, from: day)
-        let age = (1900...currentYear).contains(birthYear) ? currentYear - birthYear : nil
         let measuredToday = hub.today
         let activity = measuredToday.date == day ? measuredToday.activeEnergy : nil
-        return FoodGoal(weightKg: weight, heightCm: height, age: age,
-                        sex: BiologicalSex(rawValue: sex) ?? .unknown, activeEnergy: activity)
+        return FoodGoal.forDay(day, birthYear: birthYear, weight: weight, height: height, sex: sex, activeEnergy: activity)
     }
 
     var body: some View {

@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct RingDetailView: View {
@@ -32,14 +33,13 @@ struct RingDetailView: View {
             if kind == .sleep, let night = day.sleep, night.asleep > 0 {
                 sleepSummary(night: night, need: snapshot.sleepNeed)
             }
+            if kind == .sleep {
+                SleepPlanCard(day: day, history: snapshot.history)
+            }
             VStack(alignment: .leading, spacing: Space.s2) {
-                DashboardHeading(title: "Beiträge")
-                DashboardCard {
-                    switch kind {
-                    case .sleep: sleepContributions(tint: tint)
-                    case .recovery: recoveryContributions(tint: tint)
-                    case .strain: strainContributions(tint: tint)
-                    }
+                DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
+                ForEach(metrics(tint: tint)) { metric in
+                    RingMetricCard(metric: metric, day: day, history: history)
                 }
             }
             if kind == .sleep {
@@ -84,77 +84,70 @@ struct RingDetailView: View {
         }
     }
 
-    private func sleepContributions(tint: Color) -> some View {
-        let night = day.sleep.flatMap { $0.asleep > 0 ? $0 : nil }
-        let ratio = night.flatMap { night in snapshot.sleepNeed.map { night.asleep / $0 } }
-        return Group {
-            row("Stunden vs. Bedarf", icon: "moon", value: ratio, tint: tint, format: percent)
-            RowDivider()
-            row("Regelmäßigkeit", icon: "clock", value: snapshot.sleepRegularity, tint: tint, format: percent)
-            RowDivider()
-            row("Effizienz", icon: "bed.double", value: night?.efficiency, tint: tint, format: percent)
-            RowDivider()
-            row("Tief- und REM-Anteil", icon: "moon.stars", value: night.flatMap(DashboardDay.restorativeFraction),
-                tint: tint, format: percent)
+    private func metrics(tint: Color) -> [RingMetric] {
+        switch kind {
+        case .sleep: sleepMetrics(tint: tint)
+        case .recovery: recoveryMetrics(tint: tint)
+        case .strain: strainMetrics(tint: tint)
         }
     }
 
-    private func recoveryContributions(tint: Color) -> some View {
-        Group {
-            metric(.hrv, icon: "waveform.path.ecg", tint: tint)
-            RowDivider()
-            metric(.restingHR, icon: "heart", tint: tint)
-            RowDivider()
-            metric(.respiratoryRate, icon: "lungs", tint: tint)
-            RowDivider()
-            row("Schlafleistung", icon: "moon", value: snapshot.sleepScore.map(Double.init),
-                tint: tint, format: { Format.number($0) + " %" })
-        }
+    private func sleepMetrics(tint: Color) -> [RingMetric] {
+        [
+            RingMetric(id: "sleep.need", title: "Stunden vs. Bedarf", icon: "moon", tint: tint, formatted: percent) { day, history in
+                guard let night = day.sleep, night.asleep > 0,
+                      let need = ScoreEngine.measuredNeedForLastNight(on: day.date, history: history), need > 0 else { return nil }
+                return night.asleep / need
+            },
+            RingMetric(id: "sleep.regularity", title: "Regelmäßigkeit", icon: "clock", tint: tint, formatted: percent) { day, history in
+                guard let night = day.sleep, night.asleep > 0 else { return nil }
+                return DashboardDay.sleepRegularity(night, history: history)
+            },
+            RingMetric(id: "sleep.efficiency", title: "Effizienz", icon: "bed.double", tint: tint, formatted: percent) { day, _ in
+                day.sleep.flatMap { $0.asleep > 0 ? $0.efficiency : nil }
+            },
+            RingMetric(id: "sleep.restorative", title: "Tief- und REM-Anteil", icon: "moon.stars", tint: tint, formatted: percent) { day, _ in
+                day.sleep.flatMap(DashboardDay.restorativeFraction)
+            }
+        ]
     }
 
-    private func strainContributions(tint: Color) -> some View {
-        Group {
-            row("Trainingszeit", icon: "stopwatch", value: DashboardDay.workoutTime(day),
-                tint: tint, format: Format.duration)
-            RowDivider()
-            row("Krafttraining", icon: "dumbbell", value: DashboardDay.workoutTime(day, strengthOnly: true),
-                tint: tint, format: Format.duration)
-            RowDivider()
-            metric(.steps, icon: "figure.walk", tint: tint)
-            RowDivider()
-            metric(.activeEnergy, icon: "flame", tint: tint)
+    private func recoveryMetrics(tint: Color) -> [RingMetric] {
+        let vitals = NightVitals(day: day, history: snapshot.history)
+        func vital(_ kind: MetricKind, icon: String, series: MetricSeries) -> RingMetric {
+            let reading = vitals.readings.first { $0.series == series }
+            let range = NightVitals.range(for: series.rawValue, baseline: reading?.baseline)
+            return RingMetric(kind: kind, icon: icon, tint: tint, range: range, series: series)
         }
+
+        return [
+            RingMetric(id: "recovery", title: "Erholungswert", icon: "heart.circle", tint: tint,
+                       formatted: { Format.number($0) + " %" }) { day, history in
+                DashboardDay(day: day, history: history).recovery.map(Double.init)
+            },
+            vital(.hrv, icon: "waveform.path.ecg", series: .hrv),
+            vital(.restingHR, icon: "heart", series: .restingHR),
+            vital(.respiratoryRate, icon: "lungs", series: .respiratoryRate),
+            vital(.spo2, icon: "drop", series: .spo2),
+            vital(.skinTemperature, icon: "thermometer.medium", series: .skinTemperature),
+            RingMetric(id: "sleep.score", title: "Schlafleistung", icon: "moon", tint: Theme.sleep,
+                       formatted: { Format.number($0) + " %" }) { day, history in
+                DashboardDay.sleepScore(day, history: history).map(Double.init)
+            }
+        ]
     }
 
-    private func metric(_ kind: MetricKind, icon: String, tint: Color) -> some View {
-        row(kind.title, icon: icon, value: kind.value(day), tint: tint, format: kind.measurement)
-    }
-
-    private func row(_ title: String, icon: String, value: Double?, tint: Color,
-                     format: (Double) -> String) -> some View {
-        let text = value.map(format) ?? "Keine Messung"
-        return HStack(spacing: Space.s3) {
-            Image(systemName: icon)
-                .font(.system(.subheadline, weight: .medium))
-                .foregroundStyle(value == nil ? Theme.textSecondary : tint)
-                .frame(minWidth: 20)
-                .accessibilityHidden(true)
-            Text(title)
-                .formaLabelStyle()
-                .layoutPriority(1)
-            Spacer(minLength: Space.s1)
-            Text(text)
-                .font(value == nil ? .formaCaption : .formaValue)
-                .foregroundStyle(value == nil ? Theme.textSecondary : Theme.textPrimary)
-                .multilineTextAlignment(.trailing)
-                .formaNumberTransition(value ?? 0)
-        }
-        .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s2)
-        .frame(minHeight: 48)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(text)
+    private func strainMetrics(tint: Color) -> [RingMetric] {
+        [
+            RingMetric(id: "workouts", title: "Trainingszeit", icon: "stopwatch", tint: tint, formatted: Format.duration) { day, _ in
+                DashboardDay.workoutTime(day)
+            },
+            RingMetric(id: "strength", title: "Krafttraining", icon: "dumbbell", tint: tint, formatted: Format.duration) { day, _ in
+                DashboardDay.workoutTime(day, strengthOnly: true)
+            },
+            RingMetric(kind: .steps, icon: "figure.walk", tint: tint),
+            RingMetric(kind: .activeEnergy, icon: "flame", tint: tint)
+        ]
     }
 
     private func percent(_ fraction: Double) -> String { Format.number(fraction * 100) + " %" }
@@ -248,6 +241,145 @@ struct RingDetailView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(stage.title)
         .accessibilityValue("\(percent(fraction)) der Zeit im Bett, \(Format.duration(duration))")
+    }
+}
+
+private struct RingMetric: Identifiable {
+    let id: String
+    let title: String
+    let icon: String
+    let tint: Color
+    var range: ClosedRange<Double>? = nil
+    var series: MetricSeries? = nil
+    let formatted: (Double) -> String
+    let measurement: (DayMetrics, [DayMetrics]) -> Double?
+
+    func points(in domain: ClosedRange<Date>, endingAt current: DayMetrics, history: [DayMetrics]) -> [HealthChartPoint] {
+        let days = history.filter { $0.date < current.date }.sorted { $0.date < $1.date }
+        return (days + [current]).filter { domain.contains($0.date) }.compactMap { day in
+            if let series, range != nil, day.date != current.date,
+               !ScoreEngine.sameBaselineSource(for: series, today: current, previous: day) { return nil }
+            let previous = days.filter { $0.date < day.date }
+            return value(day: day, history: previous).map { HealthChartPoint(date: day.date, value: $0) }
+        }
+    }
+
+    func value(day: DayMetrics, history: [DayMetrics]) -> Double? {
+        measurement(day, history).flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    func status(_ value: Double?) -> String? {
+        guard let value, let range else { return nil }
+        if range.contains(value) { return "Im üblichen Bereich" }
+        return value > range.upperBound ? "Über dem üblichen Bereich" : "Unter dem üblichen Bereich"
+    }
+}
+
+private extension RingMetric {
+    init(kind: MetricKind, icon: String, tint: Color, range: ClosedRange<Double>? = nil,
+         series: MetricSeries? = nil) {
+        self.init(id: kind.rawValue, title: kind.title, icon: icon, tint: tint, range: range, series: series,
+                  formatted: kind.measurement, measurement: { day, _ in kind.value(day) })
+    }
+}
+
+private struct RingMetricCard: View {
+    let metric: RingMetric
+    let day: DayMetrics
+    let history: [DayMetrics]
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let prior = history.filter { $0.date < day.date }.sorted { $0.date < $1.date }
+        let value = metric.value(day: day, history: prior)
+        let text = value.map(metric.formatted) ?? "Keine Messung"
+        let status = metric.status(value)
+        let domain = day.date.adding(days: -13)...day.date
+        let points = metric.points(in: domain, endingAt: day, history: prior)
+        NavigationLink {
+            InsightPage(title: metric.title) {
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text(text).font(value == nil ? .formaRowTitle : .formaDisplay)
+                    if let status { statusLabel(status, value: value) }
+                }
+                RingTrendCard(title: metric.title, anchor: day.date, tint: metric.tint, usual: metric.range,
+                              valueText: metric.formatted) { domain in
+                    metric.points(in: domain, endingAt: day, history: prior)
+                }
+            }
+        } label: {
+            DashboardCard {
+                HStack(alignment: .center, spacing: Space.s3) {
+                    VStack(alignment: .leading, spacing: Space.s1) {
+                        Label(metric.title, systemImage: metric.icon)
+                            .font(.formaRowTitle)
+                            .foregroundStyle(Theme.textSecondary)
+                        Text(text)
+                            .font(value == nil ? .formaCaption : .formaNumber)
+                            .foregroundStyle(value == nil ? Theme.textSecondary : Theme.textPrimary)
+                            .monospacedDigit()
+                        if let status { statusLabel(status, value: value) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !typeSize.isAccessibilitySize, !points.isEmpty {
+                        RingMetricSparkline(points: points, domain: domain, usual: metric.range, tint: metric.tint)
+                            .frame(width: 94, height: 38)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(.horizontal, Space.s4)
+                .padding(.vertical, Space.s3)
+                .frame(minHeight: 72)
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(metric.title)
+        .accessibilityValue([text, status].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityIdentifier("ring.metric." + metric.id)
+    }
+
+    private func statusLabel(_ status: String, value: Double?) -> some View {
+        let inRange = value.map { metric.range?.contains($0) == true } ?? false
+        return Label(status, systemImage: inRange ? "checkmark.circle" : "circle.lefthalf.filled")
+            .font(.formaCaption)
+            .foregroundStyle(inRange ? metric.tint : Theme.textSecondary)
+    }
+}
+
+private struct RingMetricSparkline: View {
+    let points: [HealthChartPoint]
+    let domain: ClosedRange<Date>
+    let usual: ClosedRange<Double>?
+    let tint: Color
+
+    var body: some View {
+        Chart {
+            if let usual {
+                RectangleMark(xStart: .value("Start", domain.lowerBound),
+                              xEnd: .value("Ende", domain.upperBound.adding(days: 1)),
+                              yStart: .value("Untergrenze", usual.lowerBound),
+                              yEnd: .value("Obergrenze", usual.upperBound))
+                    .foregroundStyle(tint.opacity(0.1))
+            }
+            ForEach(RingChartSeries.segments(points), id: \.point.date) { entry in
+                let point = entry.point
+                let date = insightDayCenter(point.date)
+                LineMark(x: .value("Tag", date), y: .value("Wert", point.value),
+                         series: .value("Abschnitt", entry.segment))
+                    .foregroundStyle(tint)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                PointMark(x: .value("Tag", date), y: .value("Wert", point.value))
+                    .foregroundStyle(tint)
+                    .symbolSize(point.date == points.last?.date ? 22 : 9)
+            }
+        }
+        .chartXScale(domain: domain.lowerBound...domain.upperBound.adding(days: 1))
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartLegend(.hidden)
     }
 }
 

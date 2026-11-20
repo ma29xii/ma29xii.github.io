@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Kennzahlen mit Einheit und Nachkommastellen.
 enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case hrv, restingHR, respiratoryRate, spo2, vo2max, sleepDuration, steps, activeEnergy
+    case hrv, restingHR, respiratoryRate, spo2, skinTemperature, vo2max, sleepDuration, steps, activeEnergy
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .restingHR: "Ruhepuls"
         case .respiratoryRate: "Atemfrequenz"
         case .spo2: "Sauerstoffsättigung"
+        case .skinTemperature: "Hauttemperatur"
         case .vo2max: "VO₂max"
         case .sleepDuration: "Schlafdauer"
         case .steps: "Schritte"
@@ -24,6 +25,7 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .restingHR: "bpm"
         case .respiratoryRate: "/min"
         case .spo2: "%"
+        case .skinTemperature: "°C"
         case .vo2max: "ml/kg/min"
         case .sleepDuration: "h"
         case .steps: ""
@@ -33,7 +35,7 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     var decimals: Int {
         switch self {
-        case .respiratoryRate, .vo2max, .sleepDuration: 1
+        case .respiratoryRate, .spo2, .skinTemperature, .vo2max, .sleepDuration: 1
         default: 0
         }
     }
@@ -45,6 +47,7 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .restingHR: Color(hex: 0xFF8A93)
         case .respiratoryRate: Color(hex: 0x7CCBE6)
         case .spo2: Color(hex: 0x93B8FF)
+        case .skinTemperature: Color(hex: 0xFEB28F)
         case .vo2max: Color(hex: 0xFFB672)
         case .sleepDuration: Theme.sleep
         case .steps: Theme.strain
@@ -58,8 +61,9 @@ enum MetricKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .restingHR: day.restingHR
         case .respiratoryRate: day.respiratoryRate
         case .spo2: day.spo2
+        case .skinTemperature: day.skinTemperature
         case .vo2max: day.vo2max
-        case .sleepDuration: day.sleep.map { $0.asleep / 3600 }
+        case .sleepDuration: day.sleep.flatMap { $0.asleep > 0 && $0.asleep.isFinite ? $0.asleep / 3600 : nil }
         case .steps: day.steps
         case .activeEnergy: day.activeEnergy
         }

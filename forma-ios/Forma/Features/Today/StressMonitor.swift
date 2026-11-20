@@ -1,53 +1,83 @@
 import SwiftUI
 import Charts
 
-/// Kompakte Karte auf Overview: Titel, aktueller Wert, kleiner Verlauf. Tippen öffnet den ganzen Monitor.
-/// Der Titel liegt bewusst außerhalb des Links, damit er als eigene Überschrift lesbar bleibt.
-struct StressMonitorCard: View {
+struct DaySignals {
     let day: DayMetrics
-    let slots: [StressSlot]
-    let energy: Int?
-    let isLoading: Bool
+    let estimates: [HourlyEstimate]
+    let stressSlots: [StressSlot]
+
+    init(day: DayMetrics, hours: [HourlyMetrics], history: [DayMetrics]) {
+        self.day = day
+        let hours = hours.filter { $0.start.startOfDay == day.date.startOfDay }.sorted { $0.start < $1.start }
+        let timeline = HourlyEstimate.timeline(hours: hours, today: day, history: history)
+        estimates = timeline
+        stressSlots = zip(hours, timeline).map { hour, estimate in
+            StressSlot(start: hour.start, end: hour.end, value: estimate.stress)
+        }
+    }
+
+    var stress: Double? { estimates.compactMap(\.stress).last }
+    var energy: Int? { estimates.compactMap(\.energy).last }
+
+    static func energyChanges(_ timeline: [HourlyEstimate]) -> (gained: Int, spent: Int)? {
+        var gained = 0
+        var spent = 0
+        var hasComparison = false
+        for (previous, current) in zip(timeline, timeline.dropFirst()) {
+            let interval = current.at.timeIntervalSince(previous.at)
+            guard interval > 0, interval <= 90 * 60,
+                  let earlier = previous.energy, let later = current.energy else { continue }
+            hasComparison = true
+            let delta = later - earlier
+            gained += max(0, delta)
+            spent += max(0, -delta)
+        }
+        return hasComparison ? (gained, spent) : nil
+    }
+
+    var activities: [WorkoutSummary] {
+        day.workouts.filter { $0.duration > 0 }.sorted { $0.start > $1.start }
+    }
+
+    var sleepInterval: DateInterval? {
+        guard let sleep = day.sleep, sleep.asleep > 0, sleep.end > sleep.start else { return nil }
+        return DateInterval(start: sleep.start, end: sleep.end)
+    }
+}
+
+struct StressMonitorCard: View {
+    let signals: DaySignals
     let history: [DayMetrics]
 
     var body: some View {
-        let measured = slots.filter { $0.value != nil }
-        DashboardCard {
-            DashboardHeading(title: "Stress Monitor")
-                .accessibilityIdentifier("today.stress.title")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Space.s4)
-                .padding(.top, Space.s4)
-            NavigationLink {
-                StressDetail(day: day, slots: slots, energy: energy, isLoading: isLoading, history: history)
-            } label: {
-                // Skala, Stufe und Zeit in Zonen: alles auf einen Blick, ohne Kurve und ohne Uhrzeit.
-                HStack(spacing: Space.s4) {
-                    if let value = measured.last?.value {
-                        let zone = StressZone(value: value)
-                        StressGauge(value: value, diameter: 84, lineWidth: 6, showsNumber: true)
-                        VStack(alignment: .leading, spacing: Space.s2) {
-                            Text(zone.title).formaLabelStyle(zone.tint)
-                            StressZoneBar(slots: slots)
+        NavigationLink {
+            StressDetail(signals: signals, history: history)
+        } label: {
+            DashboardCard {
+                VStack(alignment: .leading, spacing: Space.s3) {
+                    DashboardHeading(title: "Stress Monitor")
+                        .accessibilityIdentifier("today.stress.title")
+                    if let value = signals.stress {
+                        HStack(spacing: Space.s4) {
+                            StressGauge(value: value, diameter: 88, showsNumber: true)
+                            Text(StressZone(value: value).title)
+                                .font(.formaRowTitle)
+                                .foregroundStyle(StressZone(value: value).tint)
                         }
                     } else {
-                        Text("Keine Messung")
-                            .font(.formaBody)
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
                 .padding(Space.s4)
-                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Stress")
-            .accessibilityValue(Self.spokenValue(measured.last?.value))
-            .accessibilityHint("Öffnet Verlauf und Zeit in Zonen")
-            .accessibilityIdentifier("today.stress.open")
         }
-        .accessibilityIdentifier("today.stress")
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Stress")
+        .accessibilityValue(Self.spokenValue(signals.stress))
+        .accessibilityIdentifier("today.stress.open")
     }
 
     nonisolated static func spokenValue(_ value: Double?) -> String {
@@ -56,92 +86,327 @@ struct StressMonitorCard: View {
     }
 }
 
-/// Eigene Seite: Skala, Zeit in Zonen und Langzeit-Verlauf, alles ohne weiteren Tipp.
 struct StressDetail: View {
-    @Environment(DataHub.self) private var hub
-    let day: DayMetrics
-    let slots: [StressSlot]
-    let energy: Int?
-    let isLoading: Bool
+    let signals: DaySignals
     let history: [DayMetrics]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.gap) {
-                if hub.isSample { SampleDataBadge() }
-                StressMonitorPanel(day: day, slots: slots, isLoading: isLoading)
-                StressTrendCard(end: InsightHistory.lastCompletedDay(for: day.date), history: history)
-            }
-            .padding(.horizontal, Space.page)
-            .padding(.vertical, Space.s4)
-        }
-        .dashboardScreen()
-        .navigationTitle("Stress Monitor")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-/// Zeit in den drei Zonen als ein farbiger Balken, nur Stunden mit Messung.
-struct StressZoneBar: View {
-    let slots: [StressSlot]
-
-    var body: some View {
-        let durations = StressZone.allCases.map { $0.duration(in: slots) }
-        let total = durations.reduce(0, +)
-        GeometryReader { geometry in
-            HStack(spacing: 2) {
-                ForEach(StressZone.allCases) { zone in
-                    Capsule()
-                        .fill(zone.tint)
-                        .frame(width: total > 0 ? max(0, geometry.size.width * durations[zone.rawValue] / total - 2) : 0)
+        InsightPage(title: "Stress Monitor") {
+            if let value = signals.stress {
+                DashboardCard {
+                    VStack(spacing: Space.s2) {
+                        StressGauge(value: value, diameter: 192, lineWidth: 8, showsNumber: true)
+                        Text(StressZone(value: value).title)
+                            .font(.formaSection)
+                            .foregroundStyle(StressZone(value: value).tint)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Space.s5)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Stress")
+                .accessibilityValue(StressMonitorCard.spokenValue(value))
             }
+
+            DaySignalChart(signals: signals, kind: .stress)
+            if signals.stress != nil {
+                DashboardHeading(title: "Zeit in Zonen")
+                StressZoneTiles(slots: signals.stressSlots)
+                stressAverages
+            }
+            StressTrendCard(end: InsightHistory.lastCompletedDay(for: signals.day.date), history: history)
         }
-        .frame(height: 6)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Zeit in Zonen")
-        .accessibilityValue(StressZone.allCases.map { "\($0.title) \(Format.duration($0.duration(in: slots)))" }
-            .joined(separator: ", "))
+    }
+
+    private var stressAverages: some View {
+        let measured = signals.stressSlots.filter { $0.value != nil }
+        let workouts = signals.activities
+        let asleep = measured.filter { slot in
+            signals.sleepInterval.map { $0.start < slot.end && slot.start < $0.end } ?? false
+        }
+        let outside = measured.filter { slot in
+            !workouts.contains { $0.start < slot.end && slot.start < $0.end }
+        }
+        return VStack(spacing: Space.s2) {
+            averageTile("Stresswert", slots: measured)
+            if !workouts.isEmpty { averageTile("Außerhalb von Trainings", slots: outside) }
+            if signals.sleepInterval != nil { averageTile("Während der Schlafzeit", slots: asleep) }
+        }
+    }
+
+    private func averageTile(_ title: String, slots: [StressSlot]) -> some View {
+        let measurements = slots.compactMap { slot in slot.value.map { ($0, slot.end.timeIntervalSince(slot.start)) } }
+        let duration = measurements.reduce(0) { $0 + $1.1 }
+        let average = duration > 0 ? measurements.reduce(0) { $0 + $1.0 * $1.1 } / duration : nil
+        return DashboardCard {
+            MetricRow(title: title, value: average.map { Format.number($0, decimals: 1) } ?? "–")
+        }
     }
 }
 
-/// Eigene Today-Kachel „Energie“: große Zahl in Zustandsfarbe und Segmentbalken.
 struct EnergyTile: View {
-    let energy: Int?
+    let signals: DaySignals
 
     nonisolated static func tint(_ energy: Int) -> Color {
         energy >= 67 ? Theme.recoveryHigh : energy >= 34 ? Theme.recoveryMid : Theme.older
     }
 
     var body: some View {
+        NavigationLink {
+            EnergyDetail(signals: signals)
+        } label: {
+            EnergyMeter(energy: signals.energy, title: "Energie")
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Energie")
+        .accessibilityValue(signals.energy.map { "\($0) Prozent" } ?? "Keine Messung")
+        .accessibilityHint("Öffnet den Tagesverlauf")
+        .accessibilityIdentifier("today.energy")
+    }
+}
+
+private struct EnergyMeter: View {
+    let energy: Int?
+    let title: String
+
+    var body: some View {
         DashboardCard {
             VStack(alignment: .leading, spacing: Space.s3) {
-                DashboardHeading(title: "Energie")
+                DashboardHeading(title: title)
                 if let energy {
-                    let tint = Self.tint(energy)
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text("\(energy)").font(.formaDisplay).formaNumberTransition(Double(energy))
-                        Text("%").font(.formaBody).foregroundStyle(Theme.textSecondary)
-                    }
-                    .foregroundStyle(Theme.textPrimary)
-                    HStack(spacing: 3) {
-                        ForEach(0..<24, id: \.self) { index in
-                            Capsule()
-                                .fill(Double(index + 1) / 24 <= Double(energy) / 100 ? tint : Theme.track)
-                                .frame(height: 8)
-                        }
-                    }
-                    .accessibilityHidden(true)
+                    Text("\(energy) %")
+                        .font(.formaDisplay)
+                        .foregroundStyle(Theme.textPrimary)
+                        .formaNumberTransition(Double(energy))
+                    MetricScale(value: Double(energy), tint: EnergyTile.tint(energy))
+                        .frame(height: 16)
+                        .accessibilityHidden(true)
                 } else {
                     Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                 }
             }
             .padding(Space.s4)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+    }
+}
+
+private struct EnergyDetail: View {
+    let signals: DaySignals
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        InsightPage(title: "Energie") {
+            EnergyMeter(energy: signals.energy, title: "Energiereserve")
+            if let changes = DaySignals.energyChanges(signals.estimates) {
+                let layout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(spacing: Space.s2))
+                    : AnyLayout(HStackLayout(spacing: Space.s2))
+                layout {
+                    changeTile("Aufgeladen", value: "+\(changes.gained)", tint: Theme.younger)
+                    changeTile("Verbraucht", value: "−\(changes.spent)", tint: Theme.older)
+                }
+            }
+            DaySignalChart(signals: signals, kind: .energy)
+            if signals.stress != nil {
+                DaySignalChart(signals: signals, kind: .stress)
+            }
+            if signals.sleepInterval != nil || !signals.activities.isEmpty {
+                DashboardHeading(title: "Schlaf und Aktivitäten")
+                activityCards
+            }
+        }
+        .accessibilityIdentifier("energy.detail")
+    }
+
+    private func changeTile(_ title: String, value: String, tint: Color) -> some View {
+        DashboardCard {
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Text(value + " Pkt.").font(.formaBigNumber).foregroundStyle(tint)
+                Text(title).font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+            }
+            .padding(Space.s3)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Energie")
-        .accessibilityValue(energy.map { "\($0) Prozent" } ?? "Keine Messung")
-        .accessibilityIdentifier("today.energy")
+        .accessibilityLabel(title)
+        .accessibilityValue(value + " Prozentpunkte")
+    }
+
+    private var activityCards: some View {
+        VStack(spacing: Space.s2) {
+            if let sleep = signals.day.sleep, signals.sleepInterval != nil {
+                activity("Schlaf", icon: "moon.fill", start: sleep.start, duration: sleep.asleep, energy: nil, tint: Theme.sleep)
+            }
+            ForEach(signals.activities) { workout in
+                activity(workout.name, icon: workout.isStrength ? "dumbbell" : "figure.walk", start: workout.start,
+                         duration: workout.duration, energy: workout.energy, tint: Theme.strain)
+            }
+        }
+    }
+
+    private func activity(_ name: String, icon: String, start: Date, duration: TimeInterval, energy: Double?,
+                          tint: Color) -> some View {
+        DashboardCard {
+            Label {
+                VStack(alignment: .leading, spacing: Space.s1) {
+                    Text(name).font(.formaRowTitle)
+                    Text([Format.clock(start), Format.duration(duration), energy.map { "\(Format.number($0)) kcal" }]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            } icon: {
+                Image(systemName: icon).foregroundStyle(tint)
+            }
+            .padding(Space.s3)
+        }
+    }
+}
+
+private struct StressZoneTiles: View {
+    let slots: [StressSlot]
+
+    var body: some View {
+        let durations = StressZone.allCases.map { $0.duration(in: slots) }
+        let total = durations.reduce(0, +)
+        if total > 0 {
+            ForEach(StressZone.allCases.reversed()) { zone in
+                let duration = durations[zone.rawValue]
+                let share = 100 * duration / total
+                DashboardCard {
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack { name(zone); Spacer(minLength: Space.s2); amount(duration, share: share) }
+                                .fixedSize(horizontal: true, vertical: false)
+                            VStack(alignment: .leading, spacing: Space.s1) { name(zone); amount(duration, share: share) }
+                        }
+                        MetricScale(value: share, tint: zone.tint)
+                            .frame(height: 12)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(Space.s3)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(zone.title)
+                .accessibilityValue("\(Format.number(share)) Prozent, \(Format.duration(duration))")
+            }
+        }
+    }
+
+    private func name(_ zone: StressZone) -> some View {
+        Text(zone.title).font(.formaRowTitle).foregroundStyle(zone.tint)
+    }
+
+    private func amount(_ duration: TimeInterval, share: Double) -> some View {
+        Text("\(Format.number(share)) % · \(Format.duration(duration))")
+            .font(.formaValue)
+            .foregroundStyle(Theme.textPrimary)
+    }
+}
+
+private struct DaySignalChart: View {
+    enum Kind {
+        case energy, stress
+        var title: String { self == .energy ? "Energieverlauf" : "Stressverlauf" }
+        var tint: Color { self == .energy ? Theme.warning : Theme.younger }
+        var maximum: Double { self == .energy ? 100 : 3 }
+
+        func value(_ estimate: HourlyEstimate) -> Double? {
+            self == .energy ? estimate.energy.map(Double.init) : estimate.stress
+        }
+    }
+
+    let signals: DaySignals
+    let kind: Kind
+
+    var body: some View {
+        let points = segments
+        VStack(alignment: .leading, spacing: Space.s2) {
+            DashboardHeading(title: kind.title)
+            DashboardCard {
+                if points.isEmpty {
+                    DashboardEmpty()
+                } else {
+                    chart(points)
+                        .padding(Space.s4)
+                }
+            }
+        }
+    }
+
+    private func chart(_ points: [Point]) -> some View {
+        let start = signals.day.date.startOfDay
+        let end = start.adding(days: 1)
+        let sleep = signals.sleepInterval.flatMap { clipped($0.start, $0.end, start: start, end: end) }
+        return Chart {
+            if let sleep {
+                RectangleMark(xStart: .value("Schlafbeginn", sleep.start), xEnd: .value("Schlafende", sleep.end),
+                              yStart: .value("Minimum", 0.0), yEnd: .value("Maximum", kind.maximum))
+                    .foregroundStyle(Theme.sleep.opacity(0.12))
+                    .accessibilityHidden(true)
+            }
+            ForEach(signals.activities) { workout in
+                if let interval = clipped(workout.start, workout.end, start: start, end: end) {
+                    RectangleMark(xStart: .value("Trainingsbeginn", interval.start), xEnd: .value("Trainingsende", interval.end),
+                                  yStart: .value("Minimum", 0.0), yEnd: .value("Maximum", kind.maximum))
+                        .foregroundStyle(Theme.strain.opacity(0.12))
+                        .accessibilityHidden(true)
+                }
+            }
+            ForEach(points) { point in
+                LineMark(x: .value("Uhrzeit", point.date), y: .value(kind.title, point.value),
+                         series: .value("Abschnitt", point.segment))
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .foregroundStyle(kind.tint)
+                PointMark(x: .value("Uhrzeit", point.date), y: .value(kind.title, point.value))
+                    .symbolSize(13)
+                    .foregroundStyle(kind.tint)
+            }
+        }
+        .chartXScale(domain: start...end)
+        .chartYScale(domain: 0...kind.maximum)
+        .chartXAxis {
+            let ticks = [3, 9, 15, 21].compactMap {
+                Calendar.forma.date(bySettingHour: $0, minute: 0, second: 0, of: start)
+            }
+            AxisMarks(values: ticks) { _ in
+                AxisGridLine().foregroundStyle(Theme.hairline)
+                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)).locale(.german))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .chartYAxis { insightScale(kind == .energy ? [0, 25, 50, 75, 100] : [0, 1, 2, 3]) }
+        .frame(height: 170)
+    }
+
+    private func clipped(_ from: Date, _ to: Date, start: Date, end: Date) -> DateInterval? {
+        let lower = max(start, from)
+        let upper = min(end, to)
+        return lower < upper ? DateInterval(start: lower, end: upper) : nil
+    }
+
+    private struct Point: Identifiable {
+        let date: Date
+        let value: Double
+        let segment: Int
+        var id: Date { date }
+    }
+
+    private var segments: [Point] {
+        var segment = 0
+        var last: Date?
+        return signals.estimates.compactMap { estimate in
+            defer { last = estimate.at }
+            if let last, estimate.at.timeIntervalSince(last) > 90 * 60 { segment += 1 }
+            guard let value = kind.value(estimate) else {
+                segment += 1
+                return nil
+            }
+            return Point(date: estimate.at, value: value, segment: segment)
+        }
     }
 }
 
@@ -179,109 +444,6 @@ struct StressGauge: View {
         }
         .frame(width: diameter, height: radius + dot / 2, alignment: .top)
         .accessibilityHidden(true)
-    }
-}
-
-/// Der ganze Monitor: großer Wert und Zeit in Zonen.
-struct StressMonitorPanel: View {
-    let day: DayMetrics
-    let slots: [StressSlot]
-    let isLoading: Bool
-
-    private var measurements: [StressSlot] { slots.filter { $0.value != nil } }
-
-    var body: some View {
-        DashboardCard {
-            VStack(alignment: .leading, spacing: Space.s4) {
-                if let value = measurements.last?.value {
-                    stressReading(value)
-                    RowDivider(inset: 0)
-                    zoneSummary
-                } else if isLoading {
-                    ProgressView("Stundenwerte werden geladen …")
-                        .font(.formaBody)
-                        .tint(Theme.textSecondary)
-                } else {
-                    Text("Keine stündlichen Stresswerte für diesen Tag.")
-                        .font(.formaBody)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .padding(Space.s4)
-        }
-    }
-
-    private func stressReading(_ value: Double) -> some View {
-        let zone = StressZone(value: value)
-        let diameter: CGFloat = 200
-        return VStack(spacing: Space.s2) {
-            ZStack(alignment: .bottom) {
-                StressGauge(value: value, diameter: diameter)
-                VStack(spacing: 2) {
-                    Text(Format.number(value, decimals: 1))
-                        .font(.formaWidgetNumber)
-                        .foregroundStyle(Theme.textPrimary)
-                        .formaNumberTransition(value)
-                    Text(zone.title).formaLabelStyle(zone.tint)
-                }
-            }
-            HStack {
-                Text("0")
-                Spacer()
-                Text("3")
-            }
-            .frame(width: diameter)
-        }
-        .font(.formaCaption)
-        .foregroundStyle(Theme.textSecondary)
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Stress")
-        .accessibilityValue(StressMonitorCard.spokenValue(value))
-    }
-
-    private var zoneSummary: some View {
-        let zones = StressZone.allCases
-        let durations = zones.map { $0.duration(in: slots) }
-        let total = durations.reduce(0, +)
-        return VStack(alignment: .leading, spacing: Space.s3) {
-            DashboardHeading(title: "Zeit in Zonen")
-            if total > 0 {
-                GeometryReader { geometry in
-                    HStack(spacing: 0) {
-                        ForEach(zones) { zone in
-                            Rectangle()
-                                .fill(zone.tint)
-                                .frame(width: geometry.size.width * durations[zone.rawValue] / total)
-                        }
-                    }
-                    .clipShape(Capsule())
-                }
-                .frame(height: 6)
-                .accessibilityHidden(true)
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.s3) {
-                    ForEach(zones) { zone in
-                        zoneTime(zone, duration: durations[zone.rawValue])
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    ForEach(zones) { zone in zoneTime(zone, duration: durations[zone.rawValue]) }
-                }
-            }
-        }
-    }
-
-    private func zoneTime(_ zone: StressZone, duration: TimeInterval) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(zone.title).formaLabelStyle(zone.tint)
-            Text(Format.duration(duration)).font(.formaValue)
-                .formaNumberTransition(duration)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 
