@@ -265,9 +265,8 @@ final class GoogleHealthService: GoogleHealthImporting {
         let kinds = GoogleHealthKind.dailyImport + (includePulse ? [.pulse] : [])
         let activityLookback = from.addingTimeInterval(-3600)
         let measuredUntil = min(until, .now)
-        let (imported, failures) = try await withThrowingTaskGroup(
-            of: (GoogleHealthKind, Result<[GoogleHealthPoint], GoogleHealthError>).self
-        ) { group in
+        typealias SeriesResponse = (GoogleHealthKind, Result<[GoogleHealthPoint], GoogleHealthError>)
+        let (imported, failures) = try await withThrowingTaskGroup(of: SeriesResponse.self) { group in
             for kind in kinds {
                 group.addTask { [self] in
                     let start = switch kind {

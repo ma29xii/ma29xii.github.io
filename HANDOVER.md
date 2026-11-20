@@ -5,8 +5,8 @@ Stand 20. November 2026. Diese Datei ergänzt [AGENTS.md](AGENTS.md). Für den a
 ## Als Erstes
 
 1. Öffne `C:\Users\maxi\Downloads\Forma\Forma`. Lies `AGENTS.md` sowie `C:\Users\maxi\KI-Team\README.md` und `WISSEN.md`. Prüfe den Arbeitsbaum, den Branch und die letzten Commits. Codex und Claude arbeiten auf demselben Branch. Andere Änderungen können während der Arbeit hinzukommen.
-2. Behebe den Compilerabsturz, der gerade die Test-IPA blockiert. Der `ipa`-Job zu `faf7e4a` ist auch unter Xcode 26.4.1 am selben IRGen-Symbol gescheitert. Vergleiche den letzten erfolgreichen IPA-Build `0dde277` mit dem ersten fehlerhaften `6b053b7`. Im kleinen Zwischenbereich liegen `80e52c4` (Trink-Erinnerung) und `6b053b7` (Sleep-Diagnose). Isoliere den Auslöser anhand der Compilerdiagnose in diesen Änderungen. Vergleiche Änderungen und Läufe einzeln. [Letzter erfolgreicher IPA-Job vor dem Absturz](https://github.com/ma29xii/ma29xii.github.io/actions/runs/44739570901) · [Aktueller Lauf 156](https://github.com/ma29xii/ma29xii.github.io/actions/runs/44750249359)
-3. Ziel dieser Runde ist eine installierbare **Health 1.0 Test-IPA, Build 4**, mit Google-Health-Anmeldung und den Änderungen aus Maxis iPhone-Feedback. Die ersten Tests auf echtem iPhone sind **Sleep unmittelbar nach Kaltstart**, **Strain danach** und **Profil → Mit Google Health verbinden**. Nutze den [iPhone-Testplan](forma-ios/TESTEN.md).
+2. Prüfe den Google-Import aus **Build 5** auf einem echten iPhone. Maxi hat in der offiziellen Google-Health-App aktuelle Werte. Bei der vorherigen Forma-IPA war die Verbindung erfolgreich, die Werte fehlten aber in Forma. Das Cloud-Dashboard zeigte erfolgreiche List-Aufrufe, ohne Inhalt der Antworten.
+3. Öffne **Profil → Datenquelle → Jetzt aktualisieren** und vergleiche in **Today** zuerst Schritte und die letzte Schlafdauer. Danach prüfe **Sleep unmittelbar nach Kaltstart** und **Strain während eines Abrufs**. Nutze den [iPhone-Testplan](forma-ios/TESTEN.md).
 
 ```powershell
 git status --short --branch
@@ -28,12 +28,13 @@ python -I -X utf8 C:\Users\maxi\KI-Team\team.py liste --fuer claude
 | Stand | Inhalt und Nachweis |
 |---|---|
 | `cb8aa55` · Health 1.0 Build 3 | IPA, 369 Unit-Tests und Simulator-Rundgang grün. Die Bettzeit-Erinnerung greift nach Mitternacht den nächsten noch bevorstehenden Termin. Claude hatte den Randfall gefunden. Build 3 entstand vor der Google-Konfiguration. [Lauf 137](https://github.com/ma29xii/ma29xii.github.io/actions/runs/44702732781) |
-| `6b4f0da`, `6b053b7` | Erste Entlastung und Diagnose von Sleep. `FormaUITests/SleepProbe.swift` misst, wie schnell Abschnitte öffnen und der Rückweg funktioniert. `-probeHide` gilt ausschließlich zusammen mit `-uitest`. Für die Diagnose wurde der Screens-Job auf 90 Minuten angehoben. Prüfe, ob die Messung noch gebraucht wird, bevor du ihre vorübergehenden Teile zurückbaust. |
-| `18d5092`, `c381df4` · Build 4 | Änderungen aus Maxis letztem iPhone-Feedback. Lokal mit Swift-Syntaxprüfung und `git diff --check` geprüft. Die Einzelläufe 151 und 152 wurden durch Nachfolge-Commits ersetzt. Die App-Ansichten des neuen Stands sind auf dem iPhone noch zu bestätigen. |
+| `9cf2c12` | Sleep-Diagnose `SleepProbe` und `-probeHide` entfernt. Der Simulator-Rundgang deckt den Einstieg in Sleep und Strain ab. |
+| `18d5092`, `c381df4` · ab Build 4 | Ladescreen, Food, Today, Ringdetails, Coach und Plus überarbeitet. [Erfolgreicher Lauf 160](https://github.com/ma29xii/ma29xii.github.io/actions/runs/44776817882). |
 | `e4bcd4b` und bestehende Runden 16–19 | Wochen-Widget, Fasten-Live-Aktivität, Smart-Wasser-Erinnerung, Wochenrückblick als Story und Claudes Atemübung im Stress Monitor sind bereits im Branch. Erhalte vorhandene Einstiege, Datenquellen und Freigaben bei Änderungen. |
-| `faf7e4a` | Öffentlicher Google-iOS-Client samt URL-Schema ist eingebunden. Der `ipa`-Job in Lauf 156 scheiterte auch mit Xcode 26.4.1 und Swift 6.3.1 an `SbScA_pSgIeAghyg_SbIeAghn_TR`. Xcode 26.6 zeigte denselben Absturz in den Läufen 153 und 154. Die versuchsweise Änderung an der Mitteilungsfreigabe half nicht und wurde in `faf7e4a` zurückgenommen. Die genaue Ursache im App-Code ist offen. |
+| `faf7e4a`, `b1e2c48` | Öffentlicher Google-iOS-Client samt URL-Schema eingebunden. Der IRGen-Absturz ist seit der Änderung am Schalter für die Trink-Erinnerung behoben. |
+| `9ec19b2`, `271a6bf` · Build 5 | Der Vordergrundabruf startet nach der Freigabe. Profil zeigt Abruf, Datenstand und konkrete Fehlermeldungen. Für Schritte und Schlaf prüft Forma bei leeren Rohdaten oder ausschließlich unbekannten Quellen zusätzlich den von Google abgeglichenen Wearables-Datenstrom. Verwertbare Rohdaten haben Vorrang. Fehlende Quellenangaben einzelner Rohdatensätze blockieren übrige Messwerte nicht. |
 
-Das vorherige IPA liegt unter `C:\Users\maxi\Downloads\Health-1.0-build-3.ipa`. Es ist der geprüfte Rückfallstand. Für Build 4 wurde in Lauf 156 keine IPA erzeugt. Der Dateiname nach einem erfolgreichen und verifizierten Build ist `C:\Users\maxi\Downloads\Health-1.0-build-4.ipa`.
+Build 4 liegt unter `C:\Users\maxi\Downloads\Health-1.0-build-4.ipa`. Build 5 erhält nach dem Paketcheck den Namen `C:\Users\maxi\Downloads\Health-1.0-build-5.ipa`.
 
 ## Maxis letzter Auftrag und Code-Einstiege
 

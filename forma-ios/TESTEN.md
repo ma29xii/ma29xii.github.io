@@ -18,8 +18,8 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 - **T-02** Tippe auf „Erst mit Beispieldaten ansehen“ → Today öffnet sich mit dem Hinweis „Beispieldaten“. Food, Health und Coach sind erreichbar.
 - **T-03** 📱 Installiere eine neue IPA über die alte → Routinen, Trainings, Essen und Einstellungen sind noch da.
 - **T-04** 📱 Profil → „Mit Google Health verbinden“, Anmeldung abbrechen → Du bist zurück in Health, Google bleibt getrennt, ein neuer Versuch geht.
-- **T-05** 📱 Google-Konto mit Messwerten verbinden → Status zeigt die Verbindung. Schritte, Schlaf und Puls erscheinen für die passenden Tage.
-- **T-06** 📱 Profil → „Jetzt aktualisieren“ → Neuer Abrufstand. Schritte eines abgeschlossenen Tages stimmen mit Google Health überein (Fitbit und Apple Watch nicht doppelt gezählt).
+- **T-05** 📱 Google-Konto mit Messwerten verbinden → „Rufe Messwerte ab …“ zeigt den sofortigen ersten Abruf. Schritte, Schlaf und Puls erscheinen für die passenden Tage. Wenn Google für heute keine Werte liefert, steht das im Profil.
+- **T-06** 📱 Profil → Datenquelle → „Jetzt aktualisieren“ → Neuer Abrufstand. Schritte eines abgeschlossenen Tages mit der offiziellen Google-Health-App vergleichen. „Hintergrundaktualisierung“ zeigt den iOS-Termin getrennt vom manuellen Abruf.
 - **T-07** 📱 Flugmodus an, Health neu öffnen, aktualisieren → Die letzten Werte bleiben sichtbar, der Abrufstand springt nicht auf „jetzt“.
 - **T-08** 📱 Health über Nacht im Hintergrund lassen → Morgens zeigt der Abrufstand eine Uhrzeit vor dem Öffnen.
 - **T-09** 📱 „Google Health trennen“ bestätigen → Importierte Werte verschwinden, auch aus dem Widget (kann bis zu 15 Minuten dauern).
