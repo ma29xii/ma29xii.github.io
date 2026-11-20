@@ -86,8 +86,10 @@ struct BreathingSession: View {
             if elapsed >= total { break }
             let next = (floor(elapsed / Self.half) + 1) * Self.half
             do { try await Task.sleep(for: .seconds(min(next, total) - elapsed)) } catch { return }
-            phases += 1
-            if Date.now.timeIntervalSince(start) < total {
+            // Phase aus der verstrichenen Zeit, damit Ansage, Haptik und Anzeige auch nach einer Unterbrechung übereinstimmen.
+            let now = Date.now.timeIntervalSince(start)
+            phases = Int(min(now, total) / Self.half)
+            if now < total {
                 AccessibilityNotification.Announcement(Self.isInhale(phases) ? "Einatmen" : "Ausatmen").post()
             }
         }
