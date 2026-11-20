@@ -2,17 +2,18 @@ import SwiftData
 import SwiftUI
 import UIKit
 
-/// Tagesziele und Mahlzeiten zuerst, die Werkzeuge darunter.
+/// Food-Tab (F7-05): eine Frage – „Wie stehe ich heute?“. Oben eine Zahl, darunter die Zeitleiste des Tages,
+/// unten ein einziger „Erfassen“-Knopf.
 struct FoodHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppState.self) private var app
     @State private var today = Date.now.startOfDay
-    @State private var ringEntrance = 0
+    @State private var entrance = 0
 
     var body: some View {
         NavigationStack {
-            FoodHomeContent(day: today, ringEntrance: ringEntrance)
+            FoodHomeContent(day: today, entrance: entrance)
                 .navigationTitle("Food")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -26,7 +27,7 @@ struct FoodHomeView: View {
             if phase == .active { updateDay() }
         }
         .onChange(of: app.selectedTab, initial: true) { _, tab in
-            if tab == .food, !reduceMotion { ringEntrance += 1 }
+            if tab == .food, !reduceMotion { entrance += 1 }
         }
     }
 
@@ -34,44 +35,51 @@ struct FoodHomeView: View {
 }
 
 enum FoodHomeRoute: Hashable, Identifiable {
-    case water, fasting, weight, plan, goals
+    case water, fasting, weight, plan, shopping, goals
     var id: Self { self }
+}
+
+private enum FoodCaptureMethod: String, Identifiable {
+    case scan, photo, search
+    var id: String { rawValue }
 }
 
 private struct FoodHomeContent: View {
     let day: Date
-    let ringEntrance: Int
+    let entrance: Int
     @Query private var entries: [FoodEntry]
     @Query private var water: [FoodWaterEntry]
     @Query private var planned: [FoodPlanItem]
-    @Query private var upcoming: [FoodPlanItem]
     @Query(sort: \FoodFast.start, order: .reverse) private var fasts: [FoodFast]
     @Query(sort: \FoodWeightEntry.date, order: .reverse) private var weights: [FoodWeightEntry]
     @Environment(\.modelContext) private var context
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(DataHub.self) private var hub
+    @Environment(AppState.self) private var app
     @AppStorage("forma.birthYear") private var birthYear = 0
     @AppStorage("forma.sex") private var sex = BiologicalSex.unknown.rawValue
     @AppStorage(FoodSettings.bodyWeightKey) private var weight = 0.0
     @AppStorage(FoodGoal.heightKey) private var height = 0.0
     @AppStorage(FoodSettings.proteinGoalKey) private var proteinGoal = 0.0
     @AppStorage(FoodSettings.carbsGoalKey) private var carbsGoal = 0.0
-    @State private var route: FoodHomeRoute?
-    @State private var showTrack = false
-    @State private var trackMeal: FoodMeal?
-    @State private var deleteError = false
+    @AppStorage(FoodSettings.fatGoalKey) private var fatGoal = 0.0
     @AppStorage(FoodSettings.waterGoalKey) private var waterGoal = FoodSettings.defaultWaterMl
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(MealPlanSettings.mealsKey) private var mealsPerDay = MealPlanSettings.defaultMeals
+    @State private var route: FoodHomeRoute?
+    @State private var capture: FoodCaptureMethod?
+    @State private var waterTaps = 0
+    @State private var deleteError = false
+    @State private var saveError = false
 
-    init(day: Date, ringEntrance: Int) {
+    init(day: Date, entrance: Int) {
         self.day = day
-        self.ringEntrance = ringEntrance
+        self.entrance = entrance
         let end = Calendar.forma.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
         _entries = Query(filter: #Predicate<FoodEntry> { $0.date >= day && $0.date < end },
-                         sort: \FoodEntry.date, order: .reverse)
-        _water = Query(filter: #Predicate<FoodWaterEntry> { $0.date >= day && $0.date < end })
-        _planned = Query(filter: #Predicate<FoodPlanItem> { $0.day >= day && $0.day < end })
-        _upcoming = Query(filter: #Predicate<FoodPlanItem> { $0.day >= day && $0.loggedAt == nil })
+                         sort: \FoodEntry.date, order: .forward)
+        _water = Query(filter: #Predicate<FoodWaterEntry> { $0.date >= day && $0.date < end },
+                       sort: \FoodWaterEntry.date)
+        _planned = Query(filter: #Predicate<FoodPlanItem> { $0.day >= day && $0.day < end && $0.loggedAt == nil })
     }
 
     private var goal: FoodGoal {
@@ -81,180 +89,205 @@ private struct FoodHomeContent: View {
         return FoodGoal.forDay(day, birthYear: birthYear, weight: weight, height: height, sex: sex, activeEnergy: activity)
     }
 
+    private static func entryID(_ entry: FoodEntry) -> String { "entry-\(String(describing: entry.persistentModelID))" }
+
     var body: some View {
-        let target = goal.target
+        let current = goal
+        let target = current.target
+        let macroGoals = FoodMacroGoals.resolve(kcal: target, protein: proteinGoal, carbs: carbsGoal, fat: fatGoal)
         // Eigene Ziele aus „Ziele“ gehen vor; sonst die berechneten aus Gewicht und Kalorienziel.
-        let proteinTarget = proteinGoal > 0 ? proteinGoal : goal.proteinGrams
-        let carbTarget = carbsGoal > 0 ? carbsGoal : goal.carbGrams
-        let planOpen = planned.filter { $0.loggedAt == nil }.count
-        ScrollViewReader { proxy in
-            // Eingerückte Gruppen statt `.plain`: dort zeichnete die Liste Abschnittslinien über und unter dem Kopf.
-            List {
-                Section {
-                    VStack(spacing: Space.s5) {
-                        Button { route = .goals } label: {
-                            FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget)
-                                .id(ringEntrance)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Öffnet die Ziele")
-                        fiberLine(goal: goal.fiberGrams)
-                        if hub.isSample { SampleDataBadge() }
-                    }
-                    .padding(.top, Space.s2)
-                    .padding(.bottom, Space.s3)
-                    .id("food.top")
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-
-                ForEach(FoodMeal.allCases) { meal in
-                    mealSection(meal)
-                }
-
-                if planOpen > 0 {
-                    Section { FoodPlanTodayCard() }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-
-                Section { actionTiles() }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
-            .listStyle(.insetGrouped)
-            .listSectionSpacing(Space.gap)
-            .formaScreen()
-            .refreshable { await hub.syncAndNotify(background: false) }
-            .sensoryFeedback(trigger: entries.count) { old, new in new > old ? .success : nil }
-            // Doppeltipp auf den Tab bringt das System nach oben; das hier fängt nur den Wechsel des Tages auf.
-            .onChange(of: day) { _, _ in proxy.scrollTo("food.top", anchor: .top) }
+        let goals = FoodMacroGoals(protein: proteinGoal > 0 ? proteinGoal : current.proteinGrams,
+                                   carbs: carbsGoal > 0 ? carbsGoal : current.carbGrams, fat: macroGoals.fat)
+        let loggedItems = entries.map {
+            FoodTimelineItem(id: Self.entryID($0), kind: .logged, time: $0.date, title: $0.name, kcal: $0.energy)
         }
+        let items = FoodTimeline.merge(loggedItems, FoodTimeline.planned(planned.compactMap { $0.entry }))
+        let prominent = FoodTimeline.isProminent(itemCount: items.count, mealsPerDay: mealsPerDay)
+        let drunk = water.reduce(0) { $0 + $1.milliliters }
+        let waterTarget = FoodSettings.waterRange.contains(waterGoal) ? waterGoal : FoodSettings.defaultWaterMl
+        let activeFast = fasts.first { $0.end == nil }
+
+        List {
+            VStack(spacing: Space.s4) {
+                if hub.isSample { SampleDataBadge() }
+                Button { route = .goals } label: {
+                    FoodDayHero(energy: FoodSum(entries.map(\.energy)),
+                                protein: FoodSum(entries.map(\.protein)),
+                                carbs: FoodSum(entries.map(\.carbohydrates)),
+                                fat: FoodSum(entries.map(\.fat)),
+                                target: target, goals: goals)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Öffnet die Ziele")
+                .accessibilityIdentifier("food.hero")
+            }
+            .id(entrance)
+            .formaAppear(index: 0)
+            .foodRow(top: Space.s3, bottom: Space.s5)
+
+            FoodDayStrip(waterMl: drunk, waterTarget: waterTarget,
+                         fast: activeFast.map { (start: $0.start, hours: $0.targetHours) },
+                         canRemoveWater: !water.isEmpty,
+                         addWater: addWater, removeWater: removeWater, open: { route = $0 })
+                .id(entrance)
+                .formaAppear(index: 1)
+                .foodRow(top: 0, bottom: Space.s5)
+
+            if items.isEmpty {
+                Text("Noch nichts erfasst")
+                    .font(.formaBody)
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(maxWidth: .infinity, minHeight: 96)
+                    .foodRow()
+            } else {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    timelineRow(item, index: index, count: items.count, prominent: prominent)
+                }
+            }
+
+            FoodDayFooter(weightText: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" },
+                          open: { route = $0 })
+                .foodRow(top: Space.s5, bottom: Space.s2)
+        }
+        .listStyle(.plain)
+        .listRowSpacing(0)
+        .environment(\.defaultMinListRowHeight, 1)
+        .formaScreen()
+        .animation(reduceMotion ? nil : FormaMotion.appear, value: items.map(\.id))
+        .refreshable { await hub.syncAndNotify(background: false) }
+        .sensoryFeedback(trigger: entries.count) { old, new in new > old ? .success : nil }
+        .sensoryFeedback(.increase, trigger: waterTaps)
+        .safeAreaInset(edge: .bottom) { captureButton }
         .navigationDestination(item: $route) { route in
             switch route {
             case .water: FoodWaterView()
             case .fasting: FoodFastingView()
             case .weight: FoodWeightView()
             case .plan: FoodPlanView(standalone: false)
-            case .goals: FoodGoalsView(target: target, proteinAuto: goal.proteinGrams, carbsAuto: goal.carbGrams)
+            case .shopping: FoodPlanView(standalone: false, startInShopping: true)
+            case .goals: FoodGoalsView(target: target, proteinAuto: current.proteinGrams, carbsAuto: current.carbGrams)
             }
         }
-        .sheet(isPresented: $showTrack) { FoodTrackSheet(meal: trackMeal) }
+        .sheet(item: $capture) { method in
+            switch method {
+            case .scan: FoodScanSheet()
+            case .photo: FoodPhotoSheet()
+            case .search: FoodScanSheet(startInSearch: true)
+            }
+        }
         .alert("Eintrag konnte nicht gelöscht werden", isPresented: $deleteError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Der Eintrag bleibt im Tagebuch. Versuch es erneut.")
         }
-    }
-
-    /// Ballaststoffe dezent als schmale Zeile unter den Ringen.
-    private func fiberLine(goal: Double) -> some View {
-        let values = entries.map(\.fiber)
-        let total = FoodSum(values).known
-        return HStack(spacing: Space.s3) {
-            Text("Ballaststoffe")
-                .font(.formaCaption)
-                .foregroundStyle(Theme.textSecondary)
-            ProgressLine(fraction: goal > 0 ? total / goal : 0, color: Theme.textSecondary, height: 3)
-                .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: total)
-            Text("\(FoodAmountText.text(values)) / \(FoodText.number(goal)) g")
-                .font(.formaCaption.monospacedDigit())
-                .foregroundStyle(Theme.textSecondary)
-                .formaNumberTransition(total)
+        .alert("Das hat nicht geklappt", isPresented: $saveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Die Änderung konnte nicht gespeichert werden. Versuch es noch einmal.")
         }
-        .padding(.horizontal, Space.s4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Ballaststoffe")
-        .accessibilityValue("\(FoodAmountText.text(values)) von \(FoodText.number(goal)) Gramm")
     }
 
-    /// „Heute“ mit Wasser und Fasten, darunter das nächste geplante Gericht und das Gewicht.
-    private func actionTiles() -> some View {
-        let drunk = water.reduce(0) { $0 + $1.milliliters }
-        let waterTarget = FoodSettings.waterRange.contains(waterGoal) ? waterGoal : FoodSettings.defaultWaterMl
-        let active = fasts.first { $0.end == nil }
-        return FoodHomeBottom(
-            waterMl: drunk, waterTarget: waterTarget,
-            fast: active.map { (start: $0.start, hours: $0.targetHours) },
-            nextPlanned: FoodHomeCardsText.nextPlanned(upcoming.compactMap { $0.entry }, today: day),
-            latestWeight: weights.first?.kilograms,
-            previousWeight: weights.dropFirst().first?.kilograms,
-            open: { route = $0 }
-        )
-        .id(ringEntrance)
-    }
+    // MARK: Zeitleiste
 
-    private func mealSection(_ meal: FoodMeal) -> some View {
-        let items = entries.filter { $0.meal == meal }
-        let plannedItems = planned.filter { $0.meal == meal }
-        let plannedKcal = plannedItems.isEmpty ? nil : FoodAmountText.text(plannedItems.map { $0.entry?.kcal })
-        return Section {
-            mealHeader(meal, items: items, planned: plannedKcal)
-                .listRowInsets(EdgeInsets(top: Space.s2, leading: Space.s4, bottom: Space.s2, trailing: Space.s1))
-            ForEach(items) { entry in
-                FoodLogRow(entry: entry)
-                    .listRowInsets(EdgeInsets(top: Space.s2, leading: Space.s4, bottom: Space.s2, trailing: Space.s4))
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) { delete(entry) } label: {
-                            Label("Löschen", systemImage: "trash")
-                        }
-                    }
-                    .contextMenu {
-                        Button(role: .destructive) { delete(entry) } label: {
-                            Label("Löschen", systemImage: "trash")
-                        }
-                    }
-                    .accessibilityAction(named: Text("Löschen")) { delete(entry) }
-            }
-        }
-        .listRowBackground(Theme.card)
-        .listRowSeparatorTint(Theme.hairline)
-    }
-
-    /// Kopf einer Mahlzeitenkarte: Titel, erfasste kcal groß, geplante klein daneben, rechts der Knopf.
-    private func mealHeader(_ meal: FoodMeal, items: [FoodEntry], planned: String?) -> some View {
-        let energy = items.map(\.energy)
-        let logged = FoodAmountText.text(energy)
-        return HStack(spacing: Space.s2) {
-            VStack(alignment: .leading, spacing: Space.s1) {
-                Text(meal.title).formaLabelStyle()
-                HStack(alignment: .firstTextBaseline, spacing: Space.s1) {
-                    Text(logged)
-                        .font(.formaNumber)
-                        .foregroundStyle(items.isEmpty ? Theme.textTertiary : Theme.textPrimary)
-                        .formaNumberTransition(FoodSum(energy).known)
-                    Text("kcal")
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textSecondary)
-                    if let planned {
-                        Text("/ \(planned) geplant")
-                            .font(.formaCaption.monospacedDigit())
-                            .foregroundStyle(Theme.textTertiary)
-                            .padding(.leading, Space.s1)
+    @ViewBuilder private func timelineRow(_ item: FoodTimelineItem, index: Int, count: Int, prominent: Bool) -> some View {
+        let row = FoodTimelineRow(item: item, isFirst: index == 0, isLast: index == count - 1, prominent: prominent)
+        if item.isPlanned {
+            let plan = planned.first { "plan-" + $0.uid.uuidString == item.id }
+            Button { if let plan { confirm(plan) } } label: { row }
+                .buttonStyle(FormaPressStyle(scale: 0.98))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Geplant: \(item.title)")
+                .accessibilityValue(spoken(item))
+                .accessibilityHint("Trägt es als gegessen ein")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("food.planned")
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) { if let plan { remove(plan) } } label: {
+                        Label("Aus Plan nehmen", systemImage: "trash")
                     }
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(meal.title)
-            .accessibilityValue("\(logged) Kilokalorien erfasst" + (planned.map { ", \($0) geplant" } ?? ""))
-            Spacer(minLength: Space.s1)
-            Button {
-                trackMeal = meal
-                showTrack = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 34, height: 34)
-                    .background(Theme.cardRaised, in: .circle)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(meal.title) hinzufügen")
+                .transition(.opacity)
+                .foodRow()
+        } else {
+            let entry = entries.first { Self.entryID($0) == item.id }
+            row
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.title)
+                .accessibilityValue(spoken(item))
+                .accessibilityIdentifier("food.entry")
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) { if let entry { delete(entry) } } label: {
+                        Label("Löschen", systemImage: "trash")
+                    }
+                }
+                .contextMenu {
+                    Button(role: .destructive) { if let entry { delete(entry) } } label: {
+                        Label("Löschen", systemImage: "trash")
+                    }
+                }
+                .accessibilityAction(named: Text("Löschen")) { if let entry { delete(entry) } }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .foodRow()
+        }
+    }
+
+    private func spoken(_ item: FoodTimelineItem) -> String {
+        let kcal = item.kcal.map { "\(FoodText.number($0)) Kilokalorien" } ?? "keine Kalorienangabe"
+        return "\(Format.clock(item.time)), \(kcal)"
+    }
+
+    // MARK: Erfassen
+
+    /// Der eine schwebende Knopf: Scannen, Foto oder Suchen als kleines Menü.
+    private var captureButton: some View {
+        Menu {
+            Button { capture = .scan } label: { Label("Scannen", systemImage: "barcode.viewfinder") }
+            Button { capture = .photo } label: { Label("Foto", systemImage: "camera.viewfinder") }
+            Button { capture = .search } label: { Label("Suchen", systemImage: "magnifyingglass") }
+        } label: {
+            Label("Erfassen", systemImage: "plus")
+                .labelStyle(.titleAndIcon)
+                .font(.system(.body, design: .rounded, weight: .semibold))
+                .padding(.horizontal, Space.s5)
+                .frame(minHeight: 56)
+        }
+        .buttonStyle(.glassProminent)
+        .padding(.bottom, Space.s2)
+        .accessibilityIdentifier("food.capture")
+    }
+
+    // MARK: Aktionen
+
+    private func addWater() {
+        let entry = FoodWaterEntry(milliliters: FoodSettings.glassMl)
+        changeWater { context.insert(entry) }
+        waterTaps += 1
+    }
+
+    private func removeWater() {
+        guard let last = water.last else { return }
+        changeWater { context.delete(last) }
+    }
+
+    private func changeWater(_ block: () -> Void) {
+        do {
+            try FoodEntry.saveChange(in: context, block)
+            // Widget und Kontrollzentrum zeigen denselben Tagesstand.
+            WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
+        } catch {
+            saveError = true
+        }
+    }
+
+    private func confirm(_ item: FoodPlanItem) {
+        do { try FoodPlanStore.log([item], in: context) } catch { saveError = true }
+    }
+
+    private func remove(_ item: FoodPlanItem) {
+        do {
+            try FoodEntry.saveChange(in: context) { context.delete(item) }
+        } catch {
+            saveError = true
         }
     }
 
@@ -267,126 +300,13 @@ private struct FoodHomeContent: View {
     }
 }
 
-/// Mitte groß die Kalorien, links Protein, rechts Kohlenhydrate. Bei sehr großer Schrift untereinander.
-private struct FoodHero: View {
-    let entries: [FoodEntry]
-    let target: Double
-    let proteinGoal: Double
-    let carbGoal: Double
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var revealed = false
-
-    private var showProgress: Bool { revealed || reduceMotion }
-
-    var body: some View {
-        let energy = FoodSum(entries.map(\.energy))
-        let protein = FoodSum(entries.map(\.protein))
-        let carbs = FoodSum(entries.map(\.carbohydrates))
-        rings(energy, protein, carbs)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .task {
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            revealed = true
-        }
-    }
-
-    private func rings(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum) -> some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                VStack(spacing: Space.s4) {
-                    calories(energy, size: 180)
-                    HStack(alignment: .top, spacing: Space.s4) {
-                        macro("Protein", protein, values: entries.map(\.protein), goal: proteinGoal, tint: Theme.younger, size: 110)
-                        macro("Kohlenhydrate", carbs, values: entries.map(\.carbohydrates), goal: carbGoal, tint: Theme.warning, size: 110)
-                    }
-                }
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    row(energy, protein, carbs, side: 92, middle: 152, spacing: Space.s1)
-                    row(energy, protein, carbs, side: 80, middle: 132, spacing: Space.s1)
-                }
-            }
-        }
-    }
-
-    private func row(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum,
-                     side: CGFloat, middle: CGFloat, spacing: CGFloat) -> some View {
-        // Unterste Textzeilen auf einer Linie: die kleinen Ringe sitzen dadurch fast mittig neben dem großen.
-        HStack(alignment: .lastTextBaseline, spacing: spacing) {
-            macro("Protein", protein, values: entries.map(\.protein), goal: proteinGoal, tint: Theme.younger, size: side)
-            calories(energy, size: middle)
-            macro("Kohlenhydrate", carbs, values: entries.map(\.carbohydrates), goal: carbGoal, tint: Theme.warning, size: side)
-        }
-    }
-
-    private func calories(_ energy: FoodSum, size: CGFloat) -> some View {
-        let consumed = energy.known
-        let left = energy.remaining(of: target)
-        let over = (left ?? 0) < 0
-        return VStack(spacing: Space.s2) {
-            FoodRing(fraction: showProgress && target > 0 ? consumed / target : 0,
-                     tint: over ? Theme.older : Theme.strain, lineWidth: size > 150 ? 14 : 11) {
-                VStack(spacing: 2) {
-                    Text(!showProgress && energy.complete ? "0" : (left.map { FoodText.number(abs($0)) } ?? FoodAmountText.text(entries.map(\.energy))))
-                        .font(.system(size: size * 0.26, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                        .formaNumberTransition(showProgress ? abs(left ?? consumed) : 0)
-                    Text(left == nil ? "kcal" : (over ? "kcal zu viel" : "kcal übrig"))
-                        .font(.formaCaption)
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .padding(.horizontal, Space.s3)
-            }
-            .frame(width: size, height: size)
-            Text(target > 0 ? "\(FoodAmountText.text(entries.map(\.energy))) / \(FoodText.number(target)) kcal" : " ")
-                .font(.formaCaption.monospacedDigit())
-                .foregroundStyle(Theme.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .formaNumberTransition(showProgress ? consumed : 0)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Kalorien")
-        .accessibilityValue("\(energy.complete ? "" : "mindestens ")\(FoodText.number(consumed)) von \(FoodText.number(target)) Kilokalorien gegessen")
-    }
-
-    private func macro(_ title: String, _ sum: FoodSum, values: [Double?], goal: Double, tint: Color, size: CGFloat) -> some View {
-        let grams = sum.known
-        return VStack(spacing: Space.s2) {
-            FoodRing(fraction: showProgress && goal > 0 ? grams / goal : 0, tint: tint, lineWidth: size > 100 ? 11 : 9) {
-                Text(!showProgress && sum.complete ? "0" : FoodAmountText.text(values))
-                    .font(.system(size: size * 0.26, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                    .formaNumberTransition(showProgress ? grams : 0)
-                    .padding(.horizontal, Space.s2)
-            }
-            .frame(width: size, height: size)
-            VStack(spacing: 2) {
-                Text(title)
-                    .font(.formaCaptionStrong)
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(goal > 0 ? "von \(FoodText.number(goal)) g" : " ")
-                    .font(.formaCaption.monospacedDigit())
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .frame(width: size)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue("\(sum.complete ? "" : "mindestens ")\(FoodText.number(grams)) von \(FoodText.number(goal)) Gramm")
+private extension View {
+    /// Zeile ohne Fläche, Linie und Standardabstand: der Inhalt bestimmt alles.
+    func foodRow(top: CGFloat = 0, bottom: CGFloat = 0) -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: top, leading: Space.page, bottom: bottom, trailing: Space.page))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
     }
 }
 

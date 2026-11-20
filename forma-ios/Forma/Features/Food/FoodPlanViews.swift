@@ -42,8 +42,10 @@ struct FoodPlanView: View {
     var standalone = true
     /// Vom Coach-Chip „Essensplan für morgen“: erstellt beim Öffnen sofort den Plan für morgen.
     var planTomorrow = false
+    /// Öffnet gleich die Einkaufsliste (Fußzeile im Food-Tab).
+    var startInShopping = false
     var body: some View {
-        FoodStandalone(standalone) { FoodPlanContent(planTomorrow: planTomorrow) }
+        FoodStandalone(standalone) { FoodPlanContent(planTomorrow: planTomorrow, startInShopping: startInShopping) }
     }
 }
 
@@ -79,7 +81,10 @@ private struct FoodPlanContent: View {
     @State private var pendingJob: PlanJob?
     @State private var autostarted = false
 
-    init(planTomorrow: Bool) { self.planTomorrow = planTomorrow }
+    init(planTomorrow: Bool, startInShopping: Bool = false) {
+        self.planTomorrow = planTomorrow
+        _mode = State(initialValue: startInShopping ? .shopping : .plan)
+    }
 
     var body: some View {
         let entries = items.compactMap { $0.entry }

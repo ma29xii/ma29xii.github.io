@@ -139,6 +139,41 @@ final class ScreenTour: XCTestCase {
         return tapButton(beginningWith: title)
     }
 
+    /// F7-05: der neue Food-Tab. Ein Erfassen-Knopf, Wasser tippen, Fasten, Fußzeile (Gewicht, Plan, Einkauf).
+    private func tourFoodTab() {
+        let capture = el("food.capture")
+        XCTAssertTrue(capture.waitForExistence(timeout: 4), "Der Erfassen-Knopf fehlt im Food-Tab.")
+        XCTAssertTrue(el("food.hero").exists, "Die Zahl „kcal übrig“ fehlt im Food-Tab.")
+        capture.tap()
+        sleep(1)
+        shot("31c Food Erfassen-Menü")
+        let search = app.buttons["Suchen"].firstMatch
+        if search.waitForExistence(timeout: 2) {
+            search.tap()
+            sleep(1)
+            shot("33b Food Suchen")
+            dismissSheet()
+        } else {
+            XCTFail("Das Erfassen-Menü bietet „Suchen“ nicht an.")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.4)).tap()
+        }
+        let water = el("food.water")
+        if water.waitForExistence(timeout: 3) { water.tap(); shot("31d Food Wasser getippt") } else { XCTFail("Wasser-Leiste fehlt") }
+        let fasting = el("food.fasting")
+        if fasting.waitForExistence(timeout: 3) {
+            fasting.tap()
+            shot("31e Food Fasten")
+            back()
+        } else { XCTFail("Fasten-Leiste fehlt") }
+        for (id, name) in [("food.weight", "31f Food Gewicht"), ("food.plan", "31g Food Plan"), ("food.shopping", "31h Food Einkauf")] {
+            let item = el(id)
+            guard reveal(item) else { XCTFail("\(id) fehlt"); continue }
+            item.tap()
+            shot(name)
+            back()
+        }
+    }
+
     /// Prüft den Wechsel vom offenen Plus-Menü nach Food und erstellt Bildschirmfotos.
     func testTourPlus() {
         sleep(2)
@@ -159,6 +194,7 @@ final class ScreenTour: XCTestCase {
         XCTAssertFalse(track.exists, "Beim Wechsel zu Food schließt sich das Plus-Menü.")
         shot("31 Food")
         app.swipeUp(); shot("31b Food unten"); app.swipeDown(); app.swipeDown()
+        tourFoodTab()
         for (title, name) in [("Nährwerte tracken", "33 Nährwerte tracken"), ("Essen planen", "32 Essen planen"),
                               ("Wasser", "34 Wasser"), ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht"),
                               ("Stimmung", "36b Stimmung"), ("Koffein", "36c Koffein"), ("Schlafplan", "36d Schlafplan")] {
