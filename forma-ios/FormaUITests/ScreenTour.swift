@@ -108,12 +108,19 @@ final class ScreenTour: XCTestCase {
         sleep(1)
     }
 
+    private var plusButton: XCUIElement {
+        // Der native Such-Tab kann im Accessibility-Baum nur seine Beschriftung liefern.
+        let predicate = NSPredicate(format: "identifier == %@ OR label == %@ OR label == %@",
+                                    "tab.plus", "Plus", "Plus-Menü schließen")
+        return app.buttons.matching(predicate).firstMatch
+    }
+
     /// Öffnet das Plus-Menü und tippt die Kachel mit genau diesem Titel (sonst die erste, die so beginnt).
     @discardableResult
     private func openPlus(_ title: String) -> Bool {
-        let plus = el("tab.plus")
-        guard plus.waitForExistence(timeout: 4) else { return false }
         if !el("plus.track").exists {
+            let plus = plusButton
+            guard plus.waitForExistence(timeout: 4) else { return false }
             plus.tap()
             sleep(1)
         }
@@ -125,13 +132,14 @@ final class ScreenTour: XCTestCase {
     /// Prüft den Wechsel vom offenen Plus-Menü nach Food und erstellt Bildschirmfotos.
     func testTourPlus() {
         sleep(2)
-        let plus = el("tab.plus")
+        let plus = plusButton
         guard plus.waitForExistence(timeout: 6) else { XCTFail("Plus fehlt"); return }
         plus.tap()
         let track = el("plus.track")
         XCTAssertTrue(track.waitForExistence(timeout: 4))
         shot("30 Plus-Menü")
         // Zweiter Tipp auf den Plus-Knopf (jetzt X) schließt das Menü wieder.
+        guard plus.waitForExistence(timeout: 4) else { XCTFail("X zum Schließen fehlt"); return }
         plus.tap()
         XCTAssertTrue(track.waitForNonExistence(timeout: 3), "Plus-Menü schließt sich beim zweiten Tipp nicht.")
         plus.tap()
