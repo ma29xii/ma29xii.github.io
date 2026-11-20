@@ -1,5 +1,8 @@
 # AGENTS.md – Übergabe für Codex: App „Health“ selbstständig weiterentwickeln
 
+> **Stand 20.11.2026 abends: Codex macht allein weiter.** Zuerst `.teamarbeit/uebergabe-codex-20261120-abend.md` lesen (aktueller Stand, offener CI-Lauf, Feedback 05–07), dann [HANDOVER.md](HANDOVER.md).
+
+
 Bei Wechsel zwischen Claude Code und Codex oder bei der iPhone-Testversion zuerst [HANDOVER.md](HANDOVER.md) lesen. Dort stehen die aktuellen Entscheidungen, der GitHub-Lauf und der bereits eingerichtete Google-Health-Testclient.
 
 Codex liest diese Datei automatisch. Sie enthält alles, um **ohne Claude** weiterzubauen: Ziel, Aufbau, Design-Regeln, Ablauf, offene Punkte.
