@@ -28,6 +28,12 @@ struct WidgetSnapshot: Codable, Equatable, Sendable {
         min(expiry(in: calendar), date.addingTimeInterval(15 * 60))
     }
 
+    /// Wann das Widget die Datei spätestens neu liest: alle 30 Minuten, nie nach Tagesende.
+    /// Der Stand bleibt dazwischen sichtbar (früher folgte nach 15 Minuten ein leerer Eintrag).
+    func nextReload(after date: Date, calendar: Calendar) -> Date {
+        min(expiry(in: calendar), date.addingTimeInterval(30 * 60))
+    }
+
     func isCurrent(at date: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
         updatedAt <= date && date < expiry(in: calendar)
     }

@@ -7,7 +7,7 @@ struct TodayHealthWidget: Widget {
             TodayWidgetView(snapshot: entry.snapshot)
         }
         .configurationDisplayName("Today")
-        .description("Recovery, Sleep und Strain auf einen Blick.")
+        .description("Recovery, Strain und Sleep auf einen Blick.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -19,7 +19,7 @@ private struct TodayWidgetEntry: TimelineEntry {
 
 private struct TodayWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> TodayWidgetEntry {
-        TodayWidgetEntry(date: .now, snapshot: nil)
+        TodayWidgetEntry(date: .now, snapshot: Self.preview)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (TodayWidgetEntry) -> Void) {
@@ -27,18 +27,25 @@ private struct TodayWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TodayWidgetEntry>) -> Void) {
+        let calendar = Calendar.autoupdatingCurrent
         let entry = currentEntry(at: .now)
-        if let snapshot = entry.snapshot {
-            let cutoff = snapshot.timelineExpiry(forEntryAt: entry.date, calendar: .autoupdatingCurrent)
-            let expiry = TodayWidgetEntry(date: cutoff, snapshot: nil)
-            completion(Timeline(entries: [entry, expiry], policy: .after(cutoff)))
-        } else {
-            completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(30 * 60))))
+        guard let snapshot = entry.snapshot else {
+            // Noch nichts für heute: bald wieder nachsehen, die App lädt die Zeitleiste beim Speichern ohnehin neu.
+            completion(Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(15 * 60))))
+            return
         }
+        // Der Stand bleibt sichtbar, bis der Tag endet. Erst dann folgt ein leerer Eintrag („–“).
+        let dayEnd = TodayWidgetEntry(date: snapshot.expiry(in: calendar), snapshot: nil)
+        completion(Timeline(entries: [entry, dayEnd], policy: .after(snapshot.nextReload(after: entry.date, calendar: calendar))))
     }
 
     private func currentEntry(at date: Date) -> TodayWidgetEntry {
         TodayWidgetEntry(date: date, snapshot: WidgetSnapshotStore.shared.current(at: date))
+    }
+
+    /// Beispielwerte nur für die Widget-Galerie, nie für echte Anzeige.
+    private static var preview: WidgetSnapshot? {
+        WidgetSnapshot(recovery: 78, strain: 54, sleep: 86, updatedAt: .now, day: .now, calendar: .autoupdatingCurrent)
     }
 }
 
@@ -48,19 +55,12 @@ private struct TodayWidgetView: View {
     @Environment(\.showsWidgetContainerBackground) private var showsBackground
     let snapshot: WidgetSnapshot?
 
-    private var usesAppColors: Bool {
-        renderingMode == .fullColor && showsBackground
-    }
-
+    private var usesAppColors: Bool { renderingMode == .fullColor && showsBackground }
     private var ink: Color { usesAppColors ? .white : .primary }
 
-    private var metrics: [Metric] {
-        [
-            Metric(name: "Recovery", abbreviation: "R", value: snapshot?.recovery, tint: recoveryTint),
-            Metric(name: "Sleep", abbreviation: "S", value: snapshot?.sleep, tint: color(0x8E8CFF)),
-            Metric(name: "Strain", abbreviation: "St", value: snapshot?.strain, tint: color(0x0093E7))
-        ]
-    }
+    private var recovery: Metric { Metric(name: "Recovery", short: "R", value: snapshot?.recovery, tint: recoveryTint) }
+    private var strain: Metric { Metric(name: "Strain", short: "St", value: snapshot?.strain, tint: color(0x0093E7)) }
+    private var sleep: Metric { Metric(name: "Sleep", short: "S", value: snapshot?.sleep, tint: color(0x8E8CFF)) }
 
     private var recoveryTint: Color {
         guard let value = snapshot?.recovery else { return ink }
@@ -77,102 +77,131 @@ private struct TodayWidgetView: View {
             rectangular.containerBackground(for: .widget) { Color.clear }
         case .accessoryInline:
             inline.containerBackground(for: .widget) { Color.clear }
+        case .systemMedium:
+            medium.containerBackground(for: .widget) { color(0x0D0E0F) }
         default:
-            home(labeled: family == .systemMedium)
-                .containerBackground(for: .widget) { color(0x0D0E0F) }
+            small.containerBackground(for: .widget) { color(0x0D0E0F) }
         }
     }
 
-    private func home(labeled: Bool) -> some View {
-        HStack(spacing: labeled ? 12 : 5) {
-            ForEach(metrics) { metric in
-                VStack(spacing: 6) {
-                    ring(for: metric, labeled: labeled)
-                    Text(labeled ? metric.name : metric.abbreviation)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(!labeled && usesAppColors && metric.value != nil ? metric.tint : ink)
-                }
-                .frame(maxWidth: .infinity)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(metric.name)
-                .accessibilityValue(metric.spokenValue)
-                .privacySensitive()
+    // MARK: Home-Bildschirm
+
+    /// Klein: Recovery groß, darunter Strain und Sleep als Kapseln.
+    private var small: some View {
+        VStack(spacing: 10) {
+            ring(recovery, line: 9, font: .system(size: 30, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 6) {
+                capsule(strain)
+                capsule(sleep)
             }
         }
         .foregroundStyle(ink)
     }
 
-    private func ring(for metric: Metric, labeled: Bool) -> some View {
-        let stroke = StrokeStyle(lineWidth: labeled ? 3 : 2, lineCap: .round)
+    /// Mittel: drei Ringe mit Zahl, Recovery etwas größer.
+    private var medium: some View {
+        HStack(spacing: 14) {
+            labeledRing(recovery, line: 9, font: .system(size: 30, weight: .bold, design: .rounded))
+            labeledRing(strain, line: 7, font: .system(size: 22, weight: .semibold, design: .rounded)).frame(maxWidth: 82)
+            labeledRing(sleep, line: 7, font: .system(size: 22, weight: .semibold, design: .rounded)).frame(maxWidth: 82)
+        }
+        .foregroundStyle(ink)
+    }
+
+    private func labeledRing(_ metric: Metric, line: CGFloat, font: Font) -> some View {
+        VStack(spacing: 6) {
+            ring(metric, line: line, font: font)
+            Text(metric.name)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(usesAppColors ? metric.tint : ink)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func capsule(_ metric: Metric) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(usesAppColors ? metric.tint : ink).frame(width: 6, height: 6)
+            Text(verbatim: metric.display)
+                .font(.system(.footnote, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity, minHeight: 28)
+        .background(ink.opacity(0.10), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metric.name)
+        .accessibilityValue(metric.spoken)
+        .privacySensitive()
+    }
+
+    private func ring(_ metric: Metric, line: CGFloat, font: Font) -> some View {
+        let stroke = StrokeStyle(lineWidth: line, lineCap: .round)
         let tint = usesAppColors ? metric.tint : ink
-        let track = metric.value == 0 ? tint.opacity(0.55) : ink.opacity(0.20)
         return ZStack {
-            Circle().strokeBorder(track, style: stroke)
+            Circle().inset(by: line / 2).stroke(ink.opacity(0.16), style: stroke)
             if let value = metric.value, value > 0 {
                 Circle()
-                    .inset(by: stroke.lineWidth / 2)
+                    .inset(by: line / 2)
                     .trim(from: 0, to: CGFloat(value) / 100)
                     .stroke(tint, style: stroke)
                     .rotationEffect(.degrees(-90))
                     .widgetAccentable()
             }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: labeled ? 64 : 44)
-        .overlay {
-            Text(verbatim: metric.displayValue)
-                .font(.system(labeled ? .title3 : .subheadline, design: .rounded, weight: .semibold))
+            Text(verbatim: metric.display)
+                .font(font)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-                .padding(.horizontal, labeled ? 7 : 5)
+                .padding(line + 2)
         }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metric.name)
+        .accessibilityValue(metric.spoken)
+        .privacySensitive()
     }
+
+    // MARK: Sperrbildschirm
 
     private var circular: some View {
         ZStack {
             AccessoryWidgetBackground()
-            VStack(spacing: 0) {
-                ForEach(metrics) { metric in
-                    number(metric, text: metric.compactDisplayValue,
-                           font: .system(size: 11, weight: .semibold, design: .rounded))
-                }
-            }
-            .padding(3)
+            ring(recovery, line: 5, font: .system(size: 17, weight: .bold, design: .rounded))
+                .padding(4)
         }
     }
 
     private var rectangular: some View {
-        HStack(spacing: 4) {
-            ForEach(metrics) { metric in
-                VStack(spacing: 2) {
-                    number(metric, font: .system(.headline, design: .rounded, weight: .semibold))
-                    Text(metric.name)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                        .accessibilityHidden(true)
-                }
-                .frame(maxWidth: .infinity)
+        HStack(spacing: 8) {
+            ring(recovery, line: 5, font: .system(size: 17, weight: .bold, design: .rounded))
+                .frame(width: 52, height: 52)
+            VStack(alignment: .leading, spacing: 2) {
+                row(strain)
+                row(sleep)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var inline: some View {
-        Text(verbatim: metrics.map(\.compactDisplayValue).joined(separator: " · "))
-            .accessibilityLabel(metrics.map { "\($0.name): \($0.spokenValue)" }.joined(separator: ", "))
-            .privacySensitive()
+    private func row(_ metric: Metric) -> some View {
+        HStack {
+            Text(metric.name).font(.caption)
+            Spacer(minLength: 4)
+            Text(verbatim: metric.display).font(.system(.headline, design: .rounded, weight: .semibold)).monospacedDigit()
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(metric.name)
+        .accessibilityValue(metric.spoken)
+        .privacySensitive()
     }
 
-    private func number(_ metric: Metric, text: String? = nil, font: Font) -> some View {
-        Text(verbatim: text ?? metric.displayValue)
-            .font(font.monospacedDigit())
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .accessibilityLabel(metric.name)
-            .accessibilityValue(metric.spokenValue)
+    private var inline: some View {
+        Text(verbatim: [recovery, sleep, strain].map { "\($0.short) \($0.display)" }.joined(separator: " · "))
+            .accessibilityLabel([recovery, sleep, strain].map { "\($0.name): \($0.spoken)" }.joined(separator: ", "))
             .privacySensitive()
     }
 
@@ -183,15 +212,13 @@ private struct TodayWidgetView: View {
               blue: Double(hex & 0xFF) / 255)
     }
 
-    private struct Metric: Identifiable {
+    private struct Metric {
         let name: String
-        let abbreviation: String
+        let short: String
         let value: Int?
         let tint: Color
 
-        var id: String { name }
-        var displayValue: String { value.map { $0.formatted() } ?? "–" }
-        var compactDisplayValue: String { "\(abbreviation) \(displayValue)" }
-        var spokenValue: String { value.map { "\($0.formatted()) von 100" } ?? "Keine Messung" }
+        var display: String { value.map { $0.formatted() } ?? "–" }
+        var spoken: String { value.map { "\($0.formatted()) von 100" } ?? "Keine Messung" }
     }
 }
