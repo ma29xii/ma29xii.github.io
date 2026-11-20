@@ -234,6 +234,11 @@ private struct FoodFastingContent: View {
             .formaScreen()
             .navigationTitle("Fasten")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: plan) { _, newPlan in
+                guard !hub.isSample, !FormaApp.isUITest else { return }
+                try? FastingWidgetSync.sync(in: context, planHours: newPlan)
+                FastingActivity.reconcile(in: context)
+            }
             .alert("Konnte nicht gespeichert werden", isPresented: $saveError) {
                 Button("OK", role: .cancel) {}
             }
@@ -318,17 +323,18 @@ private struct FoodFastingContent: View {
     }
 
     private func toggle() {
-        let showsLiveActivity = !hub.isSample && !FormaApp.isUITest
+        let isRealData = !hub.isSample && !FormaApp.isUITest
+        let now = Date.now
+        let action: FastingWidgetStore.Event
+        if let active {
+            action = .end(start: active.start, at: now)
+        } else {
+            action = .start(FastingAttributes(start: now, targetHours: plan))
+        }
         do {
-            if let active {
-                let end = Date.now
-                try FoodEntry.saveChange(in: context) { active.end = end }
-                if showsLiveActivity { FastingActivity.end(at: end) }
-            } else {
-                let fast = FoodFast(targetHours: plan)
-                try FoodEntry.saveChange(in: context) { context.insert(fast) }
-                if showsLiveActivity { FastingActivity.start(start: fast.start, targetHours: fast.targetHours) }
-            }
+            try FastingWidgetSync.sync(in: context, planHours: plan, action: action,
+                                       store: isRealData ? .shared : .init(directory: nil))
+            if isRealData { FastingActivity.reconcile(in: context) }
         } catch {
             saveError = true
         }

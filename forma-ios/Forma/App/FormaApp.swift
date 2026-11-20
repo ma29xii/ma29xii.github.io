@@ -156,6 +156,8 @@ struct RootView: View {
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             guard phase == .active, !hub.isSample, !FormaApp.isUITest else { return }
+            let plan = UserDefaults.standard.double(forKey: FoodSettings.fastHoursKey)
+            try? FastingWidgetSync.sync(in: context, planHours: plan)
             FastingActivity.reconcile(in: context)
         }
         .onChange(of: scenePhase) { _, phase in

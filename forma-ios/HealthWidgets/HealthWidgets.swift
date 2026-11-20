@@ -7,10 +7,12 @@ struct HealthWidgets: WidgetBundle {
     var body: some Widget {
         TodayHealthWidget()
         WaterWidget()
+        FastingWidget()
         TrainingLiveWidget()
         FastingLiveWidget()
         StartTrainingControl()
         AddWaterControl()
+        FastingControl()
     }
 }
 
