@@ -49,6 +49,7 @@ struct ProfileView: View {
                 Section {
                     ThemePicker()
                         .listRowInsets(EdgeInsets())
+                    ThemeColorPicker()
                 } header: {
                     Text("Design").formaLabelStyle()
                 }

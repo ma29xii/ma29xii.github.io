@@ -69,8 +69,9 @@ private struct WeekWidgetView: View {
     private let columnSpacing: CGFloat = 6
 
     private var isLarge: Bool { family == .systemLarge }
-    private var usesAppColors: Bool { renderingMode == .fullColor && showsBackground }
-    private var ink: Color { usesAppColors ? .white : .primary }
+    private var style: WidgetStyle { WidgetStyle(renderingMode: renderingMode, showsBackground: showsBackground) }
+    private var usesAppColors: Bool { style.usesAppColors }
+    private var ink: Color { style.ink }
 
     var body: some View {
         Group {
@@ -84,7 +85,7 @@ private struct WeekWidgetView: View {
         }
         .foregroundStyle(ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .containerBackground(for: .widget) { color(0x0D0E0F) }
+        .containerBackground(for: .widget) { style.background() }
     }
 
     private var week: some View {
@@ -123,8 +124,7 @@ private struct WeekWidgetView: View {
         let score = entry.days.last.flatMap { metric.score(in: $0) }
         return VStack(spacing: 2) {
             Text(verbatim: score.map { $0.formatted() } ?? "–")
-                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                .monospacedDigit()
+                .font(.widgetNumber(34))
                 .foregroundStyle(tint(for: metric, score: score))
             Text(metric.rawValue)
                 .font(.caption.weight(.medium))
@@ -152,7 +152,7 @@ private struct WeekWidgetView: View {
                 GeometryReader { geometry in
                     Capsule()
                         .fill(tint(for: metric, score: score))
-                        .frame(width: min(18, geometry.size.width),
+                        .frame(width: min(12, geometry.size.width),
                                height: max(2, geometry.size.height * CGFloat(score ?? 0) / 100))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
@@ -180,20 +180,14 @@ private struct WeekWidgetView: View {
         switch metric {
         case .recovery:
             switch WeekWidgetSnapshot.recoveryColor(for: score) {
-            case .some(.green): return color(0x16EC06)
-            case .some(.yellow): return color(0xFFDE00)
-            case .some(.red): return color(0xFF0026)
+            case .some(.green): return Color(sharedHex: 0x16EC06)
+            case .some(.yellow): return Color(sharedHex: 0xFFDE00)
+            case .some(.red): return Color(sharedHex: 0xFF0026)
             case .none: return ink
             }
-        case .strain: return color(0x0093E7)
-        case .sleep: return color(0x8E8CFF)
+        case .strain: return style.strain
+        case .sleep: return style.sleep
         }
-    }
-
-    private func color(_ hex: UInt32) -> Color {
-        Color(red: Double((hex >> 16) & 0xFF) / 255,
-              green: Double((hex >> 8) & 0xFF) / 255,
-              blue: Double(hex & 0xFF) / 255)
     }
 
     private enum Metric: String, CaseIterable, Identifiable {

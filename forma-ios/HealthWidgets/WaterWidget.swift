@@ -61,9 +61,9 @@ private struct WaterWidgetView: View {
     @Environment(\.showsWidgetContainerBackground) private var showsBackground
     let progress: WaterWidgetProgress?
 
-    private var usesAppColors: Bool { renderingMode == .fullColor && showsBackground }
-    private var ink: Color { usesAppColors ? .white : .primary }
-    private var tint: Color { usesAppColors ? Color(red: 0.30, green: 0.77, blue: 1) : ink }
+    private var style: WidgetStyle { WidgetStyle(renderingMode: renderingMode, showsBackground: showsBackground) }
+    private var ink: Color { style.ink }
+    private var tint: Color { style.accent }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -83,13 +83,13 @@ private struct WaterWidgetView: View {
         }
         .foregroundStyle(ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .containerBackground(for: .widget) { Color(red: 13 / 255.0, green: 14 / 255.0, blue: 15 / 255.0) }
+        .containerBackground(for: .widget) { style.background() }
     }
 
     private var ring: some View {
-        let stroke = StrokeStyle(lineWidth: 3, lineCap: .round)
+        let stroke = StrokeStyle(lineWidth: 5, lineCap: .round)
         return ZStack {
-            Circle().strokeBorder(ink.opacity(0.20), style: stroke)
+            Circle().inset(by: stroke.lineWidth / 2).stroke(style.track, style: stroke)
             if let progress, progress.fraction > 0 {
                 Circle()
                     .inset(by: stroke.lineWidth / 2)
@@ -105,10 +105,9 @@ private struct WaterWidgetView: View {
             VStack(spacing: 1) {
                 if let progress {
                     Text(progress.milliliters, format: .number.precision(.fractionLength(0)))
-                        .font(.system(.headline, design: .rounded, weight: .semibold))
-                        .monospacedDigit()
+                        .font(.widgetNumber(24))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.55)
+                        .minimumScaleFactor(0.5)
                     Text("ml")
                         .font(.caption2)
                 } else {

@@ -66,15 +66,14 @@ private struct FastingWidgetView: View {
     let entry: FastingWidgetEntry
 
     private var isAccessory: Bool { family == .accessoryCircular }
-    private var usesAppColors: Bool { !isAccessory && renderingMode == .fullColor && showsBackground }
-    private var ink: Color { usesAppColors ? .white : .primary }
+    private var style: WidgetStyle { WidgetStyle(renderingMode: renderingMode, showsBackground: !isAccessory && showsBackground) }
+    private var usesAppColors: Bool { style.usesAppColors }
+    private var ink: Color { style.ink }
     private var controlsLabel: String { entry.state?.active == nil ? "Fasten starten" : "Fasten beenden" }
     private var tint: Color {
         guard usesAppColors else { return ink }
-        if case .elapsed? = entry.presentation {
-            return Color(red: 61 / 255.0, green: 220 / 255.0, blue: 151 / 255.0)
-        }
-        return Color(red: 1, green: 181 / 255.0, blue: 71 / 255.0)
+        if case .elapsed? = entry.presentation { return Color(sharedHex: 0x3DDC97) }
+        return style.accent
     }
 
     var body: some View {
@@ -112,15 +111,15 @@ private struct FastingWidgetView: View {
         .foregroundStyle(ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .containerBackground(for: .widget) {
-            if !isAccessory { Color(red: 13 / 255.0, green: 14 / 255.0, blue: 15 / 255.0) }
+            if !isAccessory { style.background() }
         }
     }
 
     private var ring: some View {
-        let stroke = StrokeStyle(lineWidth: 3, lineCap: .round)
+        let stroke = StrokeStyle(lineWidth: isAccessory ? 3 : 5, lineCap: .round)
         let fraction = entry.state?.active?.progress(at: entry.date, state: .init(end: nil)).fraction ?? 0
         return ZStack {
-            Circle().strokeBorder(ink.opacity(0.20), style: stroke)
+            Circle().inset(by: stroke.lineWidth / 2).stroke(style.track, style: stroke)
             if fraction > 0 {
                 Circle()
                     .inset(by: stroke.lineWidth / 2)

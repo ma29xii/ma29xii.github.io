@@ -20,6 +20,50 @@ enum WidgetBridge {
         return WeekWidgetSnapshot(measurements: measurements, updatedAt: updatedAt, calendar: calendar)
     }
 
+    /// Tageswerte für Health Age, Schlaf, Schritte, Energie und Körpersignale. `nil`, wenn heute noch nichts gemessen wurde.
+    nonisolated static func daySnapshot(
+        days: [DayMetrics], person: PersonInfo, formaSessions: [(start: Date, minutes: Double)],
+        sleepNeed: TimeInterval?, bedtime: Date?, updatedAt: Date, calendar: Calendar
+    ) -> DayWidgetSnapshot? {
+        let today = calendar.startOfDay(for: updatedAt)
+        guard let day = days.last(where: { calendar.isDate($0.date, inSameDayAs: today) }) else { return nil }
+        let dashboard = DashboardDay(day: day, history: days.filter { $0.date < day.date })
+        let goal = StepGoal.target(on: day.date, history: dashboard.history, recovery: dashboard.recovery,
+                                   sleepScore: dashboard.sleepScore,
+                                   sleepDebt: ScoreEngine.sleepDebt(history: dashboard.history),
+                                   strainTarget: dashboard.recovery.map { ScoreEngine.target(recovery: $0) },
+                                   calendar: calendar)
+        var healthAge: Double?, age: Double?
+        let strength = BodyAge.strengthMinutes(days: days, formaSessions: formaSessions, now: updatedAt)
+        if case .ready(let result) = BodyAge.evaluate(days: days, person: person, strength: strength, now: updatedAt) {
+            healthAge = result.bodyAge
+            age = result.age
+        }
+        let signal = IllnessSignal.evaluate(day: day, history: dashboard.history)
+        let asleep = (day.sleep?.asleep ?? 0) > 0 ? day.sleep?.asleep : nil
+        let snapshot = DayWidgetSnapshot(
+            updatedAt: updatedAt, day: today, healthAge: healthAge, chronologicalAge: age,
+            steps: day.steps.flatMap { $0.isFinite ? Int($0.rounded()) : nil }, stepGoal: goal,
+            sleepMinutes: asleep.map { Int(($0 / 60).rounded()) },
+            sleepNeedMinutes: sleepNeed.map { Int(($0 / 60).rounded()) },
+            sleepScore: dashboard.sleepScore, bedtime: bedtime,
+            activeEnergy: day.activeEnergy.flatMap { $0.isFinite ? Int($0.rounded()) : nil }, strain: dashboard.strain,
+            signalLevel: signal?.level.rawValue, signalTitles: signal?.flagged.map(\.kind.title))
+        return snapshot.hasValues ? snapshot : nil
+    }
+
+    static func publishDay(_ snapshot: DayWidgetSnapshot?) {
+        do {
+            if try DayWidgetSnapshotStore.shared.replace(with: snapshot) { reloadDayWidgets() }
+        } catch {
+            reloadDayWidgets()
+        }
+    }
+
+    private static func reloadDayWidgets() {
+        DayWidgetSnapshotStore.kinds.forEach { WidgetCenter.shared.reloadTimelines(ofKind: $0) }
+    }
+
     static func publishWeek(_ history: [DayMetrics], updatedAt: Date, calendar: Calendar,
                             invalidateTimeline: Bool = false) {
         let snapshot = weekSnapshot(for: history, updatedAt: updatedAt, calendar: calendar)

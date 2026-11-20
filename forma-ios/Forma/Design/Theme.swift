@@ -13,8 +13,8 @@ enum Theme {
     static var background: Color { current.bottom }
     /// Verlauf für ganze Seiten.
     static var screenGradient: LinearGradient { current.gradient }
-    /// Akzentfarbe des Designs (Auswahl, Schalter, kleine Hervorhebungen). Ringfarben bleiben davon unberührt.
-    static var accent: Color { current.accent }
+    /// Akzentfarbe (Auswahl, Schalter, kleine Hervorhebungen): eigene Wahl aus dem Profil, sonst die des Designs.
+    static var accent: Color { ThemeStore.shared.accent }
     /// Farbe des weichen Scheins oben; `nil` beim Standard-Design, dort kommt der Schein aus den Daten.
     static var glow: Color? { current.glows.first }
 
@@ -38,8 +38,9 @@ enum Theme {
     static let recoveryHigh = Color(hex: 0x16EC06)
     static let recoveryMid = Color(hex: 0xFFDE00)
     static let recoveryLow = Color(hex: 0xFF0026)
-    static let strain = Color(hex: 0x0093E7)
-    static let sleep = Color(hex: 0x8E8CFF)
+    /// Strain und Sleep folgen der Wahl im Profil (Standard: Blau und Violett). Die Recovery-Ampel bleibt fest.
+    static var strain: Color { ThemeStore.shared.strain }
+    static var sleep: Color { ThemeStore.shared.sleep }
     static let warning = Color(hex: 0xFFB547)
     static let selection = Color(hex: 0xF5F5F7)
     static let onSelection = Color(hex: 0x0A0A0A)

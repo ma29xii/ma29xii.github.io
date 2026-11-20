@@ -7,6 +7,11 @@ struct HealthWidgets: WidgetBundle {
     var body: some Widget {
         TodayHealthWidget()
         WeekWidget()
+        HealthAgeWidget()
+        SleepWidget()
+        StepsWidget()
+        EnergyWidget()
+        SignalsWidget()
         WaterWidget()
         FastingWidget()
         TrainingLiveWidget()

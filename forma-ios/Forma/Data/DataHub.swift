@@ -453,6 +453,13 @@ final class DataHub {
     private func updateWidgetCopy(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) {
         let saved = WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
         WidgetBridge.publishWeek(!isSample && accountID != nil ? dashboardHistory(recent: days) : [], updatedAt: now(), calendar: calendar(), invalidateTimeline: invalidateTimeline)
+        let current = now()
+        WidgetBridge.publishDay(isSample || accountID == nil ? nil : WidgetBridge.daySnapshot(
+            days: days, person: person,
+            formaSessions: formaWorkouts.map { (start: $0.start, minutes: $0.duration / 60) },
+            sleepNeed: measuredSleepNeed, bedtime: SleepPlanner.load(in: defaults)
+                .nextWindow(after: current, sleepNeed: measuredSleepNeed, calendar: calendar())?.bed,
+            updatedAt: current, calendar: calendar()))
         widgetDeletionPending = !saved && (snapshot == nil || widgetDeletionPending)
         // F5-12: Nur das Löschen ist für dich wichtig; ein verpasstes Update wird beim nächsten Abruf nachgeholt.
         widgetCopyNote = saved || snapshot != nil ? nil : "Die Widget-Kopie konnte nicht gelöscht werden. Health versucht es erneut."

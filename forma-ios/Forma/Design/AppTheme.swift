@@ -1,10 +1,12 @@
 import SwiftUI
 import Observation
+import WidgetKit
 
 /// Wählbare Designs (Profil → Design). Sie färben Hintergrund, Karten, Schein und Akzent.
-/// Ringfarben (Recovery, Strain, Sleep) und Textfarben bleiben in jedem Design gleich und lesbar.
+/// Recovery-Ampel und Textfarben bleiben in jedem Design gleich und lesbar; Strain, Sleep und Akzent lassen sich im Profil überschreiben.
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
-    case standard, black, blue, bordeaux, blend, dusk, ember, slate, lagoon, forest, aubergine
+    case standard, neonLime, electric, blaze, synthwave, toxic, coral, gold, magenta, ice
+    case black, blue, bordeaux, blend, dusk, ember, slate, lagoon, forest, aubergine
     case midnight, sand, graphite, ocean, rose, olive, sunset, aurora
 
     var id: String { rawValue }
@@ -12,6 +14,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .standard: "Standard"
+        case .neonLime: "Neon-Lime"
+        case .electric: "Elektroblau"
+        case .blaze: "Flamme"
+        case .synthwave: "Synthwave"
+        case .toxic: "Giftgrün"
+        case .coral: "Koralle"
+        case .gold: "Gold"
+        case .magenta: "Magenta"
+        case .ice: "Eisblau"
         case .black: "Schwarz"
         case .blue: "Blau"
         case .bordeaux: "Bordeaux"
@@ -37,6 +48,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var top: Color {
         switch self {
         case .standard: Color(hex: 0x222325)
+        case .neonLime: Color(hex: 0x0A0D00)
+        case .electric: Color(hex: 0x0A1840)
+        case .blaze: Color(hex: 0x35101C)
+        case .synthwave: Color(hex: 0x1E0B3D)
+        case .toxic: Color(hex: 0x05220F)
+        case .coral: Color(hex: 0x33120F)
+        case .gold: Color(hex: 0x232427)
+        case .magenta: Color(hex: 0x330A26)
+        case .ice: Color(hex: 0x0B2630)
         case .black: Color(hex: 0x000000)
         case .blue: Color(hex: 0x1A2A35)
         case .bordeaux: Color(hex: 0x2B1514)
@@ -61,6 +81,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var mid: Color {
         switch self {
         case .standard: Color(hex: 0x161719)
+        case .neonLime: Color(hex: 0x050700)
+        case .electric: Color(hex: 0x060D26)
+        case .blaze: Color(hex: 0x1E0B14)
+        case .synthwave: Color(hex: 0x120726)
+        case .toxic: Color(hex: 0x03150A)
+        case .coral: Color(hex: 0x1E0C0A)
+        case .gold: Color(hex: 0x17181A)
+        case .magenta: Color(hex: 0x1E061A)
+        case .ice: Color(hex: 0x071A22)
         case .black: Color(hex: 0x000000)
         case .blue: Color(hex: 0x111B23)
         case .bordeaux: Color(hex: 0x1B0E0E)
@@ -85,6 +114,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var bottom: Color {
         switch self {
         case .standard: Color(hex: 0x0D0E0F)
+        case .neonLime: Color(hex: 0x000000)
+        case .electric: Color(hex: 0x03071A)
+        case .blaze: Color(hex: 0x0F060A)
+        case .synthwave: Color(hex: 0x080314)
+        case .toxic: Color(hex: 0x010A04)
+        case .coral: Color(hex: 0x0F0605)
+        case .gold: Color(hex: 0x0C0C0D)
+        case .magenta: Color(hex: 0x0F030C)
+        case .ice: Color(hex: 0x040D12)
         case .black: Color(hex: 0x000000)
         case .blue: Color(hex: 0x0A1015)
         case .bordeaux: Color(hex: 0x100808)
@@ -109,6 +147,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var card: Color {
         switch self {
         case .standard: Color(hex: 0x1D1E20)
+        case .neonLime: Color(hex: 0x0F1400)
+        case .electric: Color(hex: 0x0B1636)
+        case .blaze: Color(hex: 0x2A1118)
+        case .synthwave: Color(hex: 0x1A0D36)
+        case .toxic: Color(hex: 0x0A1D10)
+        case .coral: Color(hex: 0x2B1512)
+        case .gold: Color(hex: 0x1E1F22)
+        case .magenta: Color(hex: 0x2A0F22)
+        case .ice: Color(hex: 0x0C202A)
         case .black: Color(hex: 0x111112)
         case .blue: Color(hex: 0x162029)
         case .bordeaux: Color(hex: 0x221413)
@@ -133,6 +180,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var cardRaised: Color {
         switch self {
         case .standard: Color(hex: 0x26272A)
+        case .neonLime: Color(hex: 0x182000)
+        case .electric: Color(hex: 0x142450)
+        case .blaze: Color(hex: 0x3B1A24)
+        case .synthwave: Color(hex: 0x28154A)
+        case .toxic: Color(hex: 0x122C1A)
+        case .coral: Color(hex: 0x3C201B)
+        case .gold: Color(hex: 0x2A2B2F)
+        case .magenta: Color(hex: 0x3B1932)
+        case .ice: Color(hex: 0x143240)
         case .black: Color(hex: 0x1B1B1D)
         case .blue: Color(hex: 0x1F2C37)
         case .bordeaux: Color(hex: 0x2D1C1B)
@@ -158,6 +214,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var accent: Color {
         switch self {
         case .standard: Color(hex: 0x34D26B)
+        case .neonLime: Color(hex: 0xC6FF00)
+        case .electric: Color(hex: 0x4D8DFF)
+        case .blaze: Color(hex: 0xFF7A45)
+        case .synthwave: Color(hex: 0x00E5FF)
+        case .toxic: Color(hex: 0x39FF5A)
+        case .coral: Color(hex: 0xFF6F61)
+        case .gold: Color(hex: 0xFFC93C)
+        case .magenta: Color(hex: 0xFF3DAA)
+        case .ice: Color(hex: 0x5CE1E6)
         case .black: Color(hex: 0xF5F5F7)
         case .blue: Color(hex: 0x4D8EB6)
         case .bordeaux: Color(hex: 0xC4605B)
@@ -179,10 +244,22 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Akzent als 0xRRGGBB, für Widgets und Kontrastprüfung.
+    var accentHex: UInt32 { ThemeOverrides.hex(of: accent) }
+
     /// Farben des Scheins oben (eine: mittig, zwei: links und rechts). Beim Standard leer, dort kommt der Schein aus den Daten.
     var glows: [Color] {
         switch self {
         case .standard, .black: []
+        case .neonLime: [Color(hex: 0x7BA800)]
+        case .electric: [Color(hex: 0x1F5CFF)]
+        case .blaze: [Color(hex: 0xFF5A1F), Color(hex: 0xFF2E88)]
+        case .synthwave: [Color(hex: 0xB026FF), Color(hex: 0x00E5FF)]
+        case .toxic: [Color(hex: 0x14C73A)]
+        case .coral: [Color(hex: 0xFF5A4D), Color(hex: 0xFFA07A)]
+        case .gold: [Color(hex: 0xB8892B)]
+        case .magenta: [Color(hex: 0xE0148C), Color(hex: 0x7A2CFF)]
+        case .ice: [Color(hex: 0x1FB5C9)]
         case .blue: [Color(hex: 0x4D8EB6)]
         case .bordeaux: [Color(hex: 0x5C2624)]
         case .blend: [Color(hex: 0x4D8EB6), Color(hex: 0x5C2624)]
@@ -207,6 +284,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var glowStrength: Double {
         switch self {
         case .standard, .black: 0
+        case .neonLime: 0.3
+        case .electric: 0.45
+        case .blaze: 0.4
+        case .synthwave: 0.38
+        case .toxic: 0.34
+        case .coral: 0.34
+        case .gold: 0.28
+        case .magenta: 0.38
+        case .ice: 0.3
         case .blue: 0.30
         case .bordeaux: 0.60
         case .blend: 0.34
@@ -250,23 +336,61 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Hält das gewählte Design. Liest man `Theme.background` & Co. im `body`, zeichnet SwiftUI beim Wechsel neu.
-/// Gespeichert unter `forma.theme` (dort liest auch `@AppStorage` im Profil).
+/// Hält das gewählte Design und die eigenen Farben. Liest man `Theme.background` & Co. im `body`, zeichnet SwiftUI beim Wechsel neu.
+/// Gespeichert unter `forma.theme` (dort liest auch `@AppStorage` im Profil). Eigene Farben: siehe `ThemeOverrides`.
 @Observable
 final class ThemeStore: @unchecked Sendable {
     static let key = "forma.theme"
-    static let shared = ThemeStore()
+    static let shared = ThemeStore(widgetDefaults: WidgetPalette.groupDefaults)
 
     private(set) var current: AppTheme
+    private(set) var overrides: ThemeOverrides
+    private let defaults: UserDefaults
+    private let widgetDefaults: UserDefaults?
 
-    init(defaults: UserDefaults = .standard) {
+    /// `widgetDefaults`: Ziel für die Widget-Farben (App Group). `nil` schreibt nichts, z. B. in Tests.
+    init(defaults: UserDefaults = .standard, widgetDefaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        self.widgetDefaults = widgetDefaults
         current = AppTheme.resolve(defaults.string(forKey: Self.key))
+        overrides = ThemeOverrides.load(from: defaults)
+        palette.save(to: widgetDefaults)
     }
 
-    func select(_ theme: AppTheme, defaults: UserDefaults = .standard) {
+    func select(_ theme: AppTheme, defaults override: UserDefaults? = nil) {
         guard theme != current else { return }
         current = theme
-        defaults.set(theme.rawValue, forKey: Self.key)
+        (override ?? defaults).set(theme.rawValue, forKey: Self.key)
+        publishPalette()
+    }
+
+    func setColors(_ change: (inout ThemeOverrides) -> Void) {
+        var next = overrides
+        change(&next)
+        guard next != overrides else { return }
+        overrides = next
+        next.save(to: defaults)
+        publishPalette()
+    }
+
+    func resetColors() { setColors { $0 = ThemeOverrides() } }
+
+    /// Aufgelöste Farben für die Widgets (Design plus eigene Wahl).
+    var palette: WidgetPalette {
+        WidgetPalette(accent: overrides.accent ?? current.accentHex,
+                      strain: overrides.strain ?? ThemeOverrides.defaultStrain,
+                      sleep: overrides.sleep ?? ThemeOverrides.defaultSleep)
+    }
+
+    var accent: Color { overrides.accent.map { Color(hex: $0) } ?? current.accent }
+    var strain: Color { Color(hex: overrides.strain ?? ThemeOverrides.defaultStrain) }
+    var sleep: Color { Color(hex: overrides.sleep ?? ThemeOverrides.defaultSleep) }
+
+    private func publishPalette() {
+        let palette = palette
+        guard widgetDefaults != nil, WidgetPalette.load(from: widgetDefaults) != palette else { return }
+        palette.save(to: widgetDefaults)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 
