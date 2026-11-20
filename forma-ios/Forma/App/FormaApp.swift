@@ -5,6 +5,12 @@ import BackgroundTasks
 @main
 struct FormaApp: App {
     nonisolated static let isUITest = ProcessInfo.processInfo.arguments.contains("-uitest")
+    /// Nur für die Leistungsmessung im UI-Test: `-probeHide plan,metrics,...` blendet Abschnitte der Sleep-Seite aus.
+    nonisolated static let probeHidden: Set<String> = {
+        let args = ProcessInfo.processInfo.arguments
+        guard isUITest, let index = args.firstIndex(of: "-probeHide"), index + 1 < args.count else { return [] }
+        return Set(args[index + 1].split(separator: ",").map(String.init))
+    }()
     private static let models: [any PersistentModel.Type] = [
         Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self,
         FoodEntry.self, FoodLibraryItem.self, FoodWaterEntry.self, FoodFast.self, FoodWeightEntry.self,
