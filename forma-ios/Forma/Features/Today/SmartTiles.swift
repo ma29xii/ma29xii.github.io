@@ -77,12 +77,12 @@ struct BodySignalsTile: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .smartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Körpersignale")
@@ -131,7 +131,7 @@ struct BodySignalsDetail: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .combine)
             }
@@ -168,7 +168,7 @@ struct BodySignalsDetail: View {
                         .accessibilityHidden(true)
                 }
             }
-            .padding(Space.s4)
+            .padding(Space.card)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
@@ -201,7 +201,7 @@ struct BodySignalsDetail: View {
                 }
                 .frame(height: 70, alignment: .bottom)
             }
-            .padding(Space.s4)
+            .padding(Space.card)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
@@ -240,12 +240,12 @@ struct ReadinessTile: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .smartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Bereit für")
@@ -287,12 +287,12 @@ struct SleepDebtTile: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .smartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Schlafschuld")
@@ -347,12 +347,12 @@ struct CalmTimeTile: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .smartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Erholte Zeit")
@@ -405,7 +405,7 @@ struct StreakTile: View {
                         .foregroundStyle(streak.todayReached ? Theme.younger : Theme.textSecondary)
                 }
             }
-            .padding(Space.s4)
+            .padding(Space.card)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
         .smartAppear()

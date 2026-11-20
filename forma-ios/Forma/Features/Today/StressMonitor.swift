@@ -80,12 +80,12 @@ struct StressMonitorCard: View {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Stress")
         .accessibilityValue(Self.spokenValue(signals.stress))
@@ -229,7 +229,7 @@ private struct EnergyMeter: View {
                     Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                 }
             }
-            .padding(Space.s4)
+            .padding(Space.card)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -374,7 +374,7 @@ private struct DaySignalChart: View {
                     DashboardEmpty()
                 } else {
                     chart(points)
-                        .padding(Space.s4)
+                        .padding(Space.card)
                 }
             }
         }

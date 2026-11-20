@@ -9,7 +9,8 @@ extension View {
     }
 }
 
-/// Ruhige Inhaltskarte (Radius 20) für Today und die Ring-Details.
+/// Ruhige Inhaltskarte (Radius `Radius.plate`, Innenabstand `Space.card`) für Today und die Ring-Details.
+/// Aufbau jeder Kachel: kleines Label oben, große Zahl, nichts dazwischen.
 extension EnvironmentValues {
     /// Einheitlicher Farbhauch für Karten (Maxi F5-06/F6): eine Farbe aus dem gewählten Design, überall gleich.
     /// `.clear` schaltet ihn für einzelne Karten ab.
@@ -31,14 +32,22 @@ struct DashboardCard<Content: View>: View {
                     Theme.card
                     let hue = tint ?? Theme.accent
                     if hue != .clear {
-                        LinearGradient(colors: [hue.opacity(0.10), hue.opacity(0.02)],
+                        // Feiner Farbhauch (F7-04): läuft aus, statt eine Kante zu zeichnen.
+                        LinearGradient(colors: [hue.opacity(0.07), hue.opacity(0)],
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     }
                 }
                 .clipShape(shape)
             }
-            .overlay { shape.strokeBorder(Theme.hairline, lineWidth: 0.75).allowsHitTesting(false) }
+            // Statt Rahmen: nur ein Lichtsaum oben, der nach unten verschwindet.
+            .overlay {
+                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.06), .clear],
+                                                  startPoint: .top, endPoint: .center), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
             .clipShape(shape)
+            // Tiefe statt Kanten.
+            .shadow(color: .black.opacity(0.20), radius: 14, y: 5)
             .scrollTransition(.interactive, axis: .vertical) { card, phase in
                 card.opacity(calm || phase != .bottomTrailing ? 1 : 0.90)
             }

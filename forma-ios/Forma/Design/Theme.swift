@@ -73,11 +73,13 @@ enum Space {
     static let page: CGFloat = 16
     /// Abstand zwischen Karten
     static let gap: CGFloat = 12
+    /// Innenabstand in Karten (F7-04)
+    static let card: CGFloat = 20
 }
 
 enum Radius {
     /// Karten
-    static let plate: CGFloat = 20
+    static let plate: CGFloat = 24
     static let small: CGFloat = 12
     static let dock: CGFloat = 30
 }

@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Flächen und Zeilen
 
-/// Ruhige, matte Inhaltskarte (Radius 20) mit feiner Lichtkante oben. Kein Glas: Inhalte bleiben lesbar.
+/// Ruhige, matte Inhaltskarte (Radius `Radius.plate`) mit kaum sichtbarem Lichtsaum oben und weichem Schatten. Kein Glas: Inhalte bleiben lesbar.
 struct Plate<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -12,11 +12,12 @@ struct Plate<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shape.fill(Theme.card))
             .overlay(
-                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
-                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.75)
+                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.06), .clear],
+                                                  startPoint: .top, endPoint: .center), lineWidth: 0.5)
                     .allowsHitTesting(false)
             )
             .clipShape(shape)
+            .shadow(color: .black.opacity(0.20), radius: 14, y: 5)
     }
 }
 

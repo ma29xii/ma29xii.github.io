@@ -64,6 +64,33 @@ struct FormaPressStyle: ButtonStyle {
     }
 }
 
+/// Druck-Effekt für antippbare Karten (F7-04): sinkt beim Berühren sofort leicht ein, federt beim Loslassen zurück.
+/// Bei „Bewegung reduzieren“ nur ein kurzes Abdunkeln, keine Bewegung.
+struct FormaCardPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Pressable(configuration: configuration)
+    }
+
+    private struct Pressable: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        let configuration: ButtonStyleConfiguration
+
+        var body: some View {
+            let pressed = configuration.isPressed
+            let motion: Animation = reduceMotion ? FormaMotion.calm
+                : pressed ? Animation.easeOut(duration: 0.12) : Animation.spring(response: 0.32, dampingFraction: 0.72)
+            configuration.label
+                .scaleEffect(pressed && !reduceMotion ? 0.975 : 1)
+                .opacity(pressed ? 0.88 : 1)
+                .animation(motion, value: pressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == FormaCardPressStyle {
+    static var formaCard: FormaCardPressStyle { FormaCardPressStyle() }
+}
+
 private struct FormaNumberRoll: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let value: Double

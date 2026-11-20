@@ -96,18 +96,15 @@ final class ScreenTour: XCTestCase {
         return found
     }
 
+    /// „Anpassen“ hat keinen sichtbaren Knopf mehr (Hochziehen am Ende). Im UI-Test ist der unsichtbare Ersatz
+    /// `tiles.edit` antippbar; `tiles.done` („Fertig“) erscheint nur im Bearbeitungsmodus.
     private func finishEditing() {
         let done = app.buttons["tiles.done"]
-        if done.exists && done.isHittable {
-            done.tap()
-            return
-        }
-        let edit = app.buttons["tiles.edit"]
-        guard reveal(edit), edit.label == "Fertig" else {
+        guard reveal(done) else {
             XCTFail("Der Bearbeitungsmodus lässt sich nicht beenden")
             return
         }
-        edit.tap()
+        done.tap()
     }
 
     /// Schließt ein Blatt: erst ein sichtbarer Knopf, sonst nach unten wischen.

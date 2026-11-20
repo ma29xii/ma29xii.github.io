@@ -29,12 +29,12 @@ struct InsightLink<Destination: View>: View {
                     }
                     Spacer(minLength: Space.s2)
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityLabel(title)
         .accessibilityValue(subtitle)
         .accessibilityIdentifier(identifier)
@@ -109,7 +109,7 @@ private struct StrainPathDetail: View {
                         }
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
             }
         }
     }
@@ -212,7 +212,7 @@ private struct SleepConsistencyDetail: View {
                     }
                 }
                 .font(.formaCaption)
-                .padding(Space.s4)
+                .padding(Space.card)
             }
         }
     }
@@ -286,7 +286,7 @@ struct StressTrendCard: View {
                             .formaNumberTransition(Double(value.count))
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
             }
         }
     }

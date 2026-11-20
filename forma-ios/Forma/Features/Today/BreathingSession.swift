@@ -20,12 +20,12 @@ struct BreathingLink: View {
                         .frame(width: 32, height: 32)
                         .background(Theme.plate, in: Circle())
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityLabel("Atemübung starten")
         .accessibilityIdentifier("breathing.open")
         .fullScreenCover(isPresented: $open) { BreathingSession() }

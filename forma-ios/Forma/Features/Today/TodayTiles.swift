@@ -21,7 +21,7 @@ struct StepsDetail: View {
                             .formaNumberTransition(snapshot.day.steps ?? 0)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Space.s4)
+                    .padding(Space.card)
                 }
                 HourlyValueChart(title: "Schritte pro Stunde", points: points, color: Theme.strain,
                                  maximum: max(100, (points.map(\.value).max() ?? 0) * 1.1),
@@ -117,12 +117,12 @@ struct TodayWaterCard: View {
                         .frame(height: 10)
                         .accessibilityHidden(true)
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityLabel("Wasser")
         .accessibilityValue(value)
         .accessibilityIdentifier("today.hydration")
@@ -180,11 +180,11 @@ struct TodayFoodCard: View {
                         macro("Fett", entries.map(\.fat), tint: Theme.sleep)
                     }
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityHint("Öffnet Food")
         .accessibilityIdentifier("today.food")
     }

@@ -23,12 +23,12 @@ struct WeeklyRecapLink: View {
                     }
                     Spacer(minLength: Space.s2)
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityIdentifier("today.weekly.open")
         .fullScreenCover(isPresented: $open) {
             WeeklyRecapStory(rows: rows, dayCount: period.dayCount)

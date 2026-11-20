@@ -237,12 +237,12 @@ struct TodayView: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .frame(minHeight: 56)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityLabel("Coach")
         .accessibilityValue(sentence)
         .accessibilityHint("Öffnet den Coach")
@@ -280,11 +280,11 @@ struct TodayView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .padding(Space.s4)
+                .padding(Space.card)
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.formaCard)
         .accessibilityLabel("Schritte")
         .accessibilityValue(Self.spokenSteps(steps: value, goal: goal))
         .accessibilityIdentifier("today.steps")

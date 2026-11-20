@@ -51,18 +51,15 @@ struct HealthMonitor: View {
         let byID = Dictionary(uniqueKeysWithValues: readings.map { ($0.id, $0) })
         let items = [MetricKind.respiratoryRate, .restingHR, .hrv, .spo2, .skinTemperature]
             .compactMap { byID[$0.rawValue] } + [MonitorReading(sleepOf: snapshot)]
+        // Keine sichtbare Überschrift mehr (Maxi F7-01); der Titel steht im Anpassen-Modus und für VoiceOver.
         VStack(alignment: .leading, spacing: Space.s2) {
-            Button { showOverview = true } label: {
-                DashboardHeading(title: "Health Monitor")
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Health Monitor, Messübersicht")
-            .accessibilityIdentifier("health.monitor")
             if editing { TileLayoutToggle(layout: $layout) }
             HealthVitalGrid(readings: items, layout: layout)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Health Monitor")
+        .accessibilityIdentifier("health.monitor")
+        .accessibilityAction(named: "Messübersicht öffnen") { showOverview = true }
         .sheet(isPresented: $showOverview) {
             NavigationStack {
                 HealthMonitorDetail(readings: items, markedNight: check.isMarked)
@@ -103,7 +100,7 @@ private struct HealthVitalGrid: View {
             } label: {
                 label()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.formaCard)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(reading.title)
             .accessibilityValue(reading.spokenValue)
