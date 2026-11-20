@@ -41,7 +41,8 @@ struct CoachView: View {
             history: hub.history)
     }
 
-    private let suggestions = ["Warum ist meine Erholung so?", "Was soll ich heute trainieren?", "Wann soll ich ins Bett?", "Wie viel Belastung ist heute gut?"]
+    /// Jede Frage hat eine lokale Antwort in `CoachEngine.localAnswer`; „Wann soll ich …“ bleibt für den UI-Rundgang.
+    private let suggestions = ["Wie war mein Schlaf?", "Soll ich heute trainieren?", "Wann soll ich ins Bett?", "Wie viel Belastung ist heute gut?"]
 
     var body: some View {
         NavigationStack {
@@ -63,16 +64,13 @@ struct CoachView: View {
                             }
                         }
                         .padding(.top, Space.s1)
-                        header
+                        dayCard
+                        suggestionChips
                         suggestionCard
                         ForEach(messages) { message in
                             bubble(message).id(message.id)
                         }
-                        if thinking {
-                            Text("Denkt nach …")
-                                .font(.formaCaptionStrong)
-                                .foregroundStyle(Theme.textSecondary)
-                        }
+                        if thinking { ThinkingBubble() }
                         Color.clear.frame(height: 1).id("end")
                     }
                     .padding(.horizontal, Space.page)
@@ -83,6 +81,9 @@ struct CoachView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .refreshable { await hub.syncAndNotify(background: false) }
                 .onChange(of: messages.count) { _, _ in
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                .onChange(of: thinking) { _, _ in
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo("end", anchor: .bottom) }
                 }
             }
@@ -134,17 +135,72 @@ struct CoachView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Space.s2) {
-            Text("Heute").formaLabelStyle()
-            Text(CoachEngine.dailyLine(context))
-                .font(.system(.title3, weight: .medium))
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+    // MARK: Tageskarte
+
+    private var dayCard: some View {
+        let c = context
+        return Plate {
+            VStack(alignment: .leading, spacing: Space.s3) {
+                HStack(alignment: .top, spacing: Space.s2) {
+                    dayValue("Recovery", c.recoveryAvailable ? "\(c.scores.recovery)" : nil,
+                             tint: c.recoveryAvailable ? Theme.recovery(c.scores.recovery) : Theme.textSecondary,
+                             spoken: c.recoveryAvailable ? "\(c.scores.recovery) Prozent" : nil)
+                    dayValue("Strain-Ziel", c.recoveryAvailable ? "\(c.scores.target.lowerBound)–\(c.scores.target.upperBound)" : nil,
+                             tint: Theme.strain,
+                             spoken: c.recoveryAvailable ? "\(c.scores.target.lowerBound) bis \(c.scores.target.upperBound)" : nil)
+                    dayValue("Schlafbedarf", c.sleepNeed.map(Format.duration), tint: Theme.sleep,
+                             spoken: c.sleepNeed.map(Format.duration))
+                }
+                Text(CoachEngine.dailyLine(c))
+                    .font(.system(.callout, weight: .medium))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Space.s4)
+        }
+        .padding(.top, Space.s1)
+    }
+
+    private func dayValue(_ title: String, _ value: String?, tint: Color, spoken: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.formaMicro).tracking(Tracking.micro).textCase(.uppercase)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Text(value ?? "–")
+                .font(.formaNumber)
+                .foregroundStyle(value == nil ? Theme.textTertiary : tint)
+                .lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, Space.s3)
-        .padding(.bottom, Space.s2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) \(spoken ?? "keine Messung")")
+    }
+
+    // MARK: Vorschlags-Chips
+
+    private var suggestionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Space.s2) {
+                ForEach(suggestions, id: \.self) { s in
+                    Button { send(s) } label: {
+                        Text(s)
+                            .font(.formaCaptionStrong)
+                            .foregroundStyle(Theme.textPrimary)
+                            .padding(.horizontal, Space.s4)
+                            .frame(minHeight: 44)
+                            .background(Capsule().fill(Theme.card))
+                            .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 0.75))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(thinking)
+                }
+            }
+            .padding(.horizontal, Space.page)
+        }
+        // Bis zum Rand scrollen, obwohl der Inhalt links eingerückt ist.
+        .padding(.horizontal, -Space.page)
     }
 
     private func sourceChip(_ title: String, systemImage: String) -> some View {
@@ -202,79 +258,70 @@ struct CoachView: View {
     // MARK: Chat
 
     private func bubble(_ m: ChatMessage) -> some View {
-        HStack(alignment: .bottom, spacing: Space.s2) {
-            if m.role == .user { Spacer(minLength: 48) }
-            VStack(alignment: m.role == .user ? .trailing : .leading, spacing: 6) {
+        let isUser = m.role == .user
+        return HStack(alignment: .bottom, spacing: Space.s2) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 if let photos = messagePhotos[m.id], !photos.isEmpty { CoachBubblePhotos(photos: photos) }
-                Text(m.text)
-                    .font(.formaBody)
-                    .foregroundStyle(m.role == .user ? Theme.onSelection : Theme.textPrimary)
+                Text(Self.markdown(m.text))
+                    .font(.formaBody.monospacedDigit())
+                    .foregroundStyle(isUser ? Theme.onSelection : Theme.textPrimary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .background {
                         let shape = UnevenRoundedRectangle(
-                            topLeadingRadius: Radius.plate, bottomLeadingRadius: m.role == .user ? Radius.plate : 6,
-                            bottomTrailingRadius: m.role == .user ? 6 : Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
-                        shape.fill(m.role == .user ? Theme.selection : Theme.card)
-                            .overlay { if m.role == .coach { shape.strokeBorder(Theme.hairline, lineWidth: 0.75) } }
+                            topLeadingRadius: Radius.plate, bottomLeadingRadius: isUser ? Radius.plate : 6,
+                            bottomTrailingRadius: isUser ? 6 : Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
+                        shape.fill(isUser ? Theme.selection : Theme.card)
+                            .overlay { if !isUser { shape.strokeBorder(Theme.hairline, lineWidth: 0.75) } }
                     }
                     .textSelection(.enabled)
+                    .accessibilityLabel((isUser ? "Du: " : "Coach: ") + m.text.replacingOccurrences(of: "**", with: ""))
             }
-            if m.role == .coach { Spacer(minLength: 48) }
+            if !isUser { Spacer(minLength: 48) }
         }
+    }
+
+    /// Fettdruck aus Markdown (`**Wort**`), Zeilenumbrüche bleiben erhalten.
+    private static func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+
+    private var canSend: Bool {
+        !(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) && !thinking && !photosLoading
     }
 
     private var composer: some View {
         VStack(spacing: Space.s2) {
-            if messages.isEmpty {
-                // Vollständig lesbare Einstiegsfragen statt abgeschnittener Chips (Codex R-01-33).
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(suggestions.enumerated()), id: \.element) { index, s in
-                        if index > 0 { RowDivider() }
-                        Button { send(s) } label: {
-                            HStack(spacing: Space.s3) {
-                                Text(s).font(.formaBody).frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Theme.textQuaternary)
-                                    .accessibilityHidden(true)
-                            }
-                            .padding(.horizontal, Space.s4).frame(minHeight: 46)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.75))
-                .padding(.horizontal, Space.page)
-            }
             CoachPhotoStrip(photos: $attachments)
-            HStack(alignment: .bottom, spacing: Space.s2) {
+            HStack(alignment: .bottom, spacing: Space.s1) {
                 CoachPhotoButton(photos: $attachments, isLoading: $photosLoading)
+                    .frame(minWidth: 44, minHeight: 44)
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
                     .font(.formaBody)
                     .lineLimit(1...4)
                     .focused($inputFocused)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, 12)
                     .frame(minHeight: 44)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 22))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 22)
-                            .strokeBorder(Theme.hairline, lineWidth: 0.75)
-                            .allowsHitTesting(false)
-                    }
                     .accessibilityIdentifier("coach.input")
                 Button { send(input) } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 44, height: 44)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Theme.onSelection)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(Theme.selection))
+                        .opacity(canSend ? 1 : 0.35)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.circle)
-                .disabled((input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) || thinking || photosLoading)
+                .buttonStyle(.plain)
+                .disabled(!canSend)
                 .accessibilityLabel("Senden")
             }
+            .padding(.horizontal, Space.s1)
+            .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
             .padding(.horizontal, Space.page)
         }
         .padding(.vertical, Space.s2)
@@ -391,6 +438,37 @@ struct CoachView: View {
             if !photos.isEmpty { answer = "Fotos sehe ich nur im Online-Coach. Hier kann ich nur zu deinen Werten antworten.\n\n" + answer }
             messages.append(ChatMessage(role: .coach, text: answer, localOnly: true))
         }
+    }
+}
+
+/// „Denkt nach“: drei pulsierende Punkte in einer Coach-Blase. Mit „Bewegung reduzieren“ stehen sie still.
+private struct ThinkingBubble: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: Radius.plate, bottomLeadingRadius: 6,
+            bottomTrailingRadius: Radius.plate, topTrailingRadius: Radius.plate, style: .continuous)
+        HStack {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                HStack(spacing: 5) {
+                    ForEach(0..<3, id: \.self) { i in
+                        let wave = reduceMotion ? 0.5 : max(0, sin(t * 4 - Double(i) * 0.8))
+                        Circle().fill(Theme.textSecondary)
+                            .frame(width: 7, height: 7)
+                            .opacity(0.3 + 0.7 * wave)
+                            .offset(y: reduceMotion ? 0 : -2 * wave)
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 15)
+            .background(shape.fill(Theme.card))
+            .overlay(shape.strokeBorder(Theme.hairline, lineWidth: 0.75))
+            Spacer(minLength: 48)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Coach denkt nach")
     }
 }
 
