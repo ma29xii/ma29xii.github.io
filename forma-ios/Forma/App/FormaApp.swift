@@ -86,23 +86,16 @@ struct RootView: View {
             Tab("Coach", systemImage: "bubble.left.and.bubble.right", value: AppTab.coach) {
                 CoachView().scrollEdgeEffectStyle(.soft, for: .all)
             }
-            // Plus: Die Rolle `.search` setzt den Knopf als eigene runde Glas-Insel rechts neben die Leiste
-            // (Systemplatz, keine nachgebaute Schwebefläche). Er wählt keinen Inhalt, sondern öffnet das Menü.
-            Tab(value: AppTab.add, role: .search) {
+            // iOS übernimmt das Symbol aus der Tab-Konfiguration. View-Transformationen im Label werden verworfen.
+            Tab(app.showPlus ? "Plus-Menü schließen" : "Plus",
+                systemImage: app.showPlus ? "xmark" : "plus", value: AppTab.add, role: .search) {
                 Color.clear
-            } label: {
-                Label {
-                    Text(app.showPlus ? "Plus-Menü schließen" : "Plus")
-                } icon: {
-                    Image(systemName: "plus")
-                        .rotationEffect(.degrees(app.showPlus ? 45 : 0))
-                        .animation(reduceMotion ? nil : .snappy(duration: 0.32, extraBounce: 0.06), value: app.showPlus)
-                }
             }
             .accessibilityIdentifier("tab.plus")
         }
         // Ruhige Leiste: bleibt stehen, Glas vom System, Auswahl hell statt farbig.
         .tabBarMinimizeBehavior(.never)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.32, extraBounce: 0.06), value: app.showPlus)
         .plusFlow()
         .fullScreenCover(item: $shownWorkout) { workout in
             LiveWorkoutView(workout: workout)
