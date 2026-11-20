@@ -106,6 +106,11 @@ struct AchievementUnlockBanner: View {
         let unlock = tracker?.visibleUnlock(scope: scope, isSample: isSample)
         ZStack(alignment: .top) {
             if let unlock, let first = unlock.achievements.first {
+                if !reduceMotion {
+                    ConfettiBurst(tint: first.tint)
+                        .id(unlock.id)
+                        .frame(height: 360)
+                }
                 HStack(spacing: 12) {
                     AchievementBadge(achievement: first, unlocked: true, size: 38)
                     VStack(alignment: .leading, spacing: 2) {
@@ -125,6 +130,47 @@ struct AchievementUnlockBanner: View {
             }
         }
         .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.28), value: unlock?.id)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Einmaliger Konfetti-Stoß beim Freischalten (1,6 s, danach steht die Zeitleiste still).
+private struct ConfettiBurst: View {
+    let tint: Color
+    @State private var start = Date.now
+    @State private var done = false
+
+    private static let duration = 1.6
+    private static let count = 42
+
+    var body: some View {
+        TimelineView(.animation(paused: done)) { tick in
+            let t = tick.date.timeIntervalSince(start)
+            Canvas { context, size in
+                guard t < Self.duration else { return }
+                let colors = [tint, Theme.recoveryHigh, Theme.sleep, Theme.warning, Theme.textPrimary]
+                for index in 0..<Self.count {
+                    let seed = Double(index)
+                    // Feste Pseudozufallswerte je Teilchen, damit der Stoß bei jedem Bild gleich aussieht.
+                    let noise = abs(sin(seed * 12.9898) * 43_758.5453).truncatingRemainder(dividingBy: 1)
+                    let angle = -Double.pi * (0.1 + 0.8 * seed / Double(Self.count)) + (noise - 0.5) * 0.5
+                    let speed = 180 + noise * 160
+                    let x = size.width / 2 + cos(angle) * speed * t
+                    let y = 48 + sin(angle) * speed * t + 420 * t * t
+                    var piece = context
+                    piece.opacity = max(0, 1 - t / Self.duration)
+                    piece.translateBy(x: x, y: y)
+                    piece.rotate(by: .radians(t * (4 + noise * 8) + seed))
+                    piece.fill(Path(roundedRect: CGRect(x: -3, y: -5, width: 6, height: 10), cornerRadius: 1.5),
+                               with: .color(colors[index % colors.count]))
+                }
+            }
+        }
+        .task {
+            do { try await Task.sleep(for: .seconds(Self.duration + 0.1)) } catch { return }
+            done = true
+        }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
