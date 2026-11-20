@@ -42,6 +42,43 @@ final class Runde17FastingWidgetTests: XCTestCase {
         XCTAssertEqual(state.pending, [.start(session)])
     }
 
+    func testAnOutdatedStopButtonDoesNotEndTheNextFast() throws {
+        let store = try makeStore()
+        let secondStart = start.addingTimeInterval(600)
+        try store.toggle(at: start)
+        try store.toggle(at: start.addingTimeInterval(300))
+        try store.toggle(at: secondStart)
+        let before = try store.state()
+
+        XCTAssertNil(try store.toggle(at: secondStart.addingTimeInterval(60), expectedActive: true,
+                                      expectedStart: start))
+        XCTAssertEqual(try store.state(), before)
+    }
+
+    func testMatchingStopReturnsThePersistedEndAndDoesNotRestartOnRetry() throws {
+        let store = try makeStore()
+        try store.toggle(at: start)
+        let end = start.addingTimeInterval(300)
+
+        XCTAssertEqual(try store.toggle(at: end, expectedActive: true, expectedStart: start),
+                       .end(start: start, at: end))
+        let stopped = try store.state()
+        XCTAssertNil(stopped.active)
+        XCTAssertEqual(stopped.pending.last, .end(start: start, at: end))
+        XCTAssertNil(try store.toggle(at: end, expectedActive: true, expectedStart: start))
+        XCTAssertEqual(try store.state(), stopped)
+    }
+
+    func testLegacyStopButtonWithoutAStartCannotEndTheCurrentFast() throws {
+        let store = try makeStore()
+        try store.toggle(at: start)
+        let before = try store.state()
+
+        try store.toggle(at: start.addingTimeInterval(300), expectedActive: true)
+
+        XCTAssertEqual(try store.state(), before)
+    }
+
     func testAFailedTransferLeavesEventsPending() throws {
         struct TransferFailure: Error {}
         let store = try makeStore()

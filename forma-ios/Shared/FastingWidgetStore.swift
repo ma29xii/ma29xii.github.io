@@ -48,19 +48,26 @@ struct FastingWidgetStore: Sendable {
         return try load(from: directory.appendingPathComponent("state.json")) ?? State()
     }
 
-    func toggle(at date: Date = .now, expectedActive: Bool? = nil) throws {
+    @discardableResult
+    func toggle(at date: Date = .now, expectedActive: Bool? = nil, expectedStart: Date? = nil) throws -> Event? {
+        var event: Event?
         try update { state in
             // Ein Widget kann einen älteren Stand anzeigen, während die App das Fasten schon geändert hat.
             if let expectedActive, expectedActive != (state.active != nil) { return }
+            let change: Event
             if let active = state.active {
-                state.pending.append(.end(start: active.start, at: max(active.start, date)))
+                if expectedActive == true, expectedStart != active.start { return }
+                change = .end(start: active.start, at: max(active.start, date))
                 state.active = nil
             } else {
                 let session = FastingAttributes(start: date, targetHours: state.planHours)
-                state.pending.append(.start(session))
+                change = .start(session)
                 state.active = session
             }
+            state.pending.append(change)
+            event = change
         }
+        return event
     }
 
     /// Schützt den gesamten Schreibvorgang prozessübergreifend. Leser sehen immer eine vollständige Datei.

@@ -6,6 +6,21 @@ enum WaterReminder {
     private static let minimumSpacing: TimeInterval = 2 * 60 * 60
     private static let dailyLimit = 4
 
+    struct Plan {
+        let date: Date
+        let remainingMilliliters: Double
+    }
+
+    static func plan(goal: Double, total: Double, now: Date, history: [Date], calendar: Calendar) -> Plan? {
+        guard total.isFinite, total >= 0 else { return nil }
+        if let today = nextDate(goal: goal, total: total, now: now, history: history, calendar: calendar) {
+            return Plan(date: today, remainingMilliliters: goal - total)
+        }
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+              let first = nextDate(goal: goal, total: 0, now: tomorrow, history: [], calendar: calendar) else { return nil }
+        return Plan(date: first, remainingMilliliters: goal)
+    }
+
     static func target(goal: Double, at date: Date, calendar: Calendar) -> Double {
         guard let window = window(on: date, calendar: calendar) else { return 0 }
         let fraction = date.timeIntervalSince(window.lowerBound)
@@ -60,22 +75,25 @@ enum WaterReminderNotifications {
     }
 
     private static var queued: Update?
-    private static var isUpdating = false
+    private static var updateTask: Task<Void, Never>?
 
-    static func refresh(goal: Double, total: Double, measuredAt: Date, calendar: Calendar, defaults: UserDefaults) {
-        guard !FormaApp.isUITest else { return }
-        if !isUpdating, !defaults.bool(forKey: enabledKey), defaults.object(forKey: plannedKey) == nil { return }
+    @discardableResult
+    static func refresh(goal: Double, total: Double, measuredAt: Date, calendar: Calendar,
+                        defaults: UserDefaults) -> Task<Void, Never>? {
+        guard !ProcessInfo.processInfo.arguments.contains("-uitest") else { return nil }
+        if updateTask == nil, !defaults.bool(forKey: enabledKey), defaults.object(forKey: plannedKey) == nil { return nil }
         queued = Update(goal: goal, total: total, measuredAt: measuredAt, calendar: calendar, defaults: defaults)
-        guard !isUpdating else { return }
-        isUpdating = true
+        if let updateTask { return updateTask }
         // Nur ein Schreibvorgang zur Zeit. Neuere Wasserstände ersetzen wartende Aktualisierungen.
-        Task { @MainActor in
+        let task = Task { @MainActor in
             while let update = queued {
                 queued = nil
                 await apply(update)
             }
-            isUpdating = false
+            updateTask = nil
         }
+        updateTask = task
+        return task
     }
 
     private static func apply(_ update: Update) async {
@@ -103,10 +121,10 @@ enum WaterReminderNotifications {
             defaults.set(history, forKey: historyKey)
             defaults.removeObject(forKey: plannedKey)
         }
+        let total = update.calendar.isDate(update.measuredAt, inSameDayAs: now) ? update.total : 0
         guard defaults.bool(forKey: enabledKey), status == .authorized || status == .provisional,
-              update.calendar.isDate(update.measuredAt, inSameDayAs: now),
-              let next = WaterReminder.nextDate(goal: update.goal, total: update.total, now: now,
-                                                history: history, calendar: update.calendar) else {
+              let plan = WaterReminder.plan(goal: update.goal, total: total, now: now,
+                                            history: history, calendar: update.calendar) else {
             center.removePendingNotificationRequests(withIdentifiers: [identifier])
             defaults.removeObject(forKey: plannedKey)
             return
@@ -114,15 +132,17 @@ enum WaterReminderNotifications {
 
         let content = UNMutableNotificationContent()
         content.title = "Wasser"
-        content.body = "Noch \(FoodText.liters(update.goal - update.total)) bis zu deinem Ziel"
+        let liters = (plan.remainingMilliliters / 1_000).formatted(
+            .number.precision(.fractionLength(0...2)).locale(Locale(identifier: "de_DE")))
+        content.body = "Noch \(liters) l bis zu deinem Ziel"
         content.threadIdentifier = "water"
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = .gmt
-        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: next)
+        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.date)
         components.timeZone = utc.timeZone
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-        defaults.set(next, forKey: plannedKey)
+        defaults.set(plan.date, forKey: plannedKey)
         do {
             try await center.add(request)
         } catch {

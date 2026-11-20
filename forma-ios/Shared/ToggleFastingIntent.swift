@@ -1,24 +1,35 @@
+import ActivityKit
 import AppIntents
 import Foundation
 import WidgetKit
 
-struct ToggleFastingIntent: AppIntent {
+struct ToggleFastingIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Fasten starten/beenden"
-    static let supportedModes: IntentModes = .background
 
     @Parameter(title: "Fasten läuft") var expectedActive: Bool?
+    @Parameter(title: "Fastenstart") var expectedStart: Date?
 
     init() {}
 
-    init(expectedActive: Bool) {
-        self.expectedActive = expectedActive
+    init(expectedStart: Date?) {
+        self.expectedActive = expectedStart != nil
+        self.expectedStart = expectedStart
     }
 
+    @MainActor
     func perform() async throws -> some IntentResult {
+        let event: FastingWidgetStore.Event?
         do {
-            try FastingWidgetStore.shared.toggle(expectedActive: expectedActive)
+            event = try FastingWidgetStore.shared.toggle(expectedActive: expectedActive, expectedStart: expectedStart)
         } catch {
             throw SaveFastingError()
+        }
+        if case .end(let start, let end)? = event {
+            let content = ActivityContent(state: FastingAttributes.ContentState(end: end), staleDate: nil)
+            for activity in Activity<FastingAttributes>.activities where activity.attributes.start == start {
+                nonisolated(unsafe) let target = activity
+                await target.end(content, dismissalPolicy: .immediate)
+            }
         }
         WidgetCenter.shared.reloadTimelines(ofKind: FastingWidgetStore.widgetKind)
         return .result()

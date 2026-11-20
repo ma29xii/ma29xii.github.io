@@ -81,7 +81,7 @@ private struct FastingWidgetView: View {
         Group {
             if isAccessory {
                 if let state = entry.state {
-                    Button(intent: ToggleFastingIntent(expectedActive: state.active != nil)) {
+                    Button(intent: ToggleFastingIntent(expectedStart: state.active?.start)) {
                         ring.contentShape(Circle())
                     }
                     .buttonStyle(.plain)
@@ -93,7 +93,7 @@ private struct FastingWidgetView: View {
                 VStack(spacing: 2) {
                     ring.frame(maxWidth: 76, maxHeight: 76)
                     if let state = entry.state {
-                        Button(intent: ToggleFastingIntent(expectedActive: state.active != nil)) {
+                        Button(intent: ToggleFastingIntent(expectedStart: state.active?.start)) {
                             Text(state.active == nil ? "Starten" : "Beenden")
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
