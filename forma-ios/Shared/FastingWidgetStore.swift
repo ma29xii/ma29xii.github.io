@@ -76,9 +76,8 @@ struct FastingWidgetStore: Sendable {
         }
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { _ = Darwin.close(descriptor) }
-        // Die Funktion flock wird vom gleichnamigen C-Struct verdeckt; der Typ wählt die Funktion.
-        let lockDescriptor: (Int32, Int32) -> Int32 = Darwin.flock
-        guard lockDescriptor(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        // lockf statt flock: In Swift verdeckt das C-Struct `flock` die gleichnamige Funktion.
+        guard Darwin.lockf(descriptor, F_TLOCK, 0) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
 
