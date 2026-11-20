@@ -107,6 +107,7 @@ struct StressDetail: View {
                 .accessibilityLabel("Stress")
                 .accessibilityValue(StressMonitorCard.spokenValue(value))
             }
+            BreathingLink()
 
             DaySignalChart(signals: signals, kind: .stress)
             if signals.stress != nil {

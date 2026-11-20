@@ -209,7 +209,23 @@ final class ScreenTour: XCTestCase {
         back()
         app.swipeDown(); app.swipeDown()
         captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
-        captureDetail("today.stress.open", title: "Stress Monitor", screenshot: "08d Stress Monitor")
+        let stress = el("today.stress.open")
+        if reveal(stress) {
+            stress.tap()
+            if app.navigationBars["Stress Monitor"].waitForExistence(timeout: 3) {
+                shot("08d Stress Monitor")
+                // Atemübung: nur der Startbildschirm (die laufende Animation hält XCUITest auf).
+                let breathe = el("breathing.open")
+                if breathe.waitForExistence(timeout: 2) {
+                    breathe.tap()
+                    if el("breathing.start").waitForExistence(timeout: 3) { shot("08h Atmen") }
+                    else { XCTFail("Atemübung öffnet nicht") }
+                    let close = el("breathing.close")
+                    if close.exists { close.tap() }
+                } else { XCTFail("Atmen fehlt im Stress Monitor") }
+                back()
+            } else { XCTFail("Die Detailseite Stress Monitor fehlt") }
+        } else { XCTFail("Der Einstieg für Stress Monitor fehlt") }
         captureDetail("today.energy", title: "Energie", screenshot: "08f Energie")
         if reveal(el("today.food")) { shot("08g Heutiges Essen") } else { XCTFail("Essensanzeige fehlt") }
         // Wochenrückblick als Story (im Rundgang unabhängig vom Wochentag sichtbar).
