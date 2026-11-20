@@ -165,7 +165,8 @@ private struct PullToEditControl: View {
 
     var body: some View {
         Button(action: onEdit) {
-            Color.clear.frame(maxWidth: .infinity).frame(height: 44)
+            // Durchsichtige Fläche ist ohne contentShape nicht antippbar (auch nicht für XCUITest).
+            Color.clear.frame(maxWidth: .infinity).frame(height: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // Sehende tippen hier nicht versehentlich; nur der UI-Rundgang braucht die Trefferfläche.

@@ -276,8 +276,7 @@ enum CoachProviders {
         Nutze den persönlichen Kontext, ohne ihn aufzuzählen, und beachte gemerkte Angaben wie Unverträglichkeiten immer. \
         Isst die Person eine Mahlzeit am Tag, schlage keine zusätzlichen Mahlzeiten vor.
         Daten von heute:
-        \(dailyContext.isEmpty ? "Keine Tageswerte für diese Frage." : limited(dailyContext, characters: 4000, bytes: 16000))
-        \(personalSection)
+        \(dailyContext.isEmpty ? "Keine Tageswerte für diese Frage." : limited(dailyContext, characters: 4000, bytes: 16000))\(personalSection)
         """
         let prompt = Prompt(
             system: system, messages: Array(messages.drop(while: { $0["role"] != "user" })),
