@@ -172,6 +172,19 @@ final class ScreenTour: XCTestCase {
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
         shot("01 Today")
 
+        // Vitalwerte als Balken in einer Reihe (F5-03), danach zurück zu Karten.
+        let layout = el("health.monitor.layout")
+        if reveal(layout) {
+            layout.tap()
+            if tapButton(beginningWith: "Balken", timeout: 3) {
+                sleep(1)
+                shot("01b Vitalwerte Balken")
+                layout.tap()
+                _ = tapButton(beginningWith: "Karten", timeout: 3)
+            }
+            app.swipeDown(); app.swipeDown()
+        }
+
         // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
         for (kind, name) in [("sleep", "06 Sleep"), ("recovery", "04 Recovery"), ("strain", "08 Strain")] {
             let ring = app.buttons["ring.\(kind)"]

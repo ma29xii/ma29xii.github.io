@@ -54,46 +54,33 @@ private struct HealthVitalGrid: View {
     private var showsColumns: Bool { layout == .columns && !typeSize.isAccessibilitySize }
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
-                                 count: typeSize.isAccessibilitySize ? 1 : (showsColumns ? 3 : 2)),
-                  alignment: .leading, spacing: Space.s2) {
-            ForEach(readings) { reading in
-                if let metric = MetricKind(rawValue: reading.id) {
-                    NavigationLink {
-                        MetricDetailView(kind: metric)
-                    } label: {
-                        if showsColumns { column(reading) } else { tile(reading) }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(reading.title)
-                    .accessibilityValue(reading.spokenValue)
-                    .accessibilityIdentifier("health.monitor.metric." + reading.id)
-                }
+        if showsColumns {
+            // Balken: alle Werte in einer Reihe (Maxi F5-03).
+            HStack(spacing: 6) {
+                ForEach(readings) { reading in link(reading) { VitalPill(reading: reading) } }
+            }
+        } else {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
+                                     count: typeSize.isAccessibilitySize ? 1 : 2),
+                      alignment: .leading, spacing: Space.s2) {
+                ForEach(readings) { reading in link(reading) { tile(reading) } }
             }
         }
     }
 
-    private func column(_ reading: MonitorReading) -> some View {
-        DashboardCard {
-            VStack(spacing: Space.s1) {
-                MetricScale(value: reading.scaleValue, tint: reading.tint, axis: .vertical, target: 25...75)
-                    .frame(width: 24, height: 70)
-                    .padding(.bottom, Space.s1)
-                Text(reading.measurement)
-                    .font(.formaValue.monospacedDigit())
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Label(reading.shortTitle, systemImage: reading.icon)
-                    .font(.formaMicro)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+    @ViewBuilder
+    private func link<Label: View>(_ reading: MonitorReading, @ViewBuilder label: () -> Label) -> some View {
+        if let metric = MetricKind(rawValue: reading.id) {
+            NavigationLink {
+                MetricDetailView(kind: metric)
+            } label: {
+                label()
             }
-            .padding(Space.s2)
-            .frame(maxWidth: .infinity, minHeight: 126)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(reading.title)
+            .accessibilityValue(reading.spokenValue)
+            .accessibilityIdentifier("health.monitor.metric." + reading.id)
         }
     }
 
@@ -122,6 +109,76 @@ private struct HealthVitalGrid: View {
             .padding(Space.s3)
             .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
             .contentShape(Rectangle())
+        }
+    }
+}
+
+/// Hohe Kapsel: senkrechter Bereichsbalken mit Punkt, darunter Wert, Einheit und Symbol.
+private struct VitalPill: View {
+    let reading: MonitorReading
+
+    var body: some View {
+        VStack(spacing: Space.s1) {
+            gauge
+                .frame(width: 26, height: 84)
+                .padding(.bottom, Space.s2)
+                .accessibilityHidden(true)
+            Text(reading.valueText)
+                .font(.system(.headline, design: .rounded, weight: .bold).monospacedDigit())
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+            Text(reading.unitText)
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Image(systemName: reading.icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.top, Space.s1)
+        }
+        .padding(.vertical, Space.s3)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity)
+        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    /// Mittlere Hälfte der Skala = persönlicher Bereich, Striche oben und unten = außerhalb.
+    private var gauge: some View {
+        GeometryReader { proxy in
+            let inset: CGFloat = 12
+            let span = proxy.size.height - 2 * inset
+            let fillTint = reading.inRange == false ? Theme.strain : reading.tint
+            ZStack {
+                Capsule().fill(Color.black.opacity(0.28))
+                VStack {
+                    Capsule().fill(Theme.textQuaternary).frame(width: 12, height: 4)
+                    Spacer()
+                    Capsule().fill(Theme.textQuaternary).frame(width: 12, height: 4)
+                }
+                .padding(.vertical, 4)
+                if let value = reading.scaleValue {
+                    let position = inset + span * (1 - value / 100)
+                    let top = min(position, inset + span * 0.25)
+                    let bottom = max(position, inset + span * 0.75)
+                    Capsule()
+                        .fill(LinearGradient(colors: [fillTint.opacity(0.95), fillTint.opacity(0.6)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 10, height: max(10, bottom - top))
+                        .position(x: proxy.size.width / 2, y: (top + bottom) / 2)
+                    Circle()
+                        .fill(fillTint)
+                        .overlay { Circle().strokeBorder(Theme.cardRaised, lineWidth: 3) }
+                        .frame(width: 16, height: 16)
+                        .shadow(color: fillTint.opacity(0.7), radius: 6)
+                        .position(x: proxy.size.width / 2, y: position)
+                }
+            }
         }
     }
 }
@@ -208,6 +265,20 @@ struct MonitorReading: Identifiable {
         guard let value else { return "–" }
         if id == MetricKind.sleepDuration.rawValue { return Format.duration(value * 3600) }
         return "\(formatted(value)) \(unit)"
+    }
+
+    /// Zahl ohne Einheit für die Balken-Kapseln („5:37“ bei Schlaf).
+    var valueText: String {
+        guard let value else { return "–" }
+        if id == MetricKind.sleepDuration.rawValue {
+            let minutes = Int((value * 60).rounded())
+            return "\(minutes / 60):" + String(format: "%02d", minutes % 60)
+        }
+        return formatted(value)
+    }
+
+    var unitText: String {
+        id == MetricKind.sleepDuration.rawValue ? "Std." : unit.trimmingCharacters(in: .whitespaces)
     }
 
     var scaleValue: Double? {
