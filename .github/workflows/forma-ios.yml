@@ -55,6 +55,10 @@ jobs:
           grep -E "\.swift:[0-9]+:[0-9]+: warning:" "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | sort -u | head -60
           echo "=== TAIL ==="
           tail -n 15 "$RUNNER_TEMP/build.log"
+          if [ "$status" -ne 0 ]; then
+            echo "=== CRASH ==="
+            grep -nE "^[0-9]+\.[[:space:]]|Stack dump|Please submit|error|While " "$RUNNER_TEMP/build.log" | sed "s#$GITHUB_WORKSPACE/forma-ios/##" | cut -c1-400 | head -60
+          fi
           exit $status
 
       - name: IPA packen
