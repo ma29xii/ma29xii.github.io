@@ -444,6 +444,7 @@ final class DataHub {
 
     private func updateWidgetCopy(_ snapshot: WidgetSnapshot?, invalidateTimeline: Bool = false) {
         let saved = WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
+        WidgetBridge.publishWeek(!isSample && accountID != nil ? dashboardHistory(recent: days) : [], updatedAt: now(), calendar: calendar(), invalidateTimeline: invalidateTimeline)
         widgetDeletionPending = !saved && (snapshot == nil || widgetDeletionPending)
         widgetCopyNote = saved ? nil : (snapshot == nil
             ? "Die Widget-Kopie konnte nicht gelöscht werden. Health versucht es erneut."

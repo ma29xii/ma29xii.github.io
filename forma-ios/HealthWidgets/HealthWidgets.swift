@@ -6,6 +6,7 @@ import WidgetKit
 struct HealthWidgets: WidgetBundle {
     var body: some Widget {
         TodayHealthWidget()
+        WeekWidget()
         WaterWidget()
         FastingWidget()
         TrainingLiveWidget()
