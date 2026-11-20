@@ -26,7 +26,7 @@ struct SleepPlanner: Codable, Equatable, Sendable {
     struct Window: Equatable, Sendable {
         let bed: Date
         let wake: Date
-        var reminder: Date { bed.addingTimeInterval(-30 * 60) }
+        var reminder: Date { bed.addingTimeInterval(-SleepPlanner.reminderLeadTime) }
 
         /// Gemeinsame 24-Stunden-Achse ab 18 Uhr, damit Mitternacht in einem Balken liegt.
         func timelineSegments(calendar: Calendar) -> [Range<Double>] {
@@ -45,6 +45,7 @@ struct SleepPlanner: Codable, Equatable, Sendable {
     static let legacyWakeKey = "forma.wakeMinutes"
     static let defaultWorkdayWake = 6 * 60 + 55
     private static let minutesPerDay = 24 * 60
+    private static let reminderLeadTime: TimeInterval = 30 * 60
 
     private(set) var workdayWake: Int
     private(set) var freeDayWake: Int
@@ -108,9 +109,20 @@ struct SleepPlanner: Codable, Equatable, Sendable {
         makeWindow(wake: nextWake(after: now, calendar: calendar), sleepNeed: sleepNeed)
     }
 
+    func nextReminderWindow(after cutoff: Date, sleepNeed: TimeInterval, calendar: Calendar = .forma) -> Window? {
+        guard Self.validSleepNeed(sleepNeed) else { return nil }
+        // Rückwärts von der Weckzeit gerechnet muss auch die Erinnerung nach dem Stichtag liegen.
+        let wakeCutoff = cutoff.addingTimeInterval(sleepNeed + Self.reminderLeadTime)
+        return nextWindow(after: wakeCutoff, sleepNeed: sleepNeed, calendar: calendar)
+    }
+
     private func makeWindow(wake: Date?, sleepNeed: TimeInterval?) -> Window? {
-        guard let wake, let sleepNeed, sleepNeed.isFinite, sleepNeed > 0, sleepNeed < 14 * 3600 else { return nil }
+        guard let wake, let sleepNeed, Self.validSleepNeed(sleepNeed) else { return nil }
         return Window(bed: wake.addingTimeInterval(-sleepNeed), wake: wake)
+    }
+
+    private static func validSleepNeed(_ duration: TimeInterval) -> Bool {
+        duration.isFinite && duration > 0 && duration < 14 * 3600
     }
 
     func wakeDate(wakingOn date: Date, calendar: Calendar = .forma) -> Date? {

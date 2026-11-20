@@ -130,6 +130,17 @@ final class Runde12SleepPlanTests: XCTestCase {
         XCTAssertEqual(stored.nextWake(after: friday, calendar: calendar), weekend.wake)
     }
 
+    func testNextReminderSkipsTheOngoingNightAfterMidnight() throws {
+        let plan = SleepPlanner(workdayWake: 7 * 60)
+        let now = date(11, 23, 1)
+        let ongoing = try XCTUnwrap(plan.nextWindow(after: now, sleepNeed: 8 * 3600, calendar: calendar))
+        let reminder = try XCTUnwrap(plan.nextReminderWindow(after: now, sleepNeed: 8 * 3600, calendar: calendar))
+
+        XCTAssertEqual(ongoing.wake, date(11, 23, 7))
+        XCTAssertEqual(reminder.wake, date(11, 24, 7))
+        XCTAssertEqual(reminder.reminder, date(11, 23, 22, 30))
+    }
+
     func testLegacyMidnightSurvivesOnWorkdaysAndDaysOff() throws {
         let suite = "SleepPlannerTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

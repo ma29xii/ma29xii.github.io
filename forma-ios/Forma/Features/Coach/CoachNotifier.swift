@@ -156,8 +156,8 @@ enum CoachNotifier {
             }
             return nil
         }
-        guard let plan = SleepPlanner.load(in: defaults).nextWindow(after: now, sleepNeed: need),
-              plan.reminder > now.addingTimeInterval(60) else {
+        let cutoff = now.addingTimeInterval(60)
+        guard let plan = SleepPlanner.load(in: defaults).nextReminderWindow(after: cutoff, sleepNeed: need) else {
             if planChanged { removeBedtimeReminder(defaults: defaults, remove: remove) }
             return nil
         }
