@@ -212,6 +212,19 @@ final class ScreenTour: XCTestCase {
         captureDetail("today.stress.open", title: "Stress Monitor", screenshot: "08d Stress Monitor")
         captureDetail("today.energy", title: "Energie", screenshot: "08f Energie")
         if reveal(el("today.food")) { shot("08g Heutiges Essen") } else { XCTFail("Essensanzeige fehlt") }
+        // Wochenrückblick als Story (im Rundgang unabhängig vom Wochentag sichtbar).
+        let weekly = el("today.weekly.open")
+        if reveal(weekly) {
+            weekly.tap()
+            if el("weekly.story").waitForExistence(timeout: 4) {
+                shot("03b Wochenrückblick")
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.55)).tap()
+                shot("03c Wochenrückblick Wert")
+                let close = el("weekly.close")
+                if close.waitForExistence(timeout: 2) { close.tap() }
+                XCTAssertTrue(close.waitForNonExistence(timeout: 3), "Wochenrückblick schließt nicht")
+            } else { XCTFail("Wochenrückblick öffnet nicht") }
+        } else { XCTFail("Wochenrückblick fehlt") }
         if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
 

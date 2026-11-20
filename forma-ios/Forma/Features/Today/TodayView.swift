@@ -25,7 +25,7 @@ struct TodayView: View {
         let history = hub.dashboardHistory(recent: hub.days)
         let day = hub.days.first { $0.date == today } ?? DayMetrics(date: today)
         let snapshot = DashboardDay(day: day, history: history)
-        let period = WeeklyInsight.period(at: now)
+        let period = WeeklyInsight.displayPeriod(at: now)
         let hours = hub.isSample ? HourlyMetrics.samples(for: day) : hub.hours
         let signals = DaySignals(day: day, hours: hours, history: snapshot.history)
 
