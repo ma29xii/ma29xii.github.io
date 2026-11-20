@@ -22,14 +22,9 @@ struct ExperimentTile: View {
                     .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Gewohnheit").formaLabelStyle()
-                        Text(title)
+                        Text(status)
                             .font(.formaRowTitle)
                             .foregroundStyle(Theme.textPrimary)
-                        if let detail {
-                            Text(detail)
-                                .font(.formaCaption)
-                                .foregroundStyle(Theme.textSecondary)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -49,17 +44,10 @@ struct ExperimentTile: View {
         return Double(current.answeredCount) / Double(HabitExperiment.length)
     }
 
-    private var title: String {
-        if let current = store.current { return current.habit.title }
-        return store.past.first.map { "Ergebnis: \($0.habit.title)" } ?? "Gewohnheit testen"
-    }
-
-    private var detail: String? {
-        guard let current = store.current else { return nil }
+    private var status: String {
+        guard let current = store.current else { return "Starten" }
         if current.isComplete() { return "Ergebnis bereit" }
-        let today = current.dayIndex(of: .now)
-        let open = today.map { current.answers[$0] == nil } ?? false
-        return "Tag \(current.elapsedDays()) von \(HabitExperiment.length)" + (open ? " · heute offen" : "")
+        return "Tag \(current.elapsedDays()) von \(HabitExperiment.length)"
     }
 }
 

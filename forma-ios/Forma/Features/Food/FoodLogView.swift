@@ -317,10 +317,9 @@ struct FoodHabitTile: View {
                     .foregroundStyle(tint)
                 Spacer(minLength: 0)
                 Text(value)
-                    .font(.formaValue)
+                    .font(.formaSection.monospacedDigit())
                     .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(title).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                 if let fraction {
                     ProgressLine(fraction: min(1, max(0, fraction.isFinite ? fraction : 0)), color: tint, height: 3)

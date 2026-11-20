@@ -150,9 +150,9 @@ private struct FoodHomeContent: View {
                           fraction: state?.fraction ?? 0) { route = .fasting }
         }
         FoodHabitTile(title: "Plan", icon: "calendar", tint: Theme.sleep,
-                      value: planOpen > 0 ? "\(planOpen) offen" : "Planen", fraction: nil) { route = .plan }
+                      value: planOpen > 0 ? "\(planOpen) offen" : "Öffnen", fraction: nil) { route = .plan }
         FoodHabitTile(title: "Gewicht", icon: "scalemass.fill", tint: Theme.older,
-                      value: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" } ?? "–",
+                      value: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" } ?? "Eintragen",
                       fraction: nil) { route = .weight }
     }
 
@@ -319,10 +319,10 @@ private struct FoodHero: View {
             }
             .frame(width: size, height: size)
             Text(title)
-                .font(.formaCaption)
+                .font(.formaCaptionStrong)
                 .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(width: size)
         }
         .accessibilityElement(children: .ignore)

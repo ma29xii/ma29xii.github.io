@@ -92,6 +92,9 @@ struct TrainingHomeView: View {
             .refreshable { await hub.refresh() }
             .formaScreen()
             .navigationTitle("Fitness")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Theme.backgroundTop, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 if isPresented {
                     ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }

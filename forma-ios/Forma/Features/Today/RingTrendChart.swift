@@ -50,6 +50,7 @@ struct RingTrendChart: View {
 
     var body: some View {
         RingTrendCard(title: kind.title, anchor: anchor, tint: color, percentScale: true,
+                      smoothLongRanges: kind == .strain,
                       valueText: { Format.number($0) + (kind == .strain ? "" : " %") }) { domain in
             DashboardTrends.points(kind: kind, days: days, domain: domain)
         }
@@ -64,6 +65,7 @@ struct RingTrendCard: View {
     let tint: Color
     var percentScale = false
     var usual: ClosedRange<Double>? = nil
+    var smoothLongRanges = false
     let valueText: (Double) -> String
     let measurements: (ClosedRange<Date>) -> [HealthChartPoint]
 
@@ -127,7 +129,14 @@ struct RingTrendCard: View {
         .accessibilityIdentifier("trend.range")
     }
 
-    private func chart(_ points: [HealthChartPoint], domain: ClosedRange<Date>, average: Double?) -> some View {
+    private func chart(_ measurements: [HealthChartPoint], domain: ClosedRange<Date>, average: Double?) -> some View {
+        let showsWeeklyMeans = smoothLongRanges && range == .halfYear
+        let points = switch (smoothLongRanges, range) {
+        case (true, .month): RingChartSeries.smoothedDays(measurements)
+        case (true, .halfYear): RingChartSeries.weeklyMeans(measurements)
+        default: measurements
+        }
+        let dateLabel = showsWeeklyMeans ? "Woche" : "Tag"
         let values = points.map(\.value) + (usual.map { [$0.lowerBound, $0.upperBound] } ?? [])
         let low = values.min() ?? 0
         let high = values.max() ?? 0
@@ -143,14 +152,17 @@ struct RingTrendCard: View {
                         .foregroundStyle(tint.opacity(0.1))
                         .accessibilityHidden(true)
                 }
-                ForEach(RingChartSeries.segments(points), id: \.point.date) { entry in
+                ForEach(RingChartSeries.segments(points, daysBetweenPoints: showsWeeklyMeans ? 7 : 1), id: \.point.date) { entry in
                     let point = entry.point
-                    let center = insightDayCenter(point.date)
-                    LineMark(x: .value("Tag", center), y: .value(title, point.value),
+                    let date = showsWeeklyMeans
+                        ? min(max(point.date.adding(days: 3), domain.lowerBound), domain.upperBound)
+                        : point.date
+                    let center = insightDayCenter(date)
+                    LineMark(x: .value(dateLabel, center), y: .value(title, point.value),
                              series: .value("Abschnitt", entry.segment))
                         .foregroundStyle(tint)
                         .lineStyle(StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
-                    PointMark(x: .value("Tag", center), y: .value(title, point.value))
+                    PointMark(x: .value(dateLabel, center), y: .value(title, point.value))
                         .symbolSize(range == .week ? 25 : range == .month ? 16 : 10)
                         .foregroundStyle(tint)
                         .annotation(position: .top, spacing: 3) {
@@ -197,8 +209,8 @@ struct RingTrendCard: View {
             .foregroundStyle(Theme.textSecondary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title)-Trend, \(range.caption)")
-        .accessibilityValue(average.map { "Durchschnitt \(valueText($0)), \(points.count) Tage mit Messung" } ?? "Keine Messung")
+        .accessibilityLabel("\(title)-Trend, \(range.caption)" + (showsWeeklyMeans ? ", Wochenmittel" : ""))
+        .accessibilityValue(average.map { "Durchschnitt \(valueText($0)), \(measurements.count) Tage mit Messung" } ?? "Keine Messung")
     }
 
     @ViewBuilder
@@ -244,11 +256,34 @@ struct RingTrendCard: View {
 }
 
 enum RingChartSeries {
-    static func segments(_ points: [HealthChartPoint]) -> [(point: HealthChartPoint, segment: Int)] {
+    /// Glättet den Tagesverlauf über bis zu drei aufeinanderfolgende Messungen.
+    static func smoothedDays(_ points: [HealthChartPoint]) -> [HealthChartPoint] {
+        let valuesByDay = Dictionary(points.map { ($0.date, $0.value) }, uniquingKeysWith: { _, latest in latest })
+        return points.map { point in
+            let neighbors = [valuesByDay[point.date.adding(days: -1)], valuesByDay[point.date.adding(days: 1)]]
+                .compactMap { $0 }
+            let average = neighbors.reduce(point.value, +) / Double(neighbors.count + 1)
+            return HealthChartPoint(date: point.date, value: average)
+        }
+    }
+
+    /// Ein Mittelwert je Kalenderwoche mit Messungen innerhalb des gewählten Zeitraums.
+    static func weeklyMeans(_ points: [HealthChartPoint]) -> [HealthChartPoint] {
+        let calendar = Calendar.forma
+        let weeks = Dictionary(grouping: points) { point in
+            calendar.dateInterval(of: .weekOfYear, for: point.date)?.start ?? point.date
+        }
+        return weeks.compactMap { week, measurements in
+            DashboardTrends.mean(points: measurements, minimum: 1).map { HealthChartPoint(date: week, value: $0) }
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    static func segments(_ points: [HealthChartPoint], daysBetweenPoints: Int = 1) -> [(point: HealthChartPoint, segment: Int)] {
         var previous: Date?
         var segment = 0
         return points.map { point in
-            if previous?.adding(days: 1) != point.date { segment += 1 }
+            if previous?.adding(days: daysBetweenPoints) != point.date { segment += 1 }
             previous = point.date
             return (point, segment)
         }
