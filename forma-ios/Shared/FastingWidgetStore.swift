@@ -5,6 +5,7 @@ import Foundation
 struct FastingWidgetStore: Sendable {
     static let widgetKind = "com.ma29xii.forma.fasting"
     static let defaultPlanHours = 16.0
+    private static let processLock = NSLock()
 
     enum Event: Codable, Equatable, Sendable {
         case start(FastingAttributes)
@@ -70,10 +71,13 @@ struct FastingWidgetStore: Sendable {
         return event
     }
 
-    /// Schützt den gesamten Schreibvorgang prozessübergreifend. Leser sehen immer eine vollständige Datei.
+    /// Schützt den Schreibvorgang innerhalb und zwischen Prozessen. Leser sehen eine vollständige Datei.
     @discardableResult
     func update(_ change: (inout State) throws -> Void) throws -> Bool {
         guard let directory else { throw CocoaError(.fileNoSuchFile) }
+        // lockf sperrt zwischen Prozessen. Threads desselben Prozesses teilen sich diese Sperre.
+        Self.processLock.lock()
+        defer { Self.processLock.unlock() }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Die Sperrdatei bleibt liegen, da state.json beim atomaren Schreiben ersetzt wird.
         let lockFile = directory.appendingPathComponent("write.lock")

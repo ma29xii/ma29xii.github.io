@@ -3,6 +3,7 @@ import Foundation
 struct WeekWidgetSnapshot: Codable, Equatable, Sendable {
     struct Day: Codable, Equatable, Identifiable, Sendable {
         let date: Date
+        let calendarDay: DateComponents?
         let recovery: Int?
         let strain: Int?
         let sleep: Int?
@@ -10,8 +11,10 @@ struct WeekWidgetSnapshot: Codable, Equatable, Sendable {
         var id: Date { date }
         var hasMeasurements: Bool { recovery != nil || strain != nil || sleep != nil }
 
-        init(date: Date, recovery: Int? = nil, strain: Int? = nil, sleep: Int? = nil) {
+        init(date: Date, recovery: Int? = nil, strain: Int? = nil, sleep: Int? = nil,
+             calendarDay: DateComponents? = nil) {
             self.date = date
+            self.calendarDay = calendarDay
             self.recovery = WeekWidgetSnapshot.validScore(recovery)
             self.strain = WeekWidgetSnapshot.validScore(strain)
             self.sleep = WeekWidgetSnapshot.validScore(sleep)
@@ -22,7 +25,8 @@ struct WeekWidgetSnapshot: Codable, Equatable, Sendable {
             self.init(date: try values.decode(Date.self, forKey: .date),
                       recovery: try values.decodeIfPresent(Int.self, forKey: .recovery),
                       strain: try values.decodeIfPresent(Int.self, forKey: .strain),
-                      sleep: try values.decodeIfPresent(Int.self, forKey: .sleep))
+                      sleep: try values.decodeIfPresent(Int.self, forKey: .sleep),
+                      calendarDay: try values.decodeIfPresent(DateComponents.self, forKey: .calendarDay))
         }
     }
 
@@ -56,12 +60,14 @@ struct WeekWidgetSnapshot: Codable, Equatable, Sendable {
     }
 
     private static func week(from measurements: [Day], endingAt date: Date, calendar: Calendar) -> [Day] {
-        let byDate = Dictionary(measurements.map { (calendar.startOfDay(for: $0.date), $0) },
-                                uniquingKeysWith: { _, newer in newer })
-        return dates(endingAt: date, calendar: calendar).map { day in
-            let measurement = byDate[day]
-            return Day(date: day, recovery: measurement?.recovery, strain: measurement?.strain,
-                       sleep: measurement?.sleep)
+        let byDay = Dictionary(measurements.map { day in
+            (day.calendarDay ?? calendar.dateComponents([.year, .month, .day], from: day.date), day)
+        }, uniquingKeysWith: { _, newer in newer })
+        return dates(endingAt: date, calendar: calendar).map { date in
+            let calendarDay = calendar.dateComponents([.year, .month, .day], from: date)
+            let measurement = byDay[calendarDay]
+            return Day(date: date, recovery: measurement?.recovery, strain: measurement?.strain,
+                       sleep: measurement?.sleep, calendarDay: calendarDay)
         }
     }
 

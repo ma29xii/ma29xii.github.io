@@ -65,6 +65,34 @@ final class Runde19WeekWidgetTests: XCTestCase {
         XCTAssertEqual(day.sleep, 0)
     }
 
+    func testDecodedSnapshotKeepsTheMeasurementOnFridayAfterTimeZoneChange() throws {
+        var berlin = Calendar(identifier: .gregorian)
+        berlin.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let friday = DateComponents(year: 2026, month: 11, day: 20)
+        let berlinFriday = try XCTUnwrap(berlin.date(from: friday))
+        let newYorkFriday = try XCTUnwrap(newYork.date(from: friday))
+        let snapshot = WeekWidgetSnapshot(measurements: [.init(date: berlinFriday, recovery: 82)],
+                                          updatedAt: berlinFriday, calendar: berlin)
+        let decoded = try JSONDecoder().decode(WeekWidgetSnapshot.self, from: JSONEncoder().encode(snapshot))
+
+        let days = decoded.days(endingAt: newYorkFriday, calendar: newYork)
+        XCTAssertEqual(days.last?.date, newYorkFriday)
+        XCTAssertEqual(days.map(\.recovery), [nil, nil, nil, nil, nil, nil, 82])
+    }
+
+    func testLegacySnapshotUsesTheSavedDateForDayAssignment() throws {
+        let data = Data(#"{"updatedAt":0,"days":[{"date":0,"strain":54}]}"#.utf8)
+        let snapshot = try JSONDecoder().decode(WeekWidgetSnapshot.self, from: data)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: -5 * 3_600))
+        let januaryFirst = try XCTUnwrap(calendar.date(from: DateComponents(year: 2001, month: 1, day: 1)))
+
+        let days = snapshot.days(endingAt: januaryFirst, calendar: calendar)
+        XCTAssertEqual(days.map(\.strain), [nil, nil, nil, nil, nil, 54, nil])
+    }
+
     func testStorePublishesAndClearsSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }

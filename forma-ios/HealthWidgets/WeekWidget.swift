@@ -20,8 +20,15 @@ private struct WeekWidgetEntry: TimelineEntry {
 }
 
 private struct WeekWidgetProvider: TimelineProvider {
+    private var localCalendar: Calendar {
+        // Die App speichert gregorianische Kalendertage in der jeweils lokalen Zeitzone.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
     func placeholder(in context: Context) -> WeekWidgetEntry {
-        WeekWidgetEntry(date: .now, days: [], calendar: .autoupdatingCurrent)
+        WeekWidgetEntry(date: .now, days: [], calendar: localCalendar)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (WeekWidgetEntry) -> Void) {
@@ -29,12 +36,12 @@ private struct WeekWidgetProvider: TimelineProvider {
             completion(placeholder(in: context))
             return
         }
-        completion(entry(at: .now, snapshot: WeekWidgetSnapshotStore.shared.read(), calendar: .autoupdatingCurrent))
+        completion(entry(at: .now, snapshot: WeekWidgetSnapshotStore.shared.read(), calendar: localCalendar))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WeekWidgetEntry>) -> Void) {
         let now = Date.now
-        let calendar = Calendar.autoupdatingCurrent
+        let calendar = localCalendar
         let snapshot = WeekWidgetSnapshotStore.shared.read()
         let current = entry(at: now, snapshot: snapshot, calendar: calendar)
         let nextCheck = now.addingTimeInterval(60 * 60)

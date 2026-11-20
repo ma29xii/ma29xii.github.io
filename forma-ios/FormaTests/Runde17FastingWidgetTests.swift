@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import SwiftData
 import XCTest
@@ -91,6 +92,93 @@ final class Runde17FastingWidgetTests: XCTestCase {
         })
 
         XCTAssertEqual(try store.state(), pending)
+    }
+
+    func testConcurrentUpdatesReadThePreviousCommittedState() throws {
+        let store = try makeStore()
+        let otherStore = FastingWidgetStore(directory: store.directory)
+        let start = self.start
+        let firstEntered = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let secondStarted = DispatchSemaphore(value: 0)
+        let secondFinished = DispatchSemaphore(value: 0)
+        let tasks = DispatchGroup()
+
+        DispatchQueue.global().async(group: tasks) {
+            _ = try? store.update { state in
+                firstEntered.signal()
+                _ = releaseFirst.wait(timeout: .now() + 5)
+                state.planHours = 18
+            }
+        }
+        XCTAssertEqual(firstEntered.wait(timeout: .now() + 5), .success)
+        DispatchQueue.global().async(group: tasks) {
+            secondStarted.signal()
+            _ = try? otherStore.toggle(at: start)
+            secondFinished.signal()
+        }
+        XCTAssertEqual(secondStarted.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(secondFinished.wait(timeout: .now() + .milliseconds(200)), .timedOut)
+        releaseFirst.signal()
+        XCTAssertEqual(tasks.wait(timeout: .now() + 5), .success)
+
+        let session = FastingAttributes(start: start, targetHours: 18)
+        let state = try store.state()
+        XCTAssertEqual(state.planHours, 18)
+        XCTAssertEqual(state.active, session)
+        XCTAssertEqual(state.pending, [.start(session)])
+    }
+
+    @MainActor
+    func testImportKeepsCompletedWidgetFastWhileAppFastIsOpen() throws {
+        let store = try makeStore()
+        let container = try ModelContainer(for: FoodFast.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        context.insert(FoodFast(start: start, targetHours: 16))
+        try context.save()
+        let widgetStart = start.addingTimeInterval(300)
+        let widgetEnd = widgetStart.addingTimeInterval(3_600)
+        try store.toggle(at: widgetStart)
+        try store.toggle(at: widgetEnd)
+        let pending = try store.state()
+
+        try FastingWidgetSync.sync(in: context, planHours: 16, store: store)
+        XCTAssertTrue(try store.state().pending.isEmpty)
+        try store.update { $0 = pending }
+        try FastingWidgetSync.sync(in: context, planHours: 16, store: store)
+
+        let fasts = try context.fetch(FetchDescriptor<FoodFast>(sortBy: [SortDescriptor(\.start)]))
+        XCTAssertEqual(fasts.map(\.start), [start, widgetStart])
+        XCTAssertEqual(fasts.map(\.end), [nil, widgetEnd])
+        XCTAssertTrue(try store.state().pending.isEmpty)
+    }
+
+    @MainActor
+    func testConflictingWidgetStartStaysPendingUntilItCanBeImported() throws {
+        let store = try makeStore()
+        let container = try ModelContainer(for: FoodFast.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        context.insert(FoodFast(start: start, targetHours: 16))
+        try context.save()
+        let widgetStart = start.addingTimeInterval(300)
+        let widgetSession = FastingAttributes(start: widgetStart, targetHours: 16)
+        try store.toggle(at: widgetStart)
+
+        try FastingWidgetSync.sync(in: context, planHours: 16, store: store)
+        XCTAssertEqual(try store.state().pending, [.start(widgetSession)])
+        XCTAssertEqual(try store.state().active, widgetSession)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<FoodFast>()).map(\.start), [start])
+
+        let end = widgetStart.addingTimeInterval(300)
+        try FastingWidgetSync.sync(in: context, planHours: 16, action: .end(start: start, at: end), store: store)
+
+        let fasts = try context.fetch(FetchDescriptor<FoodFast>(sortBy: [SortDescriptor(\.start)]))
+        XCTAssertEqual(fasts.map(\.start), [start, widgetStart])
+        XCTAssertEqual(fasts.map(\.end), [end, nil])
+        XCTAssertEqual(try store.state().active, widgetSession)
+        XCTAssertTrue(try store.state().pending.isEmpty)
     }
 
     @MainActor
