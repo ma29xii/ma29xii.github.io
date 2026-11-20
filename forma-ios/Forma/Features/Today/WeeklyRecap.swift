@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct WeeklyRecapLink: View {
     let period: WeeklyInsight.Period
@@ -75,6 +76,7 @@ struct WeeklyRecapStory: View {
     @State private var progress = 0.0
     @State private var paused = false
     @State private var drag: CGFloat = 0
+    @State private var shareCard: WeeklyShareArtwork.Rendered?
 
     private static let seconds = 5.0
 
@@ -123,15 +125,30 @@ struct WeeklyRecapStory: View {
                         })
                     .onLongPressGesture(minimumDuration: 0.2, perform: {}, onPressingChanged: { paused = $0 })
                     if current == .summary {
-                        Button { dismiss() } label: {
-                            Text("Fertig")
-                                .font(.formaRowTitle)
-                                .foregroundStyle(Theme.onSelection)
-                                .frame(maxWidth: .infinity, minHeight: 52)
-                                .background(Theme.selection, in: Capsule())
+                        HStack(spacing: Space.s3) {
+                            if let shareCard {
+                                ShareLink(item: shareCard.transfer,
+                                          preview: SharePreview("Wochenrückblick", image: Image(uiImage: shareCard.image))) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(Theme.textPrimary)
+                                        .frame(width: 52, height: 52)
+                                        .background(Theme.plate, in: Circle())
+                                }
+                                .accessibilityLabel("Wochenrückblick teilen")
+                                .accessibilityIdentifier("weekly.share")
+                            }
+                            Button { dismiss() } label: {
+                                Text("Fertig")
+                                    .font(.formaRowTitle)
+                                    .foregroundStyle(Theme.onSelection)
+                                    .frame(maxWidth: .infinity, minHeight: 52)
+                                    .background(Theme.selection, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("weekly.done")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("weekly.done")
+                        .task { if shareCard == nil { shareCard = WeeklyShareArtwork.render(rows: rows, dayCount: dayCount) } }
                     }
                 }
                 .padding(.horizontal, Space.page)
@@ -305,6 +322,65 @@ struct WeeklyRecapStory: View {
                          color: highlighted ? metric.tint : Theme.textQuaternary, height: 8)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+/// Teilbares Story-Bild (9:16) mit allen Wochenwerten.
+struct WeeklyShareArtwork: View {
+    let rows: [WeeklyInsight.Row]
+    let dayCount: Int
+
+    struct Rendered {
+        let transfer: ShareCardPNG
+        let image: UIImage
+    }
+
+    @MainActor
+    static func render(rows: [WeeklyInsight.Row], dayCount: Int) -> Rendered? {
+        let renderer = ImageRenderer(content: WeeklyShareArtwork(rows: rows, dayCount: dayCount))
+        renderer.proposedSize = ProposedViewSize(width: 360, height: 640)
+        renderer.scale = 3
+        renderer.isOpaque = true
+        guard let image = renderer.uiImage, let png = image.pngData() else { return nil }
+        return Rendered(transfer: ShareCardPNG(data: png), image: image)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s5) {
+            Text("Wochenrückblick").formaLabelStyle()
+            Text("Meine\nWoche")
+                .font(.system(size: 52, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Spacer(minLength: 0)
+            VStack(spacing: Space.s4) {
+                ForEach(rows) { row in
+                    HStack(spacing: Space.s3) {
+                        Circle().fill(row.metric.tint).frame(width: 8, height: 8)
+                        Text(row.metric.title).font(.formaRowTitle).foregroundStyle(Theme.textSecondary)
+                        Spacer(minLength: Space.s2)
+                        Text(row.current.map { row.metric.formatted($0.mean) } ?? "–")
+                            .font(.formaValue)
+                            .foregroundStyle(Theme.textPrimary)
+                        if row.change != nil { ChangeBadge(row: row, compact: true) }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            HStack {
+                Text("\(dayCount) Tage").font(.formaCaption).foregroundStyle(Theme.textTertiary)
+                Spacer()
+                Text("Health").font(.formaCaptionStrong).foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .padding(Space.s6)
+        .frame(width: 360, height: 640, alignment: .topLeading)
+        .background {
+            ZStack {
+                Theme.background
+                RadialGradient(colors: [Theme.accent.opacity(0.4), .clear], center: .top, startRadius: 0, endRadius: 420)
+            }
+        }
+        .environment(\.colorScheme, .dark)
     }
 }
 
