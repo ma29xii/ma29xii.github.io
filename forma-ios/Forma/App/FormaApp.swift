@@ -154,6 +154,10 @@ struct RootView: View {
                 WorkoutSummary(name: $0.title, start: $0.start, duration: max(0, $0.duration), energy: nil, isStrength: true)
             })
         }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active, !hub.isSample, !FormaApp.isUITest else { return }
+            FastingActivity.reconcile(in: context)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && !app.isDemo { BackgroundRefresh.schedule() }
             if phase == .active {

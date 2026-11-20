@@ -8,6 +8,7 @@ struct HealthWidgets: WidgetBundle {
         TodayHealthWidget()
         WaterWidget()
         TrainingLiveWidget()
+        FastingLiveWidget()
         StartTrainingControl()
         AddWaterControl()
     }

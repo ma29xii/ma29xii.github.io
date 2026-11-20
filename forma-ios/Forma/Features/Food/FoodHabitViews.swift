@@ -192,6 +192,7 @@ struct FoodFastingView: View {
 
 private struct FoodFastingContent: View {
     var standalone = false
+    @Environment(DataHub.self) private var hub
     @Environment(\.modelContext) private var context
     @AppStorage(FoodSettings.fastHoursKey) private var hours = 16.0
     @Query(sort: \FoodFast.start, order: .reverse) private var fasts: [FoodFast]
@@ -317,12 +318,16 @@ private struct FoodFastingContent: View {
     }
 
     private func toggle() {
+        let showsLiveActivity = !hub.isSample && !FormaApp.isUITest
         do {
             if let active {
-                try FoodEntry.saveChange(in: context) { active.end = .now }
+                let end = Date.now
+                try FoodEntry.saveChange(in: context) { active.end = end }
+                if showsLiveActivity { FastingActivity.end(at: end) }
             } else {
                 let fast = FoodFast(targetHours: plan)
                 try FoodEntry.saveChange(in: context) { context.insert(fast) }
+                if showsLiveActivity { FastingActivity.start(start: fast.start, targetHours: fast.targetHours) }
             }
         } catch {
             saveError = true
