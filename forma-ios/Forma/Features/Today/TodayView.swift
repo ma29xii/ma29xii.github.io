@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 struct TodayView: View {
@@ -6,99 +5,75 @@ struct TodayView: View {
     @Environment(AppState.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// Eigene Trainings, damit ein Eintrag in „Mein Tag“ sein konkretes Training öffnet.
-    @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
-    @Namespace private var zoomSpace
-    @State private var compact = false
+    @State private var ringEntrance = 0
     /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
     @State private var headerWidth: CGFloat = 358
 
     var body: some View {
         let minute = Calendar.forma.dateInterval(of: .minute, for: .now)?.start ?? .now
-        TimelineView(.periodic(from: minute, by: 60)) { context in
-            dashboard(at: context.date)
-        }
-    }
-
-    private func dashboard(at now: Date) -> some View {
-        let today = now.startOfDay
-        let history = hub.dashboardHistory(recent: hub.days)
-        let day = hub.days.first { $0.date == today } ?? DayMetrics(date: today)
-        let snapshot = DashboardDay(day: day, history: history)
-        let period = WeeklyInsight.displayPeriod(at: now)
-        let hours = hub.isSample ? HourlyMetrics.samples(for: day) : hub.hours
-        let signals = DaySignals(day: day, hours: hours, history: snapshot.history)
-
-        return NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.gap) {
-                        sourceStatus
-                        header(snapshot)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
-                            .contextMenu {
-                                Button("Aktualisieren", systemImage: "arrow.clockwise") {
-                                    Task { await hub.refresh() }
-                                }
-                            }
-                            .id(Self.top)
-                            .padding(.bottom, Space.s2)
-                        // Bearbeiten direkt hier: „Anpassen“ steht als Letztes auf der Seite.
-                        InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
-                            tile(kind, snapshot: snapshot, history: history, signals: signals, period: period)
-                        }
-                    }
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
-                    .padding(.horizontal, Space.page)
-                    .padding(.top, Space.s2)
-                    .padding(.bottom, Space.s6)
-                }
-                .refreshable { await hub.refresh() }
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.contentOffset.y + geometry.contentInsets.top > Self.compactOffset
-                } action: { _, isCompact in
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { compact = isCompact }
-                }
-                .overlay(alignment: .top) {
-                    if compact {
-                        compactBar(snapshot) {
-                            withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(Self.top, anchor: .top) }
-                        }
-                        .transition(.opacity)
-                    }
-                }
+        NavigationStack {
+            TimelineView(.periodic(from: minute, by: 60)) { context in
+                dashboard(at: context.date)
             }
-            // Schimmer bis unter die Statusleiste; folgt dem gewählten Theme, im Standard der Recovery-Farbe.
-            .formaScreen(tint: snapshot.recovery.map(Theme.recovery))
             .navigationTitle("Today")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
             }
-            .navigationDestination(for: RingRoute.self) { route in
-                InsightPage(title: route.kind.title) {
-                    RingDetailView(kind: route.kind, snapshot: snapshot, history: history)
-                }
-                .todayZoom(route.zoom && !reduceMotion ? route.kind : nil, in: zoomSpace)
+            .navigationDestination(for: RingKind.self) { kind in
+                TodayRingPage(kind: kind)
             }
+        }
+        .onChange(of: app.selectedTab, initial: true) { _, tab in
+            if tab == .today, !reduceMotion { ringEntrance += 1 }
         }
     }
 
-    private static let top = "today.top"
-    /// Ab hier ist der Kopf größtenteils aus dem Bild; die Kompaktleiste übernimmt.
-    static let compactOffset: CGFloat = 220
+    private func dashboard(at now: Date) -> some View {
+        let today = now.startOfDay
+        let recent = hub.days
+        let day = recent.last { $0.date == today } ?? DayMetrics(date: today)
+        let snapshot = DashboardDay(day: day, history: recent)
+        let period = WeeklyInsight.displayPeriod(at: now)
+        let hours = hub.isSample ? HourlyMetrics.samples(for: day) : hub.hours
+        let signals = DaySignals(day: day, hours: hours, history: snapshot.history)
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: Space.gap) {
+                sourceStatus
+                header(snapshot)
+                    .id(ringEntrance)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
+                    .contextMenu {
+                        Button("Aktualisieren", systemImage: "arrow.clockwise") {
+                            Task { await hub.refresh() }
+                        }
+                    }
+                    .padding(.bottom, Space.s2)
+                InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
+                    tile(kind, snapshot: snapshot, recent: recent, hours: hours, signals: signals, period: period)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)
+            .padding(.horizontal, Space.page)
+            .padding(.top, Space.s2)
+            .padding(.bottom, Space.s6)
+        }
+        .refreshable { await hub.refresh() }
+        .formaScreen(tint: snapshot.recovery.map(Theme.recovery))
+    }
 
     // MARK: Karten
 
-    private func tile(_ kind: TodayTile, snapshot: DashboardDay, history: [DayMetrics],
+    private func tile(_ kind: TodayTile, snapshot: DashboardDay, recent: [DayMetrics], hours: [HourlyMetrics],
                       signals: DaySignals, period: WeeklyInsight.Period?) -> AnyView {
         switch kind {
         case .coach:
             return AnyView(coachLine(snapshot))
         case .healthMonitor:
-            return AnyView(HealthMonitor(snapshot: snapshot, compact: true))
+            return AnyView(HealthMonitor(snapshot: snapshot))
         case .stress:
-            return AnyView(StressMonitorCard(signals: signals, history: history))
+            return AnyView(StressMonitorCard(signals: signals, history: hub.dashboardHistory(recent: recent)))
         case .energy:
             return AnyView(EnergyTile(signals: signals))
         case .food:
@@ -107,10 +82,12 @@ struct TodayView: View {
             // Nur im Zeitfenster Sonntagabend bis Montagmittag; sonst nimmt die Karte keinen Platz ein.
             guard let period else { return AnyView(EmptyView()) }
             return AnyView(WeeklyRecapLink(period: period).transition(.opacity))
-        case .activities:
-            return AnyView(activities(snapshot.day))
         case .metrics:
-            return AnyView(steps(snapshot))
+            return AnyView(steps(snapshot, hours: hours))
+        case .sleepPlan:
+            return AnyView(SleepPlanCard())
+        case .hydration:
+            return AnyView(TodayWaterCard(day: snapshot.day.date).foodSettingsStore().id(hub.isSample))
         }
     }
 
@@ -204,18 +181,15 @@ struct TodayView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Antippbare Anzeige: öffnet die Detailseite per Push und zoomt aus genau dieser Form.
+    /// Native Navigation behält den Zustand auch während einer Synchronisierung.
     private func gauge<Content: View>(_ kind: RingKind, _ snapshot: DashboardDay,
                                       @ViewBuilder label: () -> Content) -> some View {
-        NavigationLink(value: RingRoute(kind: kind, zoom: true)) {
+        NavigationLink(value: kind) {
             label()
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .matchedTransitionSource(id: kind, in: zoomSpace) { source in
-            source.background(.clear).clipShape(RoundedRectangle(cornerRadius: Radius.plate, style: .continuous))
-        }
         .accessibilityLabel(kind.title)
         .accessibilityValue(DashboardRing.spokenValue(kind: kind, value: snapshot.value(for: kind)))
         .accessibilityHint("Öffnet die Details")
@@ -231,56 +205,6 @@ struct TodayView: View {
     /// Recovery bleibt die Hauptsache: bis 184 pt, links und rechts aber immer 80 pt für die Kapseln.
     nonisolated static func recoverySize(width: CGFloat) -> CGFloat {
         min(184, max(132, width - 2 * 80))
-    }
-
-    /// Ruhige Leiste, sobald der Kopf weggescrollt ist. Tippen springt zurück nach oben.
-    private func compactBar(_ snapshot: DashboardDay, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            // Beschriftungen bleiben immer sichtbar; reicht die Breite nicht, steht jeder Wert in einer eigenen Zeile.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.s4) {
-                    ForEach([RingKind.strain, .recovery, .sleep]) { kind in compactItem(kind, snapshot) }
-                }
-                VStack(alignment: .leading, spacing: Space.s1) {
-                    ForEach([RingKind.strain, .recovery, .sleep]) { kind in compactItem(kind, snapshot) }
-                }
-                .padding(.vertical, Space.s2)
-            }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background {
-            Theme.backgroundTop.ignoresSafeArea(edges: .top)
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.hairline).frame(height: 0.5)
-        }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Tageswerte")
-        .accessibilityValue([RingKind.recovery, .strain, .sleep]
-            .map { "\($0.title) \(DashboardRing.spokenValue(kind: $0, value: snapshot.value(for: $0)))" }
-            .joined(separator: ", "))
-        .accessibilityHint("Springt nach oben")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier("today.compact")
-    }
-
-    private func compactItem(_ kind: RingKind, _ snapshot: DashboardDay) -> some View {
-        HStack(spacing: Space.s1) {
-            Circle()
-                .fill(DashboardRing.tint(kind: kind, value: snapshot.value(for: kind)))
-                .frame(width: 6, height: 6)
-            Text(kind.title)
-                .font(.formaMicro)
-                .textCase(.uppercase)
-                .foregroundStyle(Theme.textSecondary)
-            Text(snapshot.value(for: kind).map(String.init) ?? "–")
-                .font(.formaValue)
-                .formaNumberTransition(Double(snapshot.value(for: kind) ?? 0))
-        }
-        .fixedSize()
     }
 
     // MARK: Coach-Zeile
@@ -318,8 +242,7 @@ struct TodayView: View {
     // MARK: Schritte
 
     /// Schritte als Halbkreis aus Strichen: gefüllt bis zum Tagesziel vom Coach; ohne Ziel nur der Wert.
-    private func steps(_ snapshot: DashboardDay) -> some View {
-        let hours: [HourlyMetrics] = hub.isSample ? HourlyMetrics.samples(for: snapshot.day) : hub.hours
+    private func steps(_ snapshot: DashboardDay, hours: [HourlyMetrics]) -> some View {
         let goal = hub.stepGoalToday
         let value = snapshot.day.steps
         return NavigationLink {
@@ -368,75 +291,6 @@ struct TodayView: View {
         let value = Format.number(steps)
         return goal.map { "\(value) von \(Format.number(Double($0)))" } ?? value
     }
-
-    // MARK: Mein Tag
-
-    private func activities(_ day: DayMetrics) -> some View {
-        let entries = DayActivity.entries(for: day)
-        return VStack(alignment: .leading, spacing: Space.s2) {
-            DashboardHeading(title: "Mein Tag")
-                .accessibilityIdentifier("today.activities.title")
-            DashboardCard {
-                if entries.isEmpty { DashboardEmpty(title: "Noch nichts aufgezeichnet") }
-                ForEach(entries) { entry in
-                    if entry.id != entries.first?.id { RowDivider(inset: 60) }
-                    // Schlaf öffnet Sleep, ein eigenes Training seine Zusammenfassung, nie pauschal Strain.
-                    if entry.kind == .sleep {
-                        NavigationLink(value: RingRoute(kind: .sleep)) { activityRow(entry) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("today.activity." + entry.id)
-                    } else if let session = Self.session(for: entry, in: sessions) {
-                        NavigationLink { WorkoutSummaryView(session: session) } label: { activityRow(entry) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("today.activity." + entry.id)
-                    } else {
-                        activityRow(entry)
-                            .accessibilityIdentifier("today.activity." + entry.id)
-                    }
-                }
-            }
-        }
-    }
-
-    private func activityRow(_ entry: DayActivity) -> some View {
-        HStack(spacing: Space.s3) {
-            Image(systemName: entry.kind == .sleep ? "moon.fill" : "figure.run")
-                .font(.system(.subheadline, weight: .semibold))
-                .foregroundStyle(entry.tint)
-                .frame(width: 32, height: 32)
-                .background(entry.tint.opacity(0.16), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title)
-                    .font(.formaRowTitle)
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(entry.clock)
-                    .font(.formaCaption)
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Text(entry.amount)
-                .font(.formaNumber)
-                .foregroundStyle(entry.tint)
-                .formaNumberTransition(entry.number)
-        }
-        .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s3)
-        .frame(minHeight: 56)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.title)
-        .accessibilityValue("\(entry.spokenAmount), \(entry.clock)")
-    }
-}
-
-extension TodayView {
-    /// Eigene Trainings tragen dieselbe Startzeit wie ihr Eintrag (FormaApp übergibt `session.start`).
-    static func session(for entry: DayActivity, in sessions: [WorkoutSession]) -> WorkoutSession? {
-        guard entry.kind == .strain else { return nil }
-        return sessions.first { abs($0.start.timeIntervalSince(entry.date)) < 1 }
-    }
 }
 
 /// Strich-Halbkreis mit Hochzählen beim Erscheinen.
@@ -454,44 +308,15 @@ private struct StepArcView: View {
     }
 }
 
-private extension View {
-    /// Zoom nur, wenn die Seite aus dem Kopf geöffnet wurde und Bewegung erlaubt ist.
-    @ViewBuilder func todayZoom(_ source: RingKind?, in space: Namespace.ID) -> some View {
-        if let source {
-            navigationTransition(.zoom(sourceID: source, in: space))
-        } else {
-            self
-        }
-    }
-}
-
-struct DayActivity: Identifiable {
-    let id: String
-    let title: String
-    let amount: String
-    let number: Double
-    let spokenAmount: String
-    let date: Date
-    let clock: String
-    let tint: Color
+private struct TodayRingPage: View {
+    @Environment(DataHub.self) private var hub
     let kind: RingKind
 
-    /// Neueste zuerst; Schlaf zählt mit seinem Ende.
-    static func entries(for day: DayMetrics) -> [Self] {
-        var entries = day.workouts.map { workout in
-            let load = ScoreEngine.strain(DayMetrics(date: day.date, activeEnergy: workout.energy, workouts: [workout]))
-            return Self(id: workout.id.uuidString, title: workout.name, amount: String(load), number: Double(load),
-                        spokenAmount: "Geschätzte Belastung \(load) von 100", date: workout.start,
-                        clock: Format.clock(workout.start), tint: DashboardRing.tint(kind: .strain, value: load),
-                        kind: .strain)
-        }
-        if let sleep = day.sleep, sleep.asleep > 0 {
-            entries.append(Self(id: "sleep", title: "Schlaf", amount: RingDetailView.clock(sleep.asleep),
-                                number: sleep.asleep,
-                                spokenAmount: Format.duration(sleep.asleep), date: sleep.end,
-                                clock: "\(Format.clock(sleep.start))–\(Format.clock(sleep.end))",
-                                tint: Theme.sleep, kind: .sleep))
-        }
-        return entries.sorted { $0.date > $1.date }
+    var body: some View {
+        let today = Date.now.startOfDay
+        let recent = hub.days
+        let day = recent.last { $0.date == today } ?? DayMetrics(date: today)
+        let snapshot = DashboardDay(day: day, history: recent)
+        RingDetailView(kind: kind, snapshot: snapshot, history: hub.dashboardHistory(recent: recent))
     }
 }

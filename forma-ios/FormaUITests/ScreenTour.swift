@@ -169,13 +169,11 @@ final class ScreenTour: XCTestCase {
     }
 
     func testTour() {
-        sleep(2)
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
         shot("01 Today")
 
         // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
-        for (kind, name) in [("recovery", "04 Recovery"), ("sleep", "06 Sleep"), ("strain", "08 Strain")] {
-            app.swipeDown(); app.swipeDown()
+        for (kind, name) in [("sleep", "06 Sleep"), ("recovery", "04 Recovery"), ("strain", "08 Strain")] {
             let ring = app.buttons["ring.\(kind)"]
             guard ring.waitForExistence(timeout: 3) else { XCTFail("Anzeige \(kind) fehlt"); continue }
             ring.tap()
@@ -208,7 +206,8 @@ final class ScreenTour: XCTestCase {
 
         back()
         app.swipeDown(); app.swipeDown()
-        captureDetail("health.monitor", title: "Health Monitor", screenshot: "08c Health Monitor")
+        XCTAssertFalse(el("today.compact").exists)
+        captureDetail("health.monitor.metric.respiratoryRate", title: "Atemfrequenz", screenshot: "08c Health Monitor")
         let stress = el("today.stress.open")
         if reveal(stress) {
             stress.tap()
@@ -241,8 +240,10 @@ final class ScreenTour: XCTestCase {
                 XCTAssertTrue(close.waitForNonExistence(timeout: 3), "Wochenrückblick schließt nicht")
             } else { XCTFail("Wochenrückblick öffnet nicht") }
         } else { XCTFail("Wochenrückblick fehlt") }
-        if reveal(el("today.activities.title")) { shot("03 Mein Tag") } else { XCTFail("Die Aktivitäten fehlen") }
+        XCTAssertFalse(el("today.activities.title").exists)
         captureDetail("today.steps", title: "Schritte", screenshot: "08b Schritte")
+        captureDetail("sleepplan.card", title: "Schlafplan", screenshot: "08i Today Schlafplan")
+        if reveal(el("today.hydration")) { shot("08j Today Wasser") } else { XCTFail("Wasserkachel fehlt") }
 
         XCTAssertTrue(openPlus("Fitness"), "Fitness im Plus-Menü fehlt")
         shot("09 Training")
@@ -292,9 +293,8 @@ final class ScreenTour: XCTestCase {
             XCTFail("Die Health-Age-Seite fehlt")
         }
         app.swipeDown(); app.swipeDown()
-        captureDetail("health.monitor", title: "Health Monitor", screenshot: "14f Health Monitor")
+        captureDetail("health.monitor.metric.respiratoryRate", title: "Atemfrequenz", screenshot: "14f Health Monitor")
         app.swipeDown(); app.swipeDown(); app.swipeDown()
-        captureDetail("health.experiment", title: "Gewohnheit", screenshot: "15b Gewohnheit")
         captureDetail("health.metric.hrv", title: "HRV", screenshot: "15 HRV")
         let edit = app.buttons["tiles.edit"]
         if reveal(edit) {

@@ -1,9 +1,17 @@
 import SwiftUI
 
+enum MeasurementTileLayout: String, CaseIterable, Identifiable {
+    case cards, columns
+
+    var id: Self { self }
+    var title: String { self == .cards ? "Karten" : "Balken" }
+}
+
 /// Tageswerte und persönlicher Bereich. Jede Kachel führt direkt zum zugehörigen Verlauf.
 struct HealthMonitor: View {
+    @AppStorage("forma.tiles.vitals.layout") private var layout = MeasurementTileLayout.cards
+    @State private var showOverview = false
     let snapshot: DashboardDay
-    var compact = false
 
     var body: some View {
         let check = NightVitals(day: snapshot.day, history: snapshot.history)
@@ -12,45 +20,49 @@ struct HealthMonitor: View {
         let items = [MetricKind.respiratoryRate, .restingHR, .hrv, .spo2, .skinTemperature]
             .compactMap { byID[$0.rawValue] } + [MonitorReading(sleepOf: snapshot)]
         VStack(alignment: .leading, spacing: Space.s2) {
-            if !compact {
-                monitorLink(items, markedNight: check.isMarked)
+            HStack {
+                Spacer()
+                Menu {
+                    Picker("Kacheldesign", selection: $layout) {
+                        ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
+                    }
+                    Button("Messübersicht", systemImage: "heart.text.square") { showOverview = true }
+                        .accessibilityIdentifier("health.monitor")
+                } label: {
+                    Image(systemName: "rectangle.grid.2x2")
+                        .font(.formaCaptionStrong)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Vitalwerte-Kacheldesign")
+                .accessibilityIdentifier("health.monitor.layout")
             }
-            HealthVitalGrid(readings: items)
-            if compact {
-                monitorLink(items, markedNight: check.isMarked)
+            HealthVitalGrid(readings: items, layout: layout)
+        }
+        .sheet(isPresented: $showOverview) {
+            NavigationStack {
+                HealthMonitorDetail(readings: items, markedNight: check.isMarked)
             }
         }
-    }
-
-    private func monitorLink(_ items: [MonitorReading], markedNight: Bool) -> some View {
-        NavigationLink {
-            HealthMonitorDetail(readings: items, markedNight: markedNight)
-        } label: {
-            Text(compact ? "Alle Vitalwerte" : "Health Monitor")
-                .font(.formaCaptionStrong)
-                .foregroundStyle(Theme.textSecondary)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("health.monitor")
     }
 }
 
 private struct HealthVitalGrid: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let readings: [MonitorReading]
+    var layout: MeasurementTileLayout = .cards
+
+    private var showsColumns: Bool { layout == .columns && !typeSize.isAccessibilitySize }
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
-                                 count: typeSize.isAccessibilitySize ? 1 : 2),
+                                 count: typeSize.isAccessibilitySize ? 1 : (showsColumns ? 3 : 2)),
                   alignment: .leading, spacing: Space.s2) {
             ForEach(readings) { reading in
                 if let metric = MetricKind(rawValue: reading.id) {
                     NavigationLink {
                         MetricDetailView(kind: metric)
                     } label: {
-                        tile(reading)
+                        if showsColumns { column(reading) } else { tile(reading) }
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
@@ -59,6 +71,29 @@ private struct HealthVitalGrid: View {
                     .accessibilityIdentifier("health.monitor.metric." + reading.id)
                 }
             }
+        }
+    }
+
+    private func column(_ reading: MonitorReading) -> some View {
+        DashboardCard {
+            VStack(spacing: Space.s1) {
+                MetricScale(value: reading.scaleValue, tint: reading.tint, axis: .vertical, target: 25...75)
+                    .frame(width: 24, height: 70)
+                    .padding(.bottom, Space.s1)
+                Text(reading.measurement)
+                    .font(.formaValue.monospacedDigit())
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Label(reading.shortTitle, systemImage: reading.icon)
+                    .font(.formaMicro)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .padding(Space.s2)
+            .frame(maxWidth: .infinity, minHeight: 126)
+            .contentShape(Rectangle())
         }
     }
 

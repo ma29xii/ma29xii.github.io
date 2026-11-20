@@ -27,14 +27,14 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 ## Today
 
 - **T-10** Today ansehen → Recovery groß in der Mitte, Strain links und Sleep rechts als Balken. Oben schimmert es in der Recovery-Farbe bis unter die Statusleiste, nichts ist abgeschnitten.
-- **T-11** Nacheinander Strain, Recovery und Sleep antippen → Jede Detailseite zeigt Wert, Beiträge, Verlauf und Trend. Kein Datum unter dem großen Wert, kein „vs. 30 Tage“, keine Erklärsätze.
+- **T-11** 📱 Health aus der App-Übersicht schließen und neu öffnen. Sobald Today sichtbar ist, sofort **Sleep** öffnen, zurück und **Strain** antippen → Beide Seiten öffnen sich und lassen sich scrollen. Auch während der ersten Google-Aktualisierung prüfen.
 - **T-12** Im Trend zwischen W, M und 6M wechseln → Die Linie wechselt; bei 6M Wochenmittel ohne Zucken. Antippen ins Diagramm wählt keinen Tag aus.
 - **T-13** Im Trend „Einzelwerte“ aufklappen → Liste mit Datum und Wert der echten Messungen, neueste zuerst; erneut tippen klappt zu.
 - **T-14** Sleep-Detail → Kapsel beschriftet mit „Sleep“, darunter Schlafstunden/Schlafbedarf, Schlafkonstanz direkt sichtbar ohne weiteren Tipp.
-- **T-15** Kacheln Health Monitor, Stress, Energie, Schritte, Heutiges Essen, Mein Tag antippen → Jede öffnet ihr Detail. Keine Pfeile an den Kacheln.
+- **T-15** Die Vitalwerte sowie Stress, Energie und Schritte antippen → Jede Kachel öffnet ihre Details. Das Layout-Symbol der Vitalwerte wechselt zwischen Karten und Balken. Die Zwischenleiste und „Mein Tag“ erscheinen auf Today nicht mehr.
 - **T-16** Kachel Schritte → Halbkreis mit Strichen zeigt Tagesziel und erreichte Schritte (z. B. 6.240 von 8.550). Das Ziel ändert sich von Tag zu Tag je nach Recovery und Schlaf.
-- **T-17** Stress-Detail → Skala, Stufe und Zeit in Zonen; kein „Schätzung“, kein „Stand 17:00“.
-- **T-18** Mein Tag: einen Schlaf- und einen eigenen Trainingseintrag antippen → Schlaf öffnet Sleep, das Training seine Zusammenfassung. Kein Eintrag führt zu Strain.
+- **T-17** Today zeigt Stresswert, Zone und Tagesbalken. Antippen öffnet Skala, Zeit in Zonen und Atemübung.
+- **T-18** Auf Today **Schlafplan** und **Wasser** antippen → Beide öffnen ihre Details. Von Today zu Food und zurück wechseln → Die Ringe spielen ihre Animation erneut ab.
 - **T-19** Ganz nach unten scrollen, „Anpassen“ → Kacheln per Griff verschieben, per Minus ausblenden; nach „Fertig“ bleibt die Reihenfolge.
 - **T-20** Nach unten ziehen → Today aktualisiert sich.
 
@@ -47,9 +47,9 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 
 ## Food
 
-- **T-25** Tab **Food** → Mitte Kalorien übrig, links Protein, rechts Kohlenhydrate, darunter Ballaststoffe mit Ziel. Beschriftungen gut lesbar.
+- **T-25** Tab **Food** → Ringe oben, erfasste Kalorien mit Tagesziel darunter. Ballaststoffe stehen in einer eigenen Kachel. Wasser, Fasten, Plan und Gewicht stehen unter den Mahlzeiten.
 - **T-26** Plus → Nährwerte tracken → Suchen: „Haferflocken“, Treffer wählen, 50 g eintragen → Eintrag steht unter der Mahlzeit, Summen passen.
-- **T-27** Bei „Frühstück“ auf **+** und etwas eintragen → Es landet unter Frühstück (nicht Snack).
+- **T-27** Bei „Frühstück“ auf **+** tippen und etwas eintragen → Der Eintrag landet unter Frühstück. Frühstück, Mittag und Abend zeigen je erfasste kcal und bei einem bestehenden Essensplan auch die geplanten kcal.
 - **T-28** Mengenfeld 0 → „Eintragen“ gesperrt.
 - **T-29** Eintrag nach links wischen oder lange drücken → Löschen; Summe sinkt.
 - **T-30** Lebensmittel ohne Proteinangabe eintragen → Oben steht „≥“ bzw. „–“ statt einer falschen exakten Zahl.
@@ -85,7 +85,7 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 - **T-54** Health Age antippen → Alterungstempo mit Skala, Beiträge, Trend; alles zeigt den heutigen Stand.
 - **T-55** Biomarker (z. B. Ruhepuls) antippen, 7/30/90 Tage wechseln → Verlauf wechselt; Antippen ins Diagramm wählt keinen Tag.
 - **T-56** Health Monitor öffnen → Karten mit persönlichem Bereich; jede Karte antippbar. Erklärung nur hinter (i).
-- **T-57** Kachel „Gewohnheit“ → Gewohnheit wählen, 3 Tage Ja/Nein tippen → Kachel zeigt „Tag 3 von 14“; nach 14 Tagen Vergleich mit/ohne.
+- **T-57** Health nach unten scrollen → Vitalwerte und Biomarker bleiben antippbar. Die separate Kachel „Gewohnheit“ und Überschriften zwischen den Kacheln fehlen.
 - **T-58** „Anpassen“ steht ganz unten → Kacheln verschieben/ausblenden funktioniert.
 
 ## Schlaf und Coach

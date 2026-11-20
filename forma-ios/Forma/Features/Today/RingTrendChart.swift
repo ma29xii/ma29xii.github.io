@@ -296,7 +296,10 @@ struct RingStrainPath: View {
     let tint: Color
 
     var body: some View {
-        let path = StrainInsight.path(endingAt: end, history: InsightHistory(history))
+        let endDay = end.startOfDay
+        let window = endDay.adding(days: -54)...endDay
+        let recent = history.filter { window.contains($0.date) }
+        let path = StrainInsight.path(endingAt: end, history: InsightHistory(recent))
         VStack(alignment: .leading, spacing: Space.s2) {
             DashboardHeading(title: "Belastungspfad")
             DashboardCard {

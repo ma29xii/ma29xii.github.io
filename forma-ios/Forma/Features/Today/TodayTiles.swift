@@ -42,7 +42,7 @@ struct StepsDetail: View {
 
 /// Karten unter dem Today-Kopf. Kopf und Kennzahlen (mit Schritten) bleiben immer sichtbar.
 enum TodayTile: String, TileKind {
-    case coach, healthMonitor, stress, energy, food, weekly, activities, metrics
+    case coach, healthMonitor, stress, energy, food, weekly, metrics, sleepPlan, hydration
 
     var id: String { rawValue }
     var title: String {
@@ -53,8 +53,9 @@ enum TodayTile: String, TileKind {
         case .energy: "Energie"
         case .food: "Heutiges Essen"
         case .weekly: "Wochenrückblick"
-        case .activities: "Mein Tag"
         case .metrics: "Schritte"
+        case .sleepPlan: "Schlafplan"
+        case .hydration: "Wasser"
         }
     }
     var systemImage: String {
@@ -65,13 +66,53 @@ enum TodayTile: String, TileKind {
         case .energy: "bolt.fill"
         case .food: "fork.knife"
         case .weekly: "calendar"
-        case .activities: "list.bullet"
         case .metrics: "figure.walk"
+        case .sleepPlan: "moon.stars"
+        case .hydration: "drop.fill"
         }
     }
     var summary: String { title }
     static var requiredVisible: Set<Self> { [.metrics] }
     static func storedKinds(for id: String) -> [Self] { Self(rawValue: id).map { [$0] } ?? [] }
+}
+
+struct TodayWaterCard: View {
+    @Query private var entries: [FoodWaterEntry]
+    @AppStorage(FoodSettings.waterGoalKey) private var goal = FoodSettings.defaultWaterMl
+
+    init(day: Date) {
+        let start = day.startOfDay
+        let end = start.adding(days: 1)
+        _entries = Query(filter: #Predicate<FoodWaterEntry> { $0.date >= start && $0.date < end })
+    }
+
+    var body: some View {
+        let total = entries.reduce(0) { $0 + $1.milliliters }
+        let target = FoodSettings.waterRange.contains(goal) ? goal : FoodSettings.defaultWaterMl
+        let value = "\(Format.number(total)) von \(Format.number(target)) ml"
+        NavigationLink {
+            FoodWaterView()
+        } label: {
+            DashboardCard {
+                VStack(alignment: .leading, spacing: Space.s3) {
+                    Label("Wasser", systemImage: "drop.fill")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.strain)
+                    Text(value).font(.formaRowTitle).foregroundStyle(Theme.textPrimary)
+                    MetricScale(value: total / target * 100, tint: Theme.strain)
+                        .frame(height: 10)
+                        .accessibilityHidden(true)
+                }
+                .padding(Space.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Wasser")
+        .accessibilityValue(value)
+        .accessibilityIdentifier("today.hydration")
+    }
 }
 
 struct TodayFoodCard: View {

@@ -54,16 +54,26 @@ struct StressMonitorCard: View {
             StressDetail(signals: signals, history: history)
         } label: {
             DashboardCard {
-                VStack(alignment: .leading, spacing: Space.s3) {
-                    DashboardHeading(title: "Stress Monitor")
+                VStack(alignment: .leading, spacing: Space.s4) {
+                    Label("Stress Monitor", systemImage: "waveform.path")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.textSecondary)
                         .accessibilityIdentifier("today.stress.title")
                     if let value = signals.stress {
-                        HStack(spacing: Space.s4) {
-                            StressGauge(value: value, diameter: 88, showsNumber: true)
-                            Text(StressZone(value: value).title)
-                                .font(.formaRowTitle)
-                                .foregroundStyle(StressZone(value: value).tint)
+                        let zone = StressZone(value: value)
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+                            Text(Format.number(value, decimals: 1))
+                                .font(.formaDisplay.monospacedDigit())
+                                .foregroundStyle(Theme.textPrimary)
+                            Text("/ 3")
+                                .font(.formaCaption)
+                                .foregroundStyle(Theme.textSecondary)
+                            Spacer(minLength: Space.s2)
+                            Label(zone.title, systemImage: "circle.fill")
+                                .font(.formaCaptionStrong)
+                                .foregroundStyle(zone.tint)
                         }
+                        stressTimeline
                     } else {
                         Text("Keine Messung").font(.formaBody).foregroundStyle(Theme.textSecondary)
                     }
@@ -78,6 +88,36 @@ struct StressMonitorCard: View {
         .accessibilityLabel("Stress")
         .accessibilityValue(Self.spokenValue(signals.stress))
         .accessibilityIdentifier("today.stress.open")
+    }
+
+    private var stressTimeline: some View {
+        let hours = Dictionary(signals.stressSlots.compactMap { slot -> (Int, Double)? in
+            guard let value = slot.value, value.isFinite else { return nil }
+            return (Calendar.forma.component(.hour, from: slot.start), value)
+        }, uniquingKeysWith: { _, last in last })
+
+        return VStack(alignment: .leading, spacing: Space.s2) {
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(0..<24, id: \.self) { hour in
+                    let value = hours[hour]
+                    Capsule()
+                        .fill(value.map { StressZone(value: $0).tint } ?? Theme.track)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: value.map { 5 + CGFloat(min(3, max(0, $0))) * 11 } ?? 3)
+                }
+            }
+            .frame(height: 39, alignment: .bottom)
+            HStack {
+                Text("00:00")
+                Spacer()
+                Text("12:00")
+                Spacer()
+                Text("24:00")
+            }
+            .font(.formaMicro.monospacedDigit())
+            .foregroundStyle(Theme.textSecondary)
+        }
+        .accessibilityHidden(true)
     }
 
     nonisolated static func spokenValue(_ value: Double?) -> String {

@@ -11,10 +11,8 @@ final class DesignTodayTests: XCTestCase {
 
     // MARK: Kopf
 
-    func testRingRouteZoomsOnlyFromTheHeader() {
-        XCTAssertFalse(RingRoute(kind: .sleep).zoom)
-        XCTAssertNotEqual(RingRoute(kind: .sleep, zoom: true), RingRoute(kind: .sleep))
-        XCTAssertEqual(Set(RingKind.allCases.map { RingRoute(kind: $0, zoom: true) }).count, 3)
+    func testRingKindsHaveDistinctNavigationIDs() {
+        XCTAssertEqual(Set(RingKind.allCases.map(\.id)), ["recovery", "sleep", "strain"])
     }
 
     func testRecoveryArcRunsFromLowerLeftToLowerRight() {
@@ -92,7 +90,7 @@ final class DesignTodayTests: XCTestCase {
         XCTAssertEqual(ComparisonRow.direction(value: .nan, baseline: 58, format: whole), 0)
     }
 
-    // MARK: Kapseln und Mein Tag
+    // MARK: Kapseln und Today
 
     func testSleepCapsuleClock() {
         XCTAssertEqual(RingDetailView.clock(6 * 3600 + 8 * 60), "6:08")
@@ -100,13 +98,10 @@ final class DesignTodayTests: XCTestCase {
         XCTAssertEqual(RingDetailView.clock(-30), "0:00")
     }
 
-    func testMyDayListsNewestFirstAndLinksToRings() {
-        let night = SleepNight(start: day.adding(minutes: -90), end: day.adding(minutes: 6 * 60),
-                               segments: [.init(stage: .core, start: day.adding(minutes: -90), end: day.adding(minutes: 6 * 60))])
-        let run = WorkoutSummary(name: "Lauf", start: day.adding(minutes: 18 * 60), duration: 1800, energy: 300)
-        let entries = DayActivity.entries(for: DayMetrics(date: day, activeEnergy: 300, sleep: night, workouts: [run]))
-        XCTAssertEqual(entries.map(\.kind), [.strain, .sleep])
-        XCTAssertEqual(entries.last?.amount, "7:30")
+    func testTodaySupportsNewCardsAndRetiresMyDayFromExistingLayouts() {
+        XCTAssertEqual(TodayTile.storedKinds(for: "activities"), [])
+        XCTAssertEqual(TodayTile.storedKinds(for: "sleepPlan"), [.sleepPlan])
+        XCTAssertEqual(TodayTile.storedKinds(for: "hydration"), [.hydration])
     }
 
     func testMissingMeasurementsAreRecognized() {

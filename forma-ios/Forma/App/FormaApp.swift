@@ -100,10 +100,9 @@ struct RootView: View {
                 Label {
                     Text(app.showPlus ? "Plus-Menü schließen" : "Plus")
                 } icon: {
-                    Image(systemName: app.showPlus ? "xmark" : "plus")
-                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
-                        .rotationEffect(.degrees(app.showPlus && !reduceMotion ? 90 : 0))
-                        .animation(reduceMotion ? nil : .snappy(duration: 0.26), value: app.showPlus)
+                    Image(systemName: "plus")
+                        .rotationEffect(.degrees(app.showPlus ? 45 : 0))
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.32, extraBounce: 0.06), value: app.showPlus)
                 }
             }
             .accessibilityIdentifier("tab.plus")
@@ -126,7 +125,14 @@ struct RootView: View {
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView()
         }
+        .overlay {
+            if !app.launchReady && !FormaApp.isUITest {
+                HealthStartupView().transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: app.launchReady)
         .task {
+            await Task.yield()
             TrainingSeed.seedIfNeeded(context)
             if app.isDemo {
                 SampleData.seedWorkouts(hub.longDays, in: context)

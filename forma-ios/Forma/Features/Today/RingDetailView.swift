@@ -2,6 +2,9 @@ import Charts
 import SwiftUI
 
 struct RingDetailView: View {
+    @Environment(DataHub.self) private var hub
+    @AppStorage("forma.tiles.ring.layout") private var layout = MeasurementTileLayout.cards
+    @Environment(\.dynamicTypeSize) private var typeSize
     let kind: RingKind
     let snapshot: DashboardDay
     let history: [DayMetrics]
@@ -9,11 +12,17 @@ struct RingDetailView: View {
     private var day: DayMetrics { snapshot.day }
 
     var body: some View {
-        if kind == .sleep {
-            LazyVStack(alignment: .leading, spacing: Space.gap) { sections }
-        } else {
-            VStack(alignment: .leading, spacing: Space.gap) { sections }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: Space.gap) {
+                if hub.isSample { SampleDataBadge() }
+                sections
+            }
+            .padding(.horizontal, Space.page)
+            .padding(.vertical, Space.s4)
         }
+        .dashboardScreen()
+        .navigationTitle(kind.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder
@@ -45,12 +54,30 @@ struct RingDetailView: View {
             SleepPlanCard()
         }
         if !(kind == .sleep && FormaApp.probeHidden.contains("metrics")) {
-        VStack(alignment: .leading, spacing: Space.s2) {
-            DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
-            ForEach(metrics(tint: tint)) { metric in
-                RingMetricCard(metric: metric, day: day, history: history)
+            VStack(alignment: .leading, spacing: Space.s2) {
+                HStack {
+                    DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
+                    Spacer()
+                    Menu {
+                        Picker("Kacheldesign", selection: $layout) {
+                            ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
+                        }
+                    } label: {
+                        Image(systemName: "rectangle.grid.2x2")
+                            .font(.formaCaptionStrong)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Kacheldesign")
+                    .accessibilityIdentifier("ring.metric.layout")
+                }
+                let columns = layout == .columns && !typeSize.isAccessibilitySize
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: columns ? 2 : 1),
+                          spacing: Space.s2) {
+                    ForEach(metrics(tint: tint)) { metric in
+                        RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history, compact: columns)
+                    }
+                }
             }
-        }
         }
         if kind == .sleep, !FormaApp.probeHidden.contains("consistency") {
             RingSleepConsistency(end: day.date, history: history)
@@ -267,11 +294,11 @@ private struct RingMetric: Identifiable {
 
     func points(in domain: ClosedRange<Date>, endingAt current: DayMetrics, history: [DayMetrics]) -> [HealthChartPoint] {
         let days = history.filter { $0.date < current.date }.sorted { $0.date < $1.date }
-        return (days + [current]).filter { domain.contains($0.date) }.compactMap { day in
+        return (days + [current]).enumerated().compactMap { index, day in
+            guard domain.contains(day.date) else { return nil }
             if let series, range != nil, day.date != current.date,
                !ScoreEngine.sameBaselineSource(for: series, today: current, previous: day) { return nil }
-            let previous = days.filter { $0.date < day.date }
-            return value(day: day, history: previous).map { HealthChartPoint(date: day.date, value: $0) }
+            return value(day: day, history: Array(days.prefix(index))).map { HealthChartPoint(date: day.date, value: $0) }
         }
     }
 
@@ -297,17 +324,17 @@ private extension RingMetric {
 private struct RingMetricCard: View {
     let metric: RingMetric
     let day: DayMetrics
+    let recent: [DayMetrics]
     let history: [DayMetrics]
+    let compact: Bool
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let prior = history.filter { $0.date < day.date }.sorted { $0.date < $1.date }
-        let value = metric.value(day: day, history: prior)
+        let value = metric.value(day: day, history: recent)
         let text = value.map(metric.formatted) ?? "Keine Messung"
         let status = metric.status(value)
         let domain = day.date.adding(days: -13)...day.date
-        let points = metric.points(in: domain, endingAt: day, history: prior)
         NavigationLink {
             InsightPage(title: metric.title) {
                 VStack(alignment: .leading, spacing: Space.s1) {
@@ -316,7 +343,7 @@ private struct RingMetricCard: View {
                 }
                 RingTrendCard(title: metric.title, anchor: day.date, tint: metric.tint, usual: metric.range,
                               valueText: metric.formatted) { domain in
-                    metric.points(in: domain, endingAt: day, history: prior)
+                    metric.points(in: domain, endingAt: day, history: history)
                 }
             }
         } label: {
@@ -333,9 +360,16 @@ private struct RingMetricCard: View {
                         if let status { statusLabel(status, value: value) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if !typeSize.isAccessibilitySize, !points.isEmpty {
-                        RingMetricSparkline(points: points, domain: domain, usual: metric.range, tint: metric.tint)
-                            .frame(width: 94, height: 38)
+                    if !typeSize.isAccessibilitySize, !compact {
+                        let points = metric.points(in: domain, endingAt: day, history: recent)
+                        if !points.isEmpty {
+                            RingMetricSparkline(points: points, domain: domain, usual: metric.range, tint: metric.tint)
+                                .frame(width: 94, height: 38)
+                                .accessibilityHidden(true)
+                        }
+                    } else if compact {
+                        MetricScale(value: scaleValue(value), tint: metric.tint, axis: .vertical)
+                            .frame(width: 16, height: 44)
                             .accessibilityHidden(true)
                     }
                 }
@@ -349,6 +383,16 @@ private struct RingMetricCard: View {
         .accessibilityLabel(metric.title)
         .accessibilityValue([text, status].compactMap { $0 }.joined(separator: ", "))
         .accessibilityIdentifier("ring.metric." + metric.id)
+    }
+
+    private func scaleValue(_ value: Double?) -> Double? {
+        guard let value else { return nil }
+        if metric.id == "recovery" || metric.id == "sleep.score" { return value }
+        if metric.id.hasPrefix("sleep.") { return value * 100 }
+        let range = metric.range ?? ScoreEngine.baseline(recent.compactMap { metric.value(day: $0, history: []) })
+            .map { ($0.mean - 2 * $0.sd)...($0.mean + 2 * $0.sd) }
+        guard let range, range.upperBound > range.lowerBound else { return nil }
+        return 25 + 50 * (value - range.lowerBound) / (range.upperBound - range.lowerBound)
     }
 
     private func statusLabel(_ status: String, value: Double?) -> some View {
