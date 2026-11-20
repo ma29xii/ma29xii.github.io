@@ -107,7 +107,7 @@ struct AchievementUnlockBanner: View {
         ZStack(alignment: .top) {
             if let unlock, let first = unlock.achievements.first {
                 if !reduceMotion {
-                    ConfettiBurst(tint: first.tint)
+                    ConfettiBurst(tint: Theme.accent)
                         .id(unlock.id)
                         .frame(height: 360)
                 }
