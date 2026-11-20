@@ -26,6 +26,7 @@ struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
     @State private var editingTiles = false
+    @Namespace private var zoom
 
     var body: some View {
         let age = bodyAgeOutcome(hub: hub, sessions: sessions)
@@ -40,14 +41,19 @@ struct HealthView: View {
                     } else if let status = hub.todayDataNotice {
                         Text(status).font(.formaCaption).foregroundStyle(Theme.textSecondary)
                     }
-                    if case .ready = age {
-                        NavigationLink {
-                            BodyAgeDetailView(outcome: age, trend: bodyAgeTrend(hub: hub, sessions: sessions))
-                        } label: {
-                            HealthAgeHero(outcome: age)
+                    if case .ready(let result) = age {
+                        VStack(spacing: Space.s4) {
+                            NavigationLink {
+                                BodyAgeDetailView(outcome: age, trend: bodyAgeTrend(hub: hub, sessions: sessions))
+                                    .navigationTransition(.zoom(sourceID: "health.age", in: zoom))
+                            } label: {
+                                HealthAgeHero(outcome: age)
+                            }
+                            .buttonStyle(.plain)
+                            .matchedTransitionSource(id: "health.age", in: zoom)
+                            .accessibilityIdentifier("health.age")
+                            HealthAgeOverview(result: result)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("health.age")
                     } else {
                         HealthAgeSetupCard(outcome: age)
                             .accessibilityIdentifier("health.age")

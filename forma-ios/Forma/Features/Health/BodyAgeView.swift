@@ -85,9 +85,67 @@ struct HealthAgeHero: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Health Age")
+        .accessibilityLabel("Health Age, Details")
         .accessibilityValue(result.map { "\(BodyAgeText.spokenAge($0)), \(BodyAgeText.difference($0))" } ?? "")
-        .accessibilityHint("Öffnet Tempo, Beiträge und Verlauf")
+    }
+}
+
+/// Die wichtigsten Faktoren unter dem Kreis: Beitrag in Jahren, grün = jünger, orange = älter.
+/// Es zählen nur Faktoren, die BodyAge wirklich berechnet hat; die Zahlen sind dieselben wie auf der Detailseite.
+struct HealthAgeOverview: View {
+    let result: BodyAge.Result
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var shown = false
+
+    private var items: [(id: String, title: String, years: Double)] {
+        result.factors
+            .map { (id: $0.id, title: $0.title, years: factorYears($0)) }
+            .filter { abs($0.years) >= 0.05 }
+            .sorted { abs($0.years) > abs($1.years) }
+            .prefix(5).map { $0 }
+    }
+
+    var body: some View {
+        let items = items
+        if !items.isEmpty {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 240 : 150), spacing: Space.s2)],
+                      spacing: Space.s2) {
+                ForEach(items.indices, id: \.self) { index in
+                    chip(items[index])
+                        .opacity(shown ? 1 : 0)
+                        .offset(y: shown ? 0 : 8)
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.5).delay(0.25 + 0.08 * Double(index)), value: shown)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Beiträge zur Health Age")
+            .accessibilityIdentifier("health.age.overview")
+            .onAppear { shown = true }
+        }
+    }
+
+    private func chip(_ item: (id: String, title: String, years: Double)) -> some View {
+        let tint = BodyAgeText.color(item.years)
+        let amount = Format.number(abs(item.years), decimals: 1)
+        let sign = item.years < 0 ? "−" : "+"
+        return HStack(spacing: Space.s2) {
+            Text(item.title)
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: Space.s1)
+            Text("\(sign)\(amount) J")
+                .font(.formaCaptionStrong.monospacedDigit())
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, Space.s3)
+        .frame(minHeight: 36)
+        .background(tint.opacity(0.14), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.title)
+        .accessibilityValue("\(amount) Jahre \(item.years < 0 ? "jünger" : "älter")")
     }
 }
 
@@ -153,9 +211,6 @@ struct HealthAgeSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s5) {
-            // Bei dünner Datenlage schwankt das Tempo zu stark, um es zu zeigen (K-03-38).
-            AgingPaceCard(pace: result?.confidence == .low ? nil : result?.pace,
-                          outsideScale: result?.paceOutsideScale ?? false)
             if let result, !result.factors.isEmpty {
                 VStack(alignment: .leading, spacing: Space.s2) {
                     DashboardHeading(title: "Beiträge")
@@ -173,6 +228,9 @@ struct HealthAgeSections: View {
                     }
                 }
             }
+            // Bei dünner Datenlage schwankt das Tempo zu stark, um es zu zeigen (K-03-38).
+            AgingPaceCard(pace: result?.confidence == .low ? nil : result?.pace,
+                          outsideScale: result?.paceOutsideScale ?? false)
             HealthAgeTrendCard(points: trend, decimals: result.map(BodyAgeText.decimals) ?? 0)
         }
     }
