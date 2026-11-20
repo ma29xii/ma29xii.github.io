@@ -204,7 +204,7 @@ enum CoachMemory {
 
     /// Aussagen über dich, die der Coach sich auch ohne Bitte merkt (Unverträglichkeiten, Ernährungsform, Verletzungen).
     private static let statementPattern =
-        #"^ich\s+(?:vertrage\s+(?:kein|keine|keinen|nicht)|bin\s+(?:allergisch|laktoseintolerant|glutenintolerant|vegetarier|vegetarierin|veganer|veganerin|vegan|vegetarisch)|esse\s+(?:kein|keine|keinen|nie|nur)|mag\s+(?:kein|keine|keinen)|habe\s+(?:eine\s+|einen\s+)?(?:allergie|unverträglichkeit|intoleranz|verletzung|schmerzen|probleme\s+mit)|trainiere\s+(?:immer|nur|meistens)|faste)"#
+        #"^ich\s+(?:vertrage\s+(?:kein|keine|keinen|nicht)\b|bin\s+(?:allergisch|laktoseintolerant|glutenintolerant|vegetarier|vegetarierin|veganer|veganerin|vegan|vegetarisch)\b|esse\s+(?:kein|keine|keinen|nie|nur)\b|mag\s+(?:kein|keine|keinen)\b|habe\s+(?:eine\s+|einen\s+)?(?:allergie|unverträglichkeit|intoleranz|verletzung|schmerzen|probleme\s+mit)\b|trainiere\s+(?:immer|nur|meistens)\b|faste\b)"#
 
     private static func match(_ pattern: String, in text: String) -> NSTextCheckingResult? {
         // Regex pro Aufruf: NSRegularExpression ist nicht überall Sendable, und die Texte sind kurz.
