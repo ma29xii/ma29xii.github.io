@@ -70,12 +70,13 @@ struct CoachPhotoButton: View {
             }
             Button("Fotos", systemImage: "photo.on.rectangle") { showLibrary = true }
         } label: {
-            Image(systemName: "camera")
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 36, height: 36)
+            // Schlankes Plus ohne eigenen Rahmen: Die Eingabeleiste im Coach ist die einzige Glasfläche.
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
         .disabled(remaining <= 0)
         .accessibilityLabel("Foto hinzufügen")
         .accessibilityHint(remaining <= 0 ? "Höchstens vier Fotos pro Nachricht" : "Kamera oder Fotos")

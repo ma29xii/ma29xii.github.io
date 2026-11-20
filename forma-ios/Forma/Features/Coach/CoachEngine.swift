@@ -25,6 +25,8 @@ enum CoachEngine {
         var recoveryAvailable: Bool = true
         var strainAvailable: Bool = true
         var history: [DayMetrics] = []
+        /// Persönlicher Kontext (Profil, Ziele, gemerkte Fakten). Der lokale Coach nutzt dieselben Werte wie der Online-Coach.
+        var personal = CoachMemory.Personal.empty
 
         var sleepDuration: TimeInterval? { CoachEngine.measuredSleep(in: today) }
         var sleepScore: Int? { sleepDuration != nil && scores.sleep > 0 ? scores.sleep : nil }
@@ -186,6 +188,20 @@ enum CoachEngine {
             case 67...: return "\(plan) wie geplant. Dein Belastungsziel liegt bei \(s.target.lowerBound) bis \(s.target.upperBound)."
             case 34..<67: return "\(plan) ja, aber bleib bei 2 Wiederholungen in Reserve. Ziel: \(s.target.lowerBound) bis \(s.target.upperBound)."
             default: return "Heute lieber leicht: \(plan) mit einem Satz weniger pro Übung oder nur ein Spaziergang. Ich kann dir das als Anpassung vorschlagen."
+            }
+        }
+        if !c.isSample {
+            let words = Set(q.split(whereSeparator: { !$0.isLetter }).map(String.init))
+            if !words.isDisjoint(with: ["essen", "mahlzeit", "mahlzeiten", "omad"])
+                || ["kalorie", "ernähr", "abnehm"].contains(where: { q.contains($0) }) {
+                var answer = c.personal.foodLine
+                if !c.personal.facts.isEmpty { answer += " Ich beachte: " + c.personal.facts.joined(separator: "; ") + "." }
+                return answer
+            }
+            if q.contains("über mich") || q.contains("merkst du dir") || q.contains("weißt du") {
+                return c.personal.facts.isEmpty
+                    ? "Ich habe mir noch nichts gemerkt. Schreib „Merk dir: …“, dann behalte ich es."
+                    : "Das habe ich mir gemerkt: " + c.personal.facts.joined(separator: "; ") + "."
             }
         }
         if q.contains("belast") || q.contains("ziel") {

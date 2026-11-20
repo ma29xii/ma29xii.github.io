@@ -20,6 +20,11 @@ struct CoachView: View {
     @State private var photosLoading = false
     @State private var pendingConsentText: String?
     @State private var showMealPlan = false
+    @Environment(\.modelContext) private var modelContext
+    /// Das gespeicherte Gespräch zu `messages`; entsteht mit der ersten Frage.
+    @State private var currentChat: CoachChat?
+    @State private var showHistory = false
+    @State private var showFacts = false
     @State private var claudeTask: Task<Void, Never>?
     /// Fotos für die nächste Nachricht und die Fotos der bisherigen Nachrichten (nur Vorschau, nur im Speicher).
     @State private var attachments: [CoachPhoto] = []
@@ -50,21 +55,7 @@ struct CoachView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Space.s3) {
-                        HStack(spacing: Space.s2) {
-                            if hub.isSample { SampleDataBadge() }
-                            if online {
-                                Menu {
-                                    Button("Datenfreigabe widerrufen", systemImage: "hand.raised", role: .destructive) { CoachProviders.revokeChatConsent() }
-                                } label: {
-                                    sourceChip("Online-Coach", systemImage: "cloud")
-                                }
-                                .accessibilityLabel("Antworten kommen vom Online-Coach über das Internet. Tippen, um die Freigabe zu widerrufen.")
-                            } else {
-                                sourceChip("Lokaler Coach", systemImage: "iphone")
-                                    .accessibilityLabel("Antworten werden auf dem iPhone berechnet")
-                            }
-                        }
-                        .padding(.top, Space.s1)
+                        if hub.isSample { SampleDataBadge().padding(.top, Space.s1) }
                         dayCard
                         suggestionChips
                         suggestionCard
@@ -93,7 +84,24 @@ struct CoachView: View {
             .formaScreen()
             .navigationTitle("Coach")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Neuer Chat", systemImage: "square.and.pencil") { newChat() }
+                        .disabled(messages.isEmpty)
+                        .accessibilityIdentifier("coach.new")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Verlauf", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                        .accessibilityIdentifier("coach.history")
+                }
                 ToolbarItem(placement: .topBarTrailing) { ProfileButton() }
+            }
+            .sheet(isPresented: $showHistory) {
+                CoachHistorySheet(onOpen: openChat, onDelete: deleteChat, onNew: newChat, onShowFacts: { showFacts = true })
+            }
+            .sheet(isPresented: $showFacts) { CoachFactsSheet() }
+            .onChange(of: messages) { _, new in
+                guard !hub.isSample else { return }
+                currentChat = CoachChat.sync(new, into: currentChat, in: modelContext)
             }
             .onAppear {
                 keyConfigured = CoachProviders.hasConfiguredKey
@@ -217,18 +225,6 @@ struct CoachView: View {
         .padding(.horizontal, -Space.page)
     }
 
-    private func sourceChip(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.formaMicro)
-            .tracking(Tracking.micro)
-            .textCase(.uppercase)
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 10).frame(height: 26)
-            .background(Capsule().fill(Theme.cardRaised))
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-    }
-
     // MARK: Vorschlag (nur mit Bestätigung)
 
     @ViewBuilder private var suggestionCard: some View {
@@ -309,36 +305,43 @@ struct CoachView: View {
     private var composer: some View {
         VStack(spacing: Space.s2) {
             CoachPhotoStrip(photos: $attachments)
-            HStack(alignment: .bottom, spacing: Space.s1) {
+            // Eine einzige Glas-Kapsel über die volle Breite: Plus links, Text in der Mitte, Senden rechts.
+            HStack(alignment: .bottom, spacing: 0) {
                 CoachPhotoButton(photos: $attachments, isLoading: $photosLoading)
-                    .frame(minWidth: 44, minHeight: 44)
+                    .tint(Theme.textPrimary)
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
                     .font(.formaBody)
-                    .lineLimit(1...4)
+                    .lineLimit(1...5)
                     .focused($inputFocused)
                     .textFieldStyle(.plain)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 10)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("coach.input")
-                Button { send(input) } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Theme.onSelection)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(Theme.selection))
-                        .opacity(canSend ? 1 : 0.35)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                if canSend {
+                    Button { send(input) } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Theme.onSelection)
+                            .frame(width: 34, height: 34)
+                            .background(Circle().fill(Theme.selection))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Senden")
+                    .accessibilityIdentifier("coach.send")
+                    .transition(reduceMotion ? .identity : .scale.combined(with: .opacity))
+                } else {
+                    Color.clear.frame(width: Space.s3, height: 44)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel("Senden")
             }
             .padding(.horizontal, Space.s1)
-            .glassEffect(.regular, in: .rect(cornerRadius: 26, style: .continuous))
+            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: canSend)
             .padding(.horizontal, Space.page)
         }
-        .padding(.vertical, Space.s2)
+        .padding(.top, Space.s2)
+        .padding(.bottom, Space.s3)
     }
 
     private func consumePrompt() {
@@ -370,13 +373,60 @@ struct CoachView: View {
         let photos = attachments
         let question = ChatMessage(role: .user, text: text, localOnly: true)
         messages.append(question)
-        var answer = CoachEngine.localAnswer(to: text, context)
+        let note = rememberNote(for: text)
+        var answer = CoachEngine.localAnswer(to: text, fullContext())
         if !photos.isEmpty {
             messagePhotos[question.id] = photos.map(\.forChat)
             attachments = []
             answer = "Fotos sehe ich nur im Online-Coach. Hier kann ich nur zu deinen Werten antworten.\n\n" + answer
         }
         messages.append(ChatMessage(role: .coach, text: answer, localOnly: true))
+        appendNote(note)
+    }
+
+    /// Tageswerte plus persönlicher Kontext (Profil, Ziele, Trends, gemerkte Fakten). Mit Beispieldaten ist der Kontext leer.
+    private func fullContext() -> CoachEngine.Context {
+        var c = context
+        c.personal = CoachMemory.personal(hub: hub, sessions: sessions)
+        return c
+    }
+
+    /// Merkt Aussagen wie „Ich vertrage keine Laktose“ und liefert den Hinweis für den Chat.
+    private func rememberNote(for text: String) -> String? {
+        guard !hub.isSample else { return nil }
+        return CoachMemory.rememberFacts(in: text, store: .standard).saved.first.map { "Gemerkt: \($0)" }
+    }
+
+    private func appendNote(_ note: String?) {
+        if let note { messages.append(ChatMessage(role: .coach, text: note, localOnly: true)) }
+    }
+
+    // MARK: Verlauf
+
+    private func newChat() {
+        endOnlineSession()
+        CoachProviders.invalidateConversation()
+        messages = []
+        messagePhotos = [:]
+        attachments = []
+        currentChat = nil
+    }
+
+    private func openChat(_ chat: CoachChat) {
+        endOnlineSession()
+        // Neue Gesprächskennung: Der Verlauf des geöffneten Chats gilt für die nächsten Fragen, nichts Älteres mischt sich ein.
+        CoachProviders.invalidateConversation()
+        messagePhotos = [:]
+        attachments = []
+        currentChat = chat
+        messages = chat.restoredMessages
+    }
+
+    private func deleteChat(_ chat: CoachChat) {
+        let wasOpen = chat === currentChat
+        modelContext.delete(chat)
+        try? modelContext.save()
+        if wasOpen { newChat() }
     }
 
     /// Dialogtext: wer bekommt was, wann OpenAI übernimmt (Gegenprüfung 01, Punkt 4).
@@ -385,6 +435,7 @@ struct CoachView: View {
         let values = fields.isEmpty
             ? "Für diese Frage gehen keine Tageswerte mit."
             : "Dazu diese Tageswerte: \(fields.joined(separator: ", "))."
+        let personal = hub.isSample ? "" : " Dazu kommt dein persönlicher Kontext: Profil (Alter, Geschlecht, Gewicht, Größe), Ziele, Mittelwerte der letzten 7 Tage, letzte Trainings und was der Coach sich gemerkt hat."
         let photos = attachments.isEmpty
             ? ""
             : " Außerdem \(attachments.count == 1 ? "dein Foto" : "deine \(attachments.count) Fotos")."
@@ -393,11 +444,11 @@ struct CoachView: View {
             ? "Es gibt noch keinen früheren Online-Chat."
             : "Mitgeschickt \(earlier == 1 ? "wird deine letzte Nachricht" : "werden die letzten \(earlier) Nachrichten") aus dem Online-Chat, auch mit darin genannten Werten."
         return """
-        Gesendet wird deine Frage. \(history) \(values)\(photos)
+        Gesendet wird deine Frage. \(history) \(values)\(personal)\(photos)
 
         Empfänger ist Anthropic. Antwortet Anthropic nicht rechtzeitig oder unbrauchbar, bekommt OpenAI dieselben Daten und antwortet stattdessen. Ist nur ein OpenAI-Schlüssel hinterlegt, geht alles direkt an OpenAI. Frühere Fotos bleiben in deinem Chat.
 
-        Widerrufen kannst du das oben im Coach über „Online-Coach“.
+        Widerrufen kannst du das im Profil unter den Einstellungen.
         """
     }
 
@@ -406,13 +457,25 @@ struct CoachView: View {
         let photos = attachments
         guard !typed.isEmpty || !photos.isEmpty, !thinking, !photosLoading else { return }
         let text = typed.isEmpty ? "Schau dir das bitte an." : typed
+        // „Merk dir: …“ ist eine Bitte an die App, keine Frage: lokal speichern, nichts senden.
+        if photos.isEmpty, !hub.isSample, CoachMemory.extractFacts(from: text).explicit {
+            input = ""
+            messages.append(ChatMessage(role: .user, text: text, localOnly: true))
+            let saved = CoachMemory.rememberFacts(in: text, store: .standard).saved
+            messages.append(ChatMessage(
+                role: .coach,
+                text: saved.first.map { "Gemerkt: \($0)\nLöschen kannst du es oben unter Verlauf." } ?? "Das wusste ich schon.",
+                localOnly: true))
+            return
+        }
         if hasKey && (!externalConsent || (!photos.isEmpty && !photoConsent)) {
             input = ""
             pendingConsentText = text
             return
         }
         input = ""
-        let ctx = context
+        let note = rememberNote(for: text)
+        let ctx = fullContext()
         let external = online
         let question = ChatMessage(role: .user, text: text, localOnly: !external)
         messages.append(question)
@@ -425,15 +488,18 @@ struct CoachView: View {
             let history = messages
             // Nur die Tageswerte, die zur Frage gehören – genau die, die der Dialog genannt hat.
             let summary = CoachEngine.contextSummary(ctx, for: text)
+            // Profil, Ziele, Trends und gemerkte Fakten; mit Beispieldaten leer. Der Dialog nennt, was mitgeht.
+            let personal = ctx.personal.contextBlock(isSample: ctx.isSample)
             claudeTask = Task {
                 do {
-                    let reply = try await CoachProviders.reply(context: summary, history: history, images: photos.map(\.jpeg))
+                    let reply = try await CoachProviders.reply(context: summary, history: history, images: photos.map(\.jpeg), personal: personal)
                     guard !Task.isCancelled, externalConsent else {
                         messages.markLocalOnly(question.id)
                         thinking = false
                         return
                     }
                     messages.append(ChatMessage(role: .coach, text: reply))
+                    appendNote(note)
                 } catch is CancellationError {
                     // Abgebrochene Frage nie später im Verlauf mitsenden (Gegenprüfung 01, Punkt 5).
                     messages.markLocalOnly(question.id)
@@ -444,6 +510,7 @@ struct CoachView: View {
                 } catch {
                     messages.markLocalOnly(question.id)
                     messages.append(ChatMessage(role: .coach, text: CoachEngine.localAnswer(to: text, ctx) + "\n\n(Der Online-Coach ist gerade nicht erreichbar, das war die lokale Antwort.)", localOnly: true))
+                    appendNote(note)
                 }
                 thinking = false
             }
@@ -451,6 +518,7 @@ struct CoachView: View {
             var answer = CoachEngine.localAnswer(to: text, ctx)
             if !photos.isEmpty { answer = "Fotos sehe ich nur im Online-Coach. Hier kann ich nur zu deinen Werten antworten.\n\n" + answer }
             messages.append(ChatMessage(role: .coach, text: answer, localOnly: true))
+            appendNote(note)
         }
     }
 }

@@ -172,14 +172,14 @@ enum CoachProviders {
 
     /// Bilder gehören zur letzten Nachricht und brauchen eine eigene Einwilligung.
     @MainActor
-    static func reply(context: String, history: [ChatMessage], images: [Data] = []) async throws -> String {
+    static func reply(context: String, history: [ChatMessage], images: [Data] = [], personal: String = "") async throws -> String {
         let keys = try externalCredentials()
         let signature = signature(for: keys)
         if let credentialSignature, credentialSignature != signature { invalidateConversation() }
         credentialSignature = signature
         let needsPhotoConsent = !images.isEmpty
         return try await replyInCurrentConversation(
-            context: context, history: history, images: images, anthropicKey: keys.anthropic,
+            context: context, history: history, images: images, personal: personal, anthropicKey: keys.anthropic,
             openAIKey: keys.openAI, maySend: {
                 allowsCoachReply(withPhotos: needsPhotoConsent)
                     && signature == Self.signature(for: storedCredentials())
@@ -197,7 +197,8 @@ enum CoachProviders {
 
     @MainActor
     static func replyInCurrentConversation(
-        context: String, history: [ChatMessage], images: [Data] = [], anthropicKey: String?, openAIKey: String?,
+        context: String, history: [ChatMessage], images: [Data] = [], personal: String = "",
+        anthropicKey: String?, openAIKey: String?,
         maySend: @Sendable @escaping () -> Bool, send: @escaping Transport = fetch
     ) async throws -> String {
         let current = conversationID
@@ -209,7 +210,7 @@ enum CoachProviders {
         let id = UUID()
         let task = Task {
             try await reply(
-                context: context, history: eligible, images: images, anthropicKey: anthropicKey,
+                context: context, history: eligible, images: images, personal: personal, anthropicKey: anthropicKey,
                 openAIKey: openAIKey, maySend: allowed, send: send
             )
         }
@@ -239,7 +240,8 @@ enum CoachProviders {
     }
 
     static func reply(
-        context: String, history: [ChatMessage], images: [Data] = [], anthropicKey: String?, openAIKey: String?,
+        context: String, history: [ChatMessage], images: [Data] = [], personal: String = "",
+        anthropicKey: String?, openAIKey: String?,
         maySend: @escaping @Sendable () -> Bool, send: @escaping Transport = fetch
     ) async throws -> String {
         let photoAccess = images.isEmpty ? nil : PhotoAccess(.chat)
@@ -261,15 +263,21 @@ enum CoachProviders {
         let model = images.isEmpty ? anthropicModel(for: text) : .sonnet
         let short = model == .haiku
         let dailyContext = CoachEngine.filteredContextSummary(context, for: question.text)
+        // Der Block kommt fertig aus CoachMemory (nie mit Beispieldaten); hier nur noch begrenzt und auf eine Zeilenform gebracht.
+        let personalSection = personal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "" : "\n" + limited(personal, characters: CoachMemory.maxBlockCharacters, bytes: 8000)
         let system = """
         Du bist der Coach in der App Health. Antworte auf Deutsch, in der du-Form, freundlich und konkret. \
         Verwende höchstens \(short ? 2 : 3) Sätze. Stütze dich auf die Daten unten und sage klar, wenn Werte fehlen. \
         Erfinde keine persönlichen Messwerte. \
         Die einzige Datenquelle für Messwerte in dieser App heißt Google Health. \
         Nenne keine anderen Gesundheitsdienste als Quelle und wiederhole deren Namen auch auf Nachfrage nicht. \
-        Du darfst Trainingsänderungen nur vorschlagen. Stelle keine medizinischen Diagnosen.
+        Du darfst Trainingsänderungen nur vorschlagen. Stelle keine medizinischen Diagnosen. \
+        Nutze den persönlichen Kontext, ohne ihn aufzuzählen, und beachte gemerkte Angaben wie Unverträglichkeiten immer. \
+        Isst die Person eine Mahlzeit am Tag, schlage keine zusätzlichen Mahlzeiten vor.
         Daten von heute:
         \(dailyContext.isEmpty ? "Keine Tageswerte für diese Frage." : limited(dailyContext, characters: 4000, bytes: 16000))
+        \(personalSection)
         """
         let prompt = Prompt(
             system: system, messages: Array(messages.drop(while: { $0["role"] != "user" })),

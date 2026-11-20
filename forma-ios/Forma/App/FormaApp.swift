@@ -8,7 +8,7 @@ struct FormaApp: App {
     private static let models: [any PersistentModel.Type] = [
         Exercise.self, Routine.self, RoutineItem.self, WorkoutSession.self, SetRecord.self, JournalAnswer.self,
         FoodEntry.self, FoodLibraryItem.self, FoodWaterEntry.self, FoodFast.self, FoodWeightEntry.self,
-        FoodPlanItem.self, MoodEntry.self, CaffeineEntry.self
+        FoodPlanItem.self, MoodEntry.self, CaffeineEntry.self, CoachChat.self, CoachChatMessage.self
     ]
     @State private var hub = DataHub()
     @State private var app = AppState()
