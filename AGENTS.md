@@ -1,5 +1,7 @@
 # AGENTS.md – Übergabe für Codex: App „Health“ selbstständig weiterentwickeln
 
+Bei Wechsel zwischen Claude Code und Codex oder bei der iPhone-Testversion zuerst [HANDOVER.md](HANDOVER.md) lesen. Dort stehen die aktuellen Entscheidungen, der GitHub-Lauf und der bereits eingerichtete Google-Health-Testclient.
+
 Codex liest diese Datei automatisch. Sie enthält alles, um **ohne Claude** weiterzubauen: Ziel, Aufbau, Design-Regeln, Ablauf, offene Punkte.
 Sprache: **Deutsch**, du-Form. Nutzer und Entscheider: **Maxi** (testet auf dem iPhone).
 
@@ -71,7 +73,7 @@ Pro Runde gibt es eine `.teamarbeit/REGELN-runde-NN.md` mit Tabelle „wer ände
 2. Schlafplan (Codex G, Runde 12) fertigstellen, ggf. an `CoachNotifier` (Bettzeit-Erinnerung) anbinden.
 3. Gegenprüfung 05 Restpunkte: A5 einheitliche Skala auch für Schritte/Stress/Alterungstempo; H1 Feinschliff Partikelkreis.
 4. Ideen: Gerätevergleich bei widersprüchlichem Schlaf (zwei Zeitachsen, Korrektur), Rezepte/Favoriten-Ausbau, Jetlag-Plan, Wochenrückblick als Story, Achievements-Ausbau.
-5. Google-Cloud-Client-ID fehlt noch von Maxi (`Config.xcconfig` `GOOGLE_CLIENT_ID`; App in Google Cloud „In Produktion“ stellen, sonst laufen Tokens nach 7 Tagen ab).
+5. Google-Health-Testclient ist eingerichtet. Anmeldung, Rücksprung und Datenabruf auf Maxis iPhone prüfen. Einzelheiten und aktueller Build stehen in [HANDOVER.md](HANDOVER.md).
 
 ## 7. Regeln für alle Agenten
 
