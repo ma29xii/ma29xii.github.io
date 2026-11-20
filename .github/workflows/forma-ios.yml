@@ -93,7 +93,7 @@ jobs:
     needs: ipa
     if: always() && needs.ipa.result != 'cancelled'
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: forma-ios
