@@ -51,6 +51,27 @@ enum TrainingRoute: Hashable {
     case metric(MetricKind)
 }
 
+struct TrainingStrainTarget {
+    enum Tone: Equatable { case neutral, green, orange }
+
+    let range: ClosedRange<Int>
+    let status: String
+    let tone: Tone
+    let offersLightRoutine: Bool
+
+    init?(strain: Int?, recovery: Int?) {
+        guard let recovery, let target = RingDetailView.strainTarget(strain: strain, recovery: recovery) else { return nil }
+        range = target.range
+        status = target.status
+        tone = switch target.status {
+        case "Im Ziel": .green
+        case "Über dem Ziel": .orange
+        default: .neutral
+        }
+        offersLightRoutine = recovery < 34
+    }
+}
+
 /// Bisherige Trainingsseite als eigenständige Ansicht (Runde 11: kein eigener Tab mehr, Plus-Menü öffnet sie).
 struct TrainingHomeView: View {
     @Environment(\.modelContext) private var context
@@ -153,7 +174,13 @@ struct TrainingHomeView: View {
     @ViewBuilder private func view(for tile: TrainingTile) -> some View {
         switch tile {
         case .next:
-            if let next { nextCard(next) } else { emptyCard }
+            if let next {
+                TimelineView(.everyMinute) { timeline in
+                    nextCard(next, target: strainTarget(at: timeline.date))
+                }
+            } else {
+                emptyCard
+            }
         case .activities:
             FitnessActivityHistory(workouts: fitnessActivities, title: tile.title, limit: 4)
         case .cardio:
@@ -231,10 +258,24 @@ struct TrainingHomeView: View {
         }
     }
 
-    private func nextCard(_ routine: Routine) -> some View {
+    private func strainTarget(at date: Date) -> TrainingStrainTarget? {
+        guard !hub.isSample else { return nil }
+        let today = date.startOfDay
+        let recent = hub.days
+        guard let day = recent.last(where: { $0.date == today }) else { return nil }
+        let snapshot = DashboardDay(day: day, history: recent)
+        return TrainingStrainTarget(strain: snapshot.strain, recovery: snapshot.recovery)
+    }
+
+    private func nextCard(_ routine: Routine, target: TrainingStrainTarget?) -> some View {
         let adjustment = TrainingAdjustment.today
+        let offersLightRoutine = target?.offersLightRoutine == true
         return WidgetCard(title: "Als Nächstes", systemImage: TrainingTile.next.systemImage) {
             VStack(alignment: .leading, spacing: 4) {
+                if let target {
+                    strainTargetRow(target)
+                        .padding(.bottom, Space.s1)
+                }
                 Text(routine.name).font(.formaHeadline)
                 Text("\(routine.items.count) Übungen · \(routine.totalSets) Sätze · \(routine.muscleSummary)")
                     .font(.formaBody).foregroundStyle(Theme.textSecondary)
@@ -246,6 +287,13 @@ struct TrainingHomeView: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .accessibilityIdentifier("training.start")
                     .padding(.top, Space.s4)
+                if offersLightRoutine {
+                    // Rote Recovery: dieselbe Routine, bewusst locker angehen.
+                    Button { start(routine) } label: {
+                        Text("Lockere Einheit").font(.formaBody).frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .foregroundStyle(Theme.textPrimary)
+                }
                 Button { app.liveWorkout = LiveWorkout.empty() } label: {
                     Text("Freies Training").font(.formaBody).frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -255,6 +303,41 @@ struct TrainingHomeView: View {
             .padding(.top, 6)
             .padding(.bottom, Space.s4)
         }
+    }
+
+    private func strainTargetRow(_ target: TrainingStrainTarget) -> some View {
+        let low = target.range.lowerBound
+        let high = target.range.upperBound
+        let tint: Color = switch target.tone {
+        case .neutral: Theme.textSecondary
+        case .green: Theme.younger
+        case .orange: Theme.older
+        }
+        let goal = HStack(spacing: Space.s2) {
+            Circle().fill(Theme.strain).frame(width: 6, height: 6)
+            Text("Heute: Strain \(low)–\(high)").foregroundStyle(Theme.textSecondary)
+        }
+        let status = Text(target.status)
+            .foregroundStyle(tint)
+            .padding(.horizontal, Space.s2)
+            .padding(.vertical, Space.s1)
+            .background(tint.opacity(0.12), in: Capsule())
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: Space.s2) {
+                goal.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                status.fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: Space.s1) {
+                goal
+                status
+            }
+        }
+        .font(.formaCaptionStrong)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Tagesziel")
+        .accessibilityValue("Strain \(low) bis \(high), \(target.status)")
     }
 
     private var emptyCard: some View {
