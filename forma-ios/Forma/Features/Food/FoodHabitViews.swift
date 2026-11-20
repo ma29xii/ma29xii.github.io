@@ -144,7 +144,7 @@ private struct FoodWaterContent: View {
                         .padding(.horizontal, Space.s4)
                         .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
 
-                        Toggle("Erinnern", isOn: Binding(get: { reminds }, set: setReminder))
+                        Toggle("Erinnern", isOn: $reminds)
                             .font(.formaBody)
                             .frame(minHeight: 44)
                             .padding(.horizontal, Space.s4)
@@ -162,6 +162,7 @@ private struct FoodWaterContent: View {
             }
             // Widget und Kontrollzentrum zeigen denselben Tagesstand.
             .onChange(of: goal) { _, _ in syncWidget() }
+            .onChange(of: reminds) { _, enabled in updateReminder(enabled) }
         }
     }
 
@@ -169,11 +170,10 @@ private struct FoodWaterContent: View {
         WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
     }
 
-    private func setReminder(_ enabled: Bool) {
-        reminds = enabled
+    private func updateReminder(_ enabled: Bool) {
         guard !app.isDemo, !FormaApp.isUITest else { return }
         if enabled {
-            Task {
+            Task { @MainActor in
                 guard reminds else { return }
                 _ = await CoachNotifier.requestPermission()
                 syncWidget()

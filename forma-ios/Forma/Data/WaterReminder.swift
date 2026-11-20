@@ -63,13 +63,13 @@ enum WaterReminderNotifications {
     private static var isUpdating = false
 
     static func refresh(goal: Double, total: Double, measuredAt: Date, calendar: Calendar, defaults: UserDefaults) {
-        guard !FormaApp.isUITest,
-              defaults.bool(forKey: enabledKey) || defaults.object(forKey: plannedKey) != nil || isUpdating else { return }
+        guard !FormaApp.isUITest else { return }
+        if !isUpdating, !defaults.bool(forKey: enabledKey), defaults.object(forKey: plannedKey) == nil { return }
         queued = Update(goal: goal, total: total, measuredAt: measuredAt, calendar: calendar, defaults: defaults)
         guard !isUpdating else { return }
         isUpdating = true
         // Nur ein Schreibvorgang zur Zeit. Neuere Wasserstände ersetzen wartende Aktualisierungen.
-        Task {
+        Task { @MainActor in
             while let update = queued {
                 queued = nil
                 await apply(update)
@@ -87,15 +87,7 @@ enum WaterReminderNotifications {
         let planned = defaults.object(forKey: plannedKey) as? Date
         let deliveredAt: Date?
         if let planned, planned <= .now {
-            let id = identifier
-            deliveredAt = await withCheckedContinuation { continuation in
-                center.getDeliveredNotifications { notifications in
-                    let matchingDates = notifications
-                        .filter { $0.request.identifier == id && $0.date >= planned }
-                        .map(\.date)
-                    continuation.resume(returning: matchingDates.max())
-                }
-            }
+            deliveredAt = await lastDelivery(identifier: identifier, after: planned)
         } else {
             deliveredAt = nil
         }
@@ -136,6 +128,18 @@ enum WaterReminderNotifications {
         } catch {
             center.removePendingNotificationRequests(withIdentifiers: [identifier])
             defaults.removeObject(forKey: plannedKey)
+        }
+    }
+
+    nonisolated private static func lastDelivery(identifier: String, after planned: Date) async -> Date? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Date?, Never>) in
+            UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                let matchingDates = notifications.compactMap { notification -> Date? in
+                    guard notification.request.identifier == identifier, notification.date >= planned else { return nil }
+                    return notification.date
+                }
+                continuation.resume(returning: matchingDates.max())
+            }
         }
     }
 }
