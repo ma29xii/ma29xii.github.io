@@ -172,9 +172,7 @@ final class DataHub {
             latestRecentCheck = seriesFreshness.values.map(\.checkedAt).max() ?? cached.updated
             recentFailed = cached.recentFailed ?? []
             recentPulseFailed = cached.recentPulseFailed ?? false
-            if !recentFailed.isEmpty || recentPulseFailed {
-                syncWarning = partialNotice(recentFailed, pulseFailed: recentPulseFailed)
-            }
+            // F5-12: Eine gespeicherte Teilstörung ist beim Start veraltet; der nächste Abruf meldet sie neu.
             if cached.dayTimeZone == nil || cached.days.contains(where: { $0.civilDay == nil }) {
                 var migrated = cached
                 migrated.days = storedDays
@@ -334,7 +332,8 @@ final class DataHub {
     var todayDataNotice: String? {
         if isSample { return nil }
         if isLoading && !hasGoogleMeasurementsForToday { return "Lade deine Daten …" }
-        if let warning = syncWarning ?? localCopyNote ?? revocationStatus?.notice { return warning }
+        // F5-16: Sync-Warnungen stehen nur im Profil, nicht auf Today.
+        if let warning = localCopyNote ?? revocationStatus?.notice { return warning }
         if let day = longDays.last, day.date == calendar().startOfDay(for: now()), SyncStore.hasData(day) { return nil }
         if isLoading { return "Lade deine Daten …" }
         switch google {
@@ -455,9 +454,8 @@ final class DataHub {
         let saved = WidgetBridge.publish(snapshot, invalidateTimeline: invalidateTimeline)
         WidgetBridge.publishWeek(!isSample && accountID != nil ? dashboardHistory(recent: days) : [], updatedAt: now(), calendar: calendar(), invalidateTimeline: invalidateTimeline)
         widgetDeletionPending = !saved && (snapshot == nil || widgetDeletionPending)
-        widgetCopyNote = saved ? nil : (snapshot == nil
-            ? "Die Widget-Kopie konnte nicht gelöscht werden. Health versucht es erneut."
-            : "Das Widget konnte nicht aktualisiert werden.")
+        // F5-12: Nur das Löschen ist für dich wichtig; ein verpasstes Update wird beim nächsten Abruf nachgeholt.
+        widgetCopyNote = saved || snapshot != nil ? nil : "Die Widget-Kopie konnte nicht gelöscht werden. Health versucht es erneut."
     }
 
     var person: PersonInfo {
@@ -623,6 +621,8 @@ final class DataHub {
         if let inFlight, !inFlight.isCancelled {
             task = inFlight
         } else {
+            // F5-12: Warnungen gelten nur für den letzten Abruf.
+            syncWarning = nil
             task = startRecentRefresh(generation: current)
         }
         waiters.insert(waiter)
@@ -654,8 +654,11 @@ final class DataHub {
                 recordBackgroundIssue("Der letzte Hintergrundabruf wurde unterbrochen.")
             case .sample: break
             }
-        } else if result.isFresh || (result == .unchanged && syncWarning == nil) {
-            startHistoryIfNeeded(generation: current)
+        } else {
+            if result == .updated { recordBackgroundIssue(nil) }
+            if result.isFresh || (result == .unchanged && syncWarning == nil) {
+                startHistoryIfNeeded(generation: current)
+            }
         }
         return result
     }

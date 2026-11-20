@@ -134,8 +134,8 @@ enum BodyAge {
         guard let age = person.age(at: now) else { return .needsProfile }
         let withData = days.filter(hasData)
         guard withData.count >= minimumDays else { return .needsData(have: withData.count, need: minimumDays) }
-        guard (18...90).contains(age) else {
-            return .insufficient("Health Age ist für 18 bis 90 Jahre verfügbar.")
+        guard (0...90).contains(age) else {
+            return .insufficient("Health Age ist bis 90 Jahre verfügbar.")
         }
 
         let long = factors(days: days, age: age, sex: person.sex, strengthPerWeek: strength.perWeek, hasStrengthRecord: strength.hasRecord)
@@ -182,7 +182,7 @@ enum BodyAge {
         let recentMid = split.adding(days: length / 2)
         let previousMid = start.adding(days: length / 2)
         guard let recentAge = person.age(at: recentMid), let previousAge = person.age(at: previousMid),
-              (18...90).contains(recentAge), (18...90).contains(previousAge) else { return nil }
+              (0...90).contains(recentAge), (0...90).contains(previousAge) else { return nil }
         // Lokale Einheiten haben keine bekannte Geräteabdeckung für einen Zeitvergleich.
         let r = factors(days: recentDays, age: recentAge, sex: person.sex, strengthPerWeek: 0, hasStrengthRecord: false)
         let p = factors(days: previousDays, age: previousAge, sex: person.sex, strengthPerWeek: 0, hasStrengthRecord: false)

@@ -23,7 +23,10 @@ struct ProfileView: View {
     @State private var confirmDisconnect = false
     @State private var showBody = false
     @State private var showAchievements = false
-    @State private var showSleepPlan = false
+    @AppStorage(CoachNotifier.morningKey) private var morningReport = true
+    @AppStorage(CoachNotifier.bedtimeKey) private var bedtimeReminder = true
+    @AppStorage(CoachNotifier.detailsKey) private var notificationValues = false
+    @AppStorage(Calendar.weekStartKey) private var weekStart = Calendar.defaultWeekStart
 
     var body: some View {
         NavigationStack {
@@ -51,6 +54,17 @@ struct ProfileView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                Section {
+                    Picker("Wochenstart", selection: $weekStart) {
+                        Text("Montag").tag(2)
+                        Text("Sonntag").tag(1)
+                    }
+                    .accessibilityIdentifier("profile.weekStart")
+                } header: {
+                    Text("Allgemein").formaLabelStyle()
+                }
+                .listRowBackground(Theme.card)
+
                 sourceSection
 
                 consentSection
@@ -73,10 +87,12 @@ struct ProfileView: View {
                                         detail: ProfileText.notifications(notificationStatus), external: true)
                         }
                     }
-                    Button { showSleepPlan = true } label: {
-                        SettingsRow(title: "Schlafplan", systemImage: "moon.stars")
-                    }
-                    .accessibilityIdentifier("profile.wake")
+                    Toggle("Coach am Morgen", isOn: $morningReport)
+                        .accessibilityIdentifier("profile.notify.morning")
+                    Toggle("Bettzeit-Erinnerung", isOn: $bedtimeReminder)
+                        .accessibilityIdentifier("profile.notify.bedtime")
+                    Toggle("Werte in der Mitteilung", isOn: $notificationValues)
+                        .accessibilityIdentifier("profile.notify.values")
                 } header: {
                     Text("Mitteilungen").formaLabelStyle()
                 }
@@ -94,10 +110,6 @@ struct ProfileView: View {
             .navigationDestination(isPresented: $showAchievements) {
                 AchievementsView(healthScope: hub.achievementHealthScope, isSample: hub.isSample)
             }
-            .navigationDestination(isPresented: $showSleepPlan) {
-                SleepPlanView(store: FoodSettings.store(isSample: hub.isSample))
-                    .id(hub.isSample)
-            }
             .formaScreen()
             .refreshable { await hub.syncAndNotify(background: false) }
             .navigationTitle("Profil")
@@ -111,6 +123,7 @@ struct ProfileView: View {
                 Text("Health liest dann keine neuen Werte mehr. Du kannst jederzeit wieder verbinden.")
             }
             .task { notificationStatus = await CoachNotifier.authorizationStatus() }
+            .onChange(of: bedtimeReminder) { _, _ in hub.profileChanged() }
             .task(id: selectedPhoto) {
                 guard let photo = selectedPhoto else { return }
                 photoError = nil
@@ -321,14 +334,6 @@ struct ProfileView: View {
             case .connecting, .notConfigured:
                 EmptyView()
             }
-
-            Toggle(isOn: Binding(
-                get: { hub.isSample },
-                set: { hub.preferredSource = $0 ? .sample : .google }
-            )) {
-                Text("Beispieldaten zeigen")
-            }
-            .accessibilityIdentifier("profile.sample")
         } header: {
             Text("Datenquelle").formaLabelStyle()
         }

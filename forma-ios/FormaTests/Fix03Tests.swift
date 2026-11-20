@@ -38,7 +38,9 @@ final class Fix03Tests: XCTestCase {
         XCTAssertEqual(hub.google, .connected(lastSync: nil))
         XCTAssertNil(hub.lastGoogleCheck)
         XCTAssertFalse(hub.hasGoogleMeasurementsForToday)
-        XCTAssertTrue(hub.todayDataNotice?.contains("403") == true)
+        XCTAssertTrue(hub.syncNote?.contains("403") == true)
+        // F5-16: Sync-Warnungen stehen nicht auf Today.
+        XCTAssertFalse(hub.todayDataNotice?.contains("403") == true)
 
         fixture.google.importError = nil
         await hub.refresh()
@@ -119,10 +121,11 @@ final class Fix03Tests: XCTestCase {
         XCTAssertEqual(hub.seriesFreshness[.steps]?.checkedAt, fixture.now)
         XCTAssertEqual(fixture.confirmedSleep.count, 2)
         XCTAssertNil(fixture.confirmedSleep.last ?? nil)
-        XCTAssertTrue(hub.todayDataNotice?.contains("Schlaf") == true)
+        XCTAssertTrue(hub.syncNote?.contains("Schlaf") == true)
         let reopened = fixture.makeHub()
         XCTAssertEqual(reopened.today.steps, 200)
-        XCTAssertTrue(reopened.todayDataNotice?.contains("Schlaf") == true)
+        // F5-12: Die gespeicherte Teilstörung ist nach dem Neustart veraltet.
+        XCTAssertFalse(reopened.syncNote?.contains("Schlaf") == true)
     }
 
     @MainActor
@@ -142,7 +145,7 @@ final class Fix03Tests: XCTestCase {
         XCTAssertNil(hub.lastBackgroundSync)
         XCTAssertTrue(hub.seriesFreshness.isEmpty)
         XCTAssertTrue(fixture.confirmedSleep.isEmpty)
-        XCTAssertTrue(hub.todayDataNotice?.contains("nicht gespeichert") == true)
+        XCTAssertTrue(hub.syncNote?.contains("nicht gespeichert") == true)
     }
 
     @MainActor

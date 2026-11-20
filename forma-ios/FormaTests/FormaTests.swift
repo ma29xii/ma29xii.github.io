@@ -664,10 +664,12 @@ final class ReviewTwoTests: XCTestCase {
         guard case .insufficient = outcome else { return XCTFail("Nur Schritte darf kein Alter ergeben") }
     }
 
-    // A-14: Alter außerhalb 18–90 → keine extrapolierte Zahl.
+    // A-14/F5-01: Über 90 → keine extrapolierte Zahl; unter 18 wird gerechnet.
     func testAgeOutOfRange() {
-        let outcome = BodyAge.evaluate(days: SampleData.days(), person: person(age: 12), strength: .init(perWeek: 0, recentPerWeek: 0))
-        guard case .insufficient = outcome else { return XCTFail("12 Jahre ist außerhalb des Bereichs") }
+        let outcome = BodyAge.evaluate(days: SampleData.days(), person: person(age: 95), strength: .init(perWeek: 0, recentPerWeek: 0))
+        guard case .insufficient = outcome else { return XCTFail("95 Jahre ist außerhalb des Bereichs") }
+        let young = BodyAge.evaluate(days: SampleData.days(), person: person(age: 12), strength: .init(perWeek: 0, recentPerWeek: 0))
+        guard case .ready = young else { return XCTFail("12 Jahre wird berechnet") }
     }
 
     // R-02-10: Ohne Aufzeichnung kein Krafttraining-Faktor, sondern ein Hinweis.

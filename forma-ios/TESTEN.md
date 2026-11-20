@@ -91,7 +91,7 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 ## Schlaf und Coach
 
 - **T-59** Sleep-Detail mit Beispieldaten → Karte „Schlafplan“ → Weckzeit für Arbeitstage und freie Tage ändern → Bettzeitfenster verschiebt sich sofort mit.
-- **T-60** Profil → Schlafplan → gleiche Werte wie im Sleep-Detail.
+- **T-60** Profil → Mitteilungen: „Coach am Morgen“, „Bettzeit-Erinnerung“ und „Werte in der Mitteilung“ lassen sich schalten; der Schlafplan steht nicht mehr im Profil, nur im Sleep-Detail und auf Today. Profil → Allgemein → Wochenstart „Sonntag“ → Trainingskalender beginnt mit Sonntag.
 - **T-61** Coach öffnen, eine Nachricht mit Absatz schreiben, daneben in den Chat tippen → Die Tastatur schließt sich und der Entwurf bleibt erhalten. Über den Senden-Knopf abschicken → Antwort auf Deutsch.
 - **T-62** Coach mit Beispieldaten fragen „Wie viele Schritte sollte ich heute gehen?“ → Er nennt das heutige Schrittziel.
 - **T-63** Ohne Internet und ohne Online-Freigabe fragen → Antwort kommt lokal vom iPhone.

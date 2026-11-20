@@ -53,6 +53,9 @@ struct RingDetailView: View {
         if kind == .sleep {
             SleepPlanCard()
         }
+        // F5-02: Beiträge ohne Messung gar nicht zeigen.
+        let measured = metrics(tint: tint).filter { $0.value(day: day, history: snapshot.history) != nil }
+        if !measured.isEmpty {
         VStack(alignment: .leading, spacing: Space.s2) {
             HStack {
                 DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
@@ -72,10 +75,11 @@ struct RingDetailView: View {
             let columns = layout == .columns && !typeSize.isAccessibilitySize
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: columns ? 2 : 1),
                       spacing: Space.s2) {
-                ForEach(metrics(tint: tint)) { metric in
+                ForEach(measured) { metric in
                     RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history, compact: columns)
                 }
             }
+        }
         }
         if kind == .sleep {
             RingSleepConsistency(end: day.date, history: history)

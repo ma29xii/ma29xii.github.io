@@ -40,8 +40,10 @@ struct HourlyEstimate: Identifiable, Sendable {
 
     static func timeline(hours: [HourlyMetrics], today: DayMetrics, history: [DayMetrics]) -> [Self] {
         // Der importierte Tagespuls ist kein Ruhepuls und liefert weder Stress noch Energie.
-        let hasHRVBaseline = ScoreEngine.baseline(history.compactMap(\.hrv)) != nil
-        let hasRestingHRBaseline = ScoreEngine.baseline(history.compactMap(\.restingHR)) != nil
+        // F5-04: Google liefert HRV und Ruhepuls nur pro Tag – ohne Stundenwert gilt der Tageswert,
+        // verglichen mit Tagen derselben Quelle.
+        let hasHRVBaseline = ScoreEngine.baseline(for: \.hrv, today: today, history: history) != nil
+        let hasRestingHRBaseline = ScoreEngine.baseline(for: \.restingHR, today: today, history: history) != nil
         var accumulatedEnergy: Double?
         return hours.map { hour in
             if let kcal = hour.activeEnergy {
@@ -49,14 +51,23 @@ struct HourlyEstimate: Identifiable, Sendable {
             }
             let finishedWorkouts = today.workouts.filter { $0.start.addingTimeInterval($0.duration) <= hour.end }
             let completedSleep = today.sleep.flatMap { $0.end <= hour.end ? $0 : nil }
-            let snapshot = DayMetrics(date: today.date, hrv: hour.hrv, restingHR: hour.restingHR,
+            var snapshot = DayMetrics(date: today.date, hrv: hour.hrv ?? today.hrv, restingHR: hour.restingHR ?? today.restingHR,
                                       activeEnergy: accumulatedEnergy, sleep: completedSleep, workouts: finishedWorkouts)
+            snapshot.origins = today.origins
             let hasActivity = accumulatedEnergy != nil || !finishedWorkouts.isEmpty
-            let hasHeartBasis = (hour.hrv != nil && hasHRVBaseline) || (hour.restingHR != nil && hasRestingHRBaseline)
+            let hasHeartBasis = (snapshot.hrv != nil && hasHRVBaseline) || (snapshot.restingHR != nil && hasRestingHRBaseline)
             let scores = ScoreEngine.scores(today: snapshot, history: history, now: hour.end)
             return Self(at: hour.end, strain: hasActivity ? scores.strain : nil,
                         stress: hasHeartBasis ? scores.stress : nil,
                         energy: hasHeartBasis && hasActivity && completedSleep != nil ? scores.energy : nil)
         }
+    }
+
+    /// Tagesstress aus HRV und Ruhepuls des Tages, wenn es keine Stundenwerte gibt (z. B. Google ohne Stundenaktivität).
+    static func dailyStress(today: DayMetrics, history: [DayMetrics], now: Date = .now) -> Double? {
+        let hasHRV = today.hrv != nil && ScoreEngine.baseline(for: \.hrv, today: today, history: history) != nil
+        let hasRHR = today.restingHR != nil && ScoreEngine.baseline(for: \.restingHR, today: today, history: history) != nil
+        guard hasHRV || hasRHR else { return nil }
+        return ScoreEngine.scores(today: today, history: history, now: now).stress
     }
 }

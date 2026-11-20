@@ -307,10 +307,15 @@ struct DayScores: Equatable, Sendable {
 }
 
 extension Calendar {
+    /// Wochenstart aus dem Profil: 2 = Montag (Standard), 1 = Sonntag.
+    nonisolated static let weekStartKey = "forma.weekStart"
+    nonisolated static let defaultWeekStart = 2
+
     static var forma: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.locale = .german
-        c.firstWeekday = 2
+        let start = UserDefaults.standard.object(forKey: weekStartKey) as? Int ?? defaultWeekStart
+        c.firstWeekday = [1, 2].contains(start) ? start : defaultWeekStart
         c.timeZone = .current
         return c
     }

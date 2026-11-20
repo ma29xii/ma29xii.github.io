@@ -5,9 +5,11 @@ struct DaySignals {
     let day: DayMetrics
     let estimates: [HourlyEstimate]
     let stressSlots: [StressSlot]
+    private let dailyStress: Double?
 
     init(day: DayMetrics, hours: [HourlyMetrics], history: [DayMetrics]) {
         self.day = day
+        dailyStress = HourlyEstimate.dailyStress(today: day, history: history)
         let hours = hours.filter { $0.start.startOfDay == day.date.startOfDay }.sorted { $0.start < $1.start }
         let timeline = HourlyEstimate.timeline(hours: hours, today: day, history: history)
         estimates = timeline
@@ -16,7 +18,7 @@ struct DaySignals {
         }
     }
 
-    var stress: Double? { estimates.compactMap(\.stress).last }
+    var stress: Double? { estimates.compactMap(\.stress).last ?? dailyStress }
     var energy: Int? { estimates.compactMap(\.energy).last }
 
     static func energyChanges(_ timeline: [HourlyEstimate]) -> (gained: Int, spent: Int)? {
