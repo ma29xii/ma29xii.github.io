@@ -184,6 +184,8 @@ private struct PullToEditControl: View {
                 self.progress = progress
                 if self.armed != armed { self.armed = armed }
             } onCommit: {
+                // Im UI-Rundgang lösen die Wischgesten am Seitenende sonst ungewollt „Anpassen“ aus; dort gibt es `tiles.edit`.
+                guard !FormaApp.isUITest else { return }
                 onEdit()
             }
         }
