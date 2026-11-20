@@ -58,6 +58,9 @@ private struct FoodHomeContent: View {
     @State private var showTrack = false
     @State private var trackMeal: FoodMeal?
     @State private var deleteError = false
+    @AppStorage(FoodSettings.waterGoalKey) private var waterGoal = FoodSettings.defaultWaterMl
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(day: Date, ringEntrance: Int) {
         self.day = day
@@ -83,20 +86,26 @@ private struct FoodHomeContent: View {
         let carbTarget = carbsGoal > 0 ? carbsGoal : goal.carbGrams
         let planOpen = planned.filter { $0.loggedAt == nil }.count
         ScrollViewReader { proxy in
+            // Eingerückte Gruppen statt `.plain`: dort zeichnete die Liste Abschnittslinien über und unter dem Kopf.
             List {
                 Section {
-                    Button { route = .goals } label: {
-                        FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget)
-                            .id(ringEntrance)
+                    VStack(spacing: Space.s5) {
+                        Button { route = .goals } label: {
+                            FoodHero(entries: entries, target: target, proteinGoal: proteinTarget, carbGoal: carbTarget)
+                                .id(ringEntrance)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Öffnet die Ziele")
+                        fiberLine(goal: goal.fiberGrams)
+                        if hub.isSample { SampleDataBadge() }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, Space.s2)
+                    .padding(.bottom, Space.s3)
                     .id("food.top")
-                    .accessibilityHint("Öffnet die Ziele")
-                    if hub.isSample { SampleDataBadge() }
-                    fiberCard(goal: goal.fiberGrams)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
 
                 ForEach(FoodMeal.allCases) { meal in
                     mealSection(meal)
@@ -108,22 +117,15 @@ private struct FoodHomeContent: View {
                         .listRowBackground(Color.clear)
                 }
 
-                Section {
-                    DashboardCard {
-                        VStack(spacing: 0) {
-                            utilityRows(planOpen: planOpen)
-                        }
-                    }
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
+                Section { actionTiles(planOpen: planOpen) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
             }
-            .contentMargins(.top, Space.s1, for: .scrollContent)
-            .listStyle(.plain)
-            .contentMargins(.horizontal, Space.page, for: .scrollContent)
-            .listSectionSpacing(Space.s3)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(Space.gap)
             .formaScreen()
             .refreshable { await hub.syncAndNotify(background: false) }
+            .sensoryFeedback(trigger: entries.count) { old, new in new > old ? .success : nil }
             // Doppeltipp auf den Tab bringt das System nach oben; das hier fängt nur den Wechsel des Tages auf.
             .onChange(of: day) { _, _ in proxy.scrollTo("food.top", anchor: .top) }
         }
@@ -144,72 +146,92 @@ private struct FoodHomeContent: View {
         }
     }
 
-    private func fiberCard(goal: Double) -> some View {
+    /// Ballaststoffe dezent als schmale Zeile unter den Ringen.
+    private func fiberLine(goal: Double) -> some View {
         let values = entries.map(\.fiber)
         let total = FoodSum(values).known
-        return DashboardCard {
-            VStack(alignment: .leading, spacing: Space.s2) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("Ballaststoffe", systemImage: "leaf")
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(Theme.textSecondary)
-                    Spacer(minLength: Space.s2)
-                    Text("\(FoodAmountText.text(values)) von \(FoodText.number(goal)) g")
-                        .font(.formaValue.monospacedDigit())
-                }
-                ProgressLine(fraction: goal > 0 ? total / goal : 0, color: Theme.younger, height: 4)
-            }
-            .padding(Space.s4)
+        return HStack(spacing: Space.s3) {
+            Text("Ballaststoffe")
+                .font(.formaCaption)
+                .foregroundStyle(Theme.textSecondary)
+            ProgressLine(fraction: goal > 0 ? total / goal : 0, color: Theme.textSecondary, height: 3)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: total)
+            Text("\(FoodAmountText.text(values)) / \(FoodText.number(goal)) g")
+                .font(.formaCaption.monospacedDigit())
+                .foregroundStyle(Theme.textSecondary)
+                .formaNumberTransition(total)
         }
+        .padding(.horizontal, Space.s4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Ballaststoffe")
         .accessibilityValue("\(FoodAmountText.text(values)) von \(FoodText.number(goal)) Gramm")
     }
 
-    @ViewBuilder private func utilityRows(planOpen: Int) -> some View {
+    /// Wasser, Fasten, Plan und Gewicht als gleich hohe Kacheln, zwei pro Reihe.
+    private func actionTiles(planOpen: Int) -> some View {
         let drunk = water.reduce(0) { $0 + $1.milliliters }
+        let waterTarget = FoodSettings.waterRange.contains(waterGoal) ? waterGoal : FoodSettings.defaultWaterMl
         let active = fasts.first { $0.end == nil }
-        utility("Wasser", icon: "drop.fill", tint: Theme.strain, value: FoodText.liters(drunk), destination: .water)
-        RowDivider()
-        TimelineView(.everyMinute) { tick in
-            let state = active.map { FoodTracking.fast(start: $0.start, end: nil, hours: $0.targetHours, now: tick.date) }
-            utility("Fasten", icon: "timer", tint: Theme.warning, value: state.map { FoodText.clock($0.elapsed) }, destination: .fasting)
+        let columns = Array(repeating: GridItem(.flexible(), spacing: Space.gap),
+                            count: typeSize.isAccessibilitySize ? 1 : 2)
+        return LazyVGrid(columns: columns, spacing: Space.gap) {
+            tile("Wasser", icon: "drop.fill", tint: Theme.strain,
+                 value: drunk > 0 ? FoodText.liters(drunk) : nil,
+                 progress: drunk / waterTarget, destination: .water)
+            TimelineView(.everyMinute) { tick in
+                let state = active.map { FoodTracking.fast(start: $0.start, end: nil, hours: $0.targetHours, now: tick.date) }
+                tile("Fasten", icon: "timer", tint: Theme.warning,
+                     value: state.map { FoodText.clock($0.elapsed) },
+                     progress: state?.fraction,
+                     destination: .fasting)
+            }
+            tile("Plan", icon: "calendar", tint: Theme.sleep,
+                 value: planOpen > 0 ? "\(planOpen) offen" : nil, progress: nil, destination: .plan)
+            tile("Gewicht", icon: "scalemass.fill", tint: Theme.older,
+                 value: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" },
+                 progress: nil, destination: .weight)
         }
-        RowDivider()
-        utility("Plan", icon: "calendar", tint: Theme.sleep, value: planOpen > 0 ? "\(planOpen) offen" : nil, destination: .plan)
-        RowDivider()
-        utility("Gewicht", icon: "scalemass.fill", tint: Theme.older,
-                value: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" }, destination: .weight)
     }
 
-    private func utility(_ title: String, icon: String, tint: Color, value: String?, destination: FoodHomeRoute) -> some View {
+    private func tile(_ title: String, icon: String, tint: Color, value: String?,
+                      progress: Double?, destination: FoodHomeRoute) -> some View {
         Button { route = destination } label: {
-            HStack(spacing: Space.s3) {
-                Label(title, systemImage: icon).foregroundStyle(tint)
-                Spacer(minLength: Space.s2)
-                if let value { Text(value).foregroundStyle(Theme.textSecondary).monospacedDigit() }
+            DashboardCard {
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    Label(title, systemImage: icon)
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(tint)
+                    Spacer(minLength: 0)
+                    Text(value ?? "–")
+                        .font(.formaNumber)
+                        .foregroundStyle(value == nil ? Theme.textTertiary : Theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    // Gleiche Höhe für alle Kacheln: ohne Fortschritt bleibt die Linie unsichtbar.
+                    ProgressLine(fraction: progress ?? 0, color: tint, height: 3)
+                        .opacity(progress == nil ? 0 : 1)
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: progress ?? 0)
+                }
+                .padding(Space.s4)
+                .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
             }
-            .font(.formaCaptionStrong)
-            .padding(.horizontal, Space.s4)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            .contentShape(.rect(cornerRadius: Radius.plate))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(value ?? "Kein Eintrag")
     }
 
     private func mealSection(_ meal: FoodMeal) -> some View {
         let items = entries.filter { $0.meal == meal }
-        let logged = FoodAmountText.text(items.map(\.energy))
         let plannedItems = planned.filter { $0.meal == meal }
         let plannedKcal = plannedItems.isEmpty ? nil : FoodAmountText.text(plannedItems.map { $0.entry?.kcal })
         return Section {
-            mealHeader(meal, logged: logged, planned: plannedKcal)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
+            mealHeader(meal, items: items, planned: plannedKcal)
+                .listRowInsets(EdgeInsets(top: Space.s2, leading: Space.s4, bottom: Space.s2, trailing: Space.s1))
             ForEach(items) { entry in
                 FoodLogRow(entry: entry)
-                    .listRowBackground(Theme.card)
+                    .listRowInsets(EdgeInsets(top: Space.s2, leading: Space.s4, bottom: Space.s2, trailing: Space.s4))
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) { delete(entry) } label: {
                             Label("Löschen", systemImage: "trash")
@@ -223,34 +245,53 @@ private struct FoodHomeContent: View {
                     .accessibilityAction(named: Text("Löschen")) { delete(entry) }
             }
         }
+        .listRowBackground(Theme.card)
+        .listRowSeparatorTint(Theme.hairline)
     }
 
-    private func mealHeader(_ meal: FoodMeal, logged: String, planned: String?) -> some View {
-        DashboardCard {
-            HStack(spacing: Space.s2) {
-                VStack(alignment: .leading, spacing: Space.s1) {
-                    Text(meal.title).font(.formaRowTitle)
-                    Text("\(logged) kcal erfasst").font(.formaCaptionStrong.monospacedDigit())
+    /// Kopf einer Mahlzeitenkarte: Titel, erfasste kcal groß, geplante klein daneben, rechts der Knopf.
+    private func mealHeader(_ meal: FoodMeal, items: [FoodEntry], planned: String?) -> some View {
+        let energy = items.map(\.energy)
+        let logged = FoodAmountText.text(energy)
+        return HStack(spacing: Space.s2) {
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Text(meal.title).formaLabelStyle()
+                HStack(alignment: .firstTextBaseline, spacing: Space.s1) {
+                    Text(logged)
+                        .font(.formaNumber)
+                        .foregroundStyle(items.isEmpty ? Theme.textTertiary : Theme.textPrimary)
+                        .formaNumberTransition(FoodSum(energy).known)
+                    Text("kcal")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.textSecondary)
                     if let planned {
-                        Text("\(planned) kcal geplant").font(.formaCaption).foregroundStyle(Theme.textSecondary)
+                        Text("/ \(planned) geplant")
+                            .font(.formaCaption.monospacedDigit())
+                            .foregroundStyle(Theme.textTertiary)
+                            .padding(.leading, Space.s1)
                     }
                 }
-                Spacer(minLength: Space.s1)
-                Button {
-                    trackMeal = meal
-                    showTrack = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityLabel("\(meal.title) hinzufügen")
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             }
-            .padding(.leading, Space.s4)
-            .padding(.trailing, Space.s2)
-            .padding(.vertical, Space.s2)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(meal.title)
+            .accessibilityValue("\(logged) Kilokalorien erfasst" + (planned.map { ", \($0) geplant" } ?? ""))
+            Spacer(minLength: Space.s1)
+            Button {
+                trackMeal = meal
+                showTrack = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.cardRaised, in: .circle)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(meal.title) hinzufügen")
         }
     }
 
@@ -279,15 +320,7 @@ private struct FoodHero: View {
         let energy = FoodSum(entries.map(\.energy))
         let protein = FoodSum(entries.map(\.protein))
         let carbs = FoodSum(entries.map(\.carbohydrates))
-        VStack(spacing: Space.s3) {
-            rings(energy, protein, carbs)
-            let logged = FoodAmountText.text(entries.map(\.energy))
-            Text(target > 0 ? "\(logged) von \(FoodText.number(target)) kcal erfasst" : "\(logged) kcal erfasst")
-                .font(.formaCaptionStrong.monospacedDigit())
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.bottom, Space.s2)
+        rings(energy, protein, carbs)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .task {
@@ -318,7 +351,8 @@ private struct FoodHero: View {
 
     private func row(_ energy: FoodSum, _ protein: FoodSum, _ carbs: FoodSum,
                      side: CGFloat, middle: CGFloat, spacing: CGFloat) -> some View {
-        HStack(alignment: .center, spacing: spacing) {
+        // Unterste Textzeilen auf einer Linie: die kleinen Ringe sitzen dadurch fast mittig neben dem großen.
+        HStack(alignment: .lastTextBaseline, spacing: spacing) {
             macro("Protein", protein, values: entries.map(\.protein), goal: proteinGoal, tint: Theme.younger, size: side)
             calories(energy, size: middle)
             macro("Kohlenhydrate", carbs, values: entries.map(\.carbohydrates), goal: carbGoal, tint: Theme.warning, size: side)
@@ -329,24 +363,32 @@ private struct FoodHero: View {
         let consumed = energy.known
         let left = energy.remaining(of: target)
         let over = (left ?? 0) < 0
-        return FoodRing(fraction: showProgress && target > 0 ? consumed / target : 0,
-                        tint: over ? Theme.older : Theme.strain, lineWidth: size > 150 ? 14 : 11) {
-            VStack(spacing: 2) {
-                Text(!showProgress && energy.complete ? "0" : (left.map { FoodText.number(abs($0)) } ?? FoodAmountText.text(entries.map(\.energy))))
-                    .font(.system(size: size * 0.24, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                    .formaNumberTransition(showProgress ? abs(left ?? consumed) : 0)
-                Text(left == nil ? "kcal" : (over ? "kcal zu viel" : "kcal übrig"))
-                    .font(.formaCaption)
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+        return VStack(spacing: Space.s2) {
+            FoodRing(fraction: showProgress && target > 0 ? consumed / target : 0,
+                     tint: over ? Theme.older : Theme.strain, lineWidth: size > 150 ? 14 : 11) {
+                VStack(spacing: 2) {
+                    Text(!showProgress && energy.complete ? "0" : (left.map { FoodText.number(abs($0)) } ?? FoodAmountText.text(entries.map(\.energy))))
+                        .font(.system(size: size * 0.26, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                        .formaNumberTransition(showProgress ? abs(left ?? consumed) : 0)
+                    Text(left == nil ? "kcal" : (over ? "kcal zu viel" : "kcal übrig"))
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, Space.s3)
             }
-            .padding(.horizontal, Space.s3)
+            .frame(width: size, height: size)
+            Text(target > 0 ? "\(FoodAmountText.text(entries.map(\.energy))) / \(FoodText.number(target)) kcal" : " ")
+                .font(.formaCaption.monospacedDigit())
+                .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .formaNumberTransition(showProgress ? consumed : 0)
         }
-        .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Kalorien")
         .accessibilityValue("\(energy.complete ? "" : "mindestens ")\(FoodText.number(consumed)) von \(FoodText.number(target)) Kilokalorien gegessen")
@@ -365,12 +407,19 @@ private struct FoodHero: View {
                     .padding(.horizontal, Space.s2)
             }
             .frame(width: size, height: size)
-            Text(title)
-                .font(.formaCaptionStrong)
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: size)
+            VStack(spacing: 2) {
+                Text(title)
+                    .font(.formaCaptionStrong)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(goal > 0 ? "von \(FoodText.number(goal)) g" : " ")
+                    .font(.formaCaption.monospacedDigit())
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(width: size)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
