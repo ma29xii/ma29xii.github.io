@@ -98,7 +98,7 @@ private struct FoodDayView: View {
             }
             Section {
                 Button { route = .goals } label: {
-                    FoodDayHero(entries: entries, target: target, macros: macros,
+                    FoodLogDayHero(entries: entries, target: target, macros: macros,
                                 streak: FoodTracking.streak(dates: history.map(\.date)))
                 }
                 .buttonStyle(.plain)
@@ -199,7 +199,7 @@ private struct FoodDayView: View {
 }
 
 /// Kalorienring mit Restmenge, drei Makro-Balken gegen ihre Ziele, Serie.
-private struct FoodDayHero: View {
+private struct FoodLogDayHero: View {
     let entries: [FoodEntry]
     let target: Double
     let macros: FoodMacroGoals
