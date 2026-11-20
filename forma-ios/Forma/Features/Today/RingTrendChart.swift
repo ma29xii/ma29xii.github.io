@@ -395,8 +395,16 @@ struct RingSleepConsistency: View {
     let end: Date
     let history: [DayMetrics]
 
+    // InsightHistory bereinigt auch die Schlafphasen. Nur das angezeigte Fenster vorbereiten.
+    nonisolated static func relevantDays(endingAt end: Date, history: [DayMetrics]) -> [DayMetrics] {
+        let day = end.startOfDay
+        let window = day.adding(days: -13)..<day.adding(days: 1)
+        return history.filter { window.contains($0.date) }
+    }
+
     var body: some View {
-        let result = SleepConsistency(endingAt: end, history: InsightHistory(history))
+        let recent = Self.relevantDays(endingAt: end, history: history)
+        let result = SleepConsistency(endingAt: end, history: InsightHistory(recent))
         let value = result.percent.map { "\($0) %" } ?? "Noch kein Vergleich"
         VStack(alignment: .leading, spacing: Space.s2) {
             DashboardHeading(title: "Schlafkonstanz")

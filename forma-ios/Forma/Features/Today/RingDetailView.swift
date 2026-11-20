@@ -9,49 +9,56 @@ struct RingDetailView: View {
     private var day: DayMetrics { snapshot.day }
 
     var body: some View {
+        if kind == .sleep {
+            LazyVStack(alignment: .leading, spacing: Space.gap) { sections }
+        } else {
+            VStack(alignment: .leading, spacing: Space.gap) { sections }
+        }
+    }
+
+    @ViewBuilder
+    private var sections: some View {
         let value = snapshot.value(for: kind)
         let tint = DashboardRing.tint(kind: kind, value: value)
         let target = kind == .strain ? Self.strainTarget(strain: value, recovery: snapshot.recovery) : nil
 
-        VStack(alignment: .leading, spacing: Space.gap) {
-            VStack(spacing: Space.s2) {
-                hero(value: value, tint: tint, target: target?.range)
-                    .accessibilityIdentifier("ring.detail." + kind.rawValue)
-                if let target {
-                    Text("Ziel \(target.range.lowerBound)–\(target.range.upperBound)")
-                        .font(.formaCaptionStrong.monospacedDigit())
-                        .foregroundStyle(tint)
-                        .accessibilityLabel("Tagesziel")
-                        .accessibilityValue("\(target.range.lowerBound) bis \(target.range.upperBound), \(target.status)")
-                        .accessibilityIdentifier("strain.target")
-                }
+        VStack(spacing: Space.s2) {
+            hero(value: value, tint: tint, target: target?.range)
+                .accessibilityIdentifier("ring.detail." + kind.rawValue)
+            if let target {
+                Text("Ziel \(target.range.lowerBound)–\(target.range.upperBound)")
+                    .font(.formaCaptionStrong.monospacedDigit())
+                    .foregroundStyle(tint)
+                    .accessibilityLabel("Tagesziel")
+                    .accessibilityValue("\(target.range.lowerBound) bis \(target.range.upperBound), \(target.status)")
+                    .accessibilityIdentifier("strain.target")
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Space.s3)
-
-            // Die gemessene Dauer steht immer da; der Bedarf nur, wenn er aus Messungen berechnet werden kann.
-            if kind == .sleep, let night = day.sleep, night.asleep > 0 {
-                sleepSummary(night: night, need: snapshot.sleepNeed)
-            }
-            if kind == .sleep {
-                SleepPlanCard()
-            }
-            VStack(alignment: .leading, spacing: Space.s2) {
-                DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
-                ForEach(metrics(tint: tint)) { metric in
-                    RingMetricCard(metric: metric, day: day, history: history)
-                }
-            }
-            if kind == .sleep {
-                RingSleepConsistency(end: day.date, history: history)
-            } else if kind == .strain {
-                RingStrainPath(end: InsightHistory.lastCompletedDay(for: day.date), history: history, tint: tint)
-            }
-            if kind == .sleep, let night = day.sleep, night.asleep > 0 {
-                sleepPhases(night)
-            }
-            RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.s3)
+
+        // Die gemessene Dauer steht immer da; der Bedarf nur, wenn er aus Messungen berechnet werden kann.
+        if kind == .sleep, let night = day.sleep, night.asleep > 0 {
+            sleepSummary(night: night, need: snapshot.sleepNeed)
+        }
+        if kind == .sleep {
+            SleepPlanCard()
+        }
+        VStack(alignment: .leading, spacing: Space.s2) {
+            DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
+            ForEach(metrics(tint: tint)) { metric in
+                RingMetricCard(metric: metric, day: day, history: history)
+            }
+        }
+        if kind == .sleep {
+            RingSleepConsistency(end: day.date, history: history)
+        } else if kind == .strain {
+            RingStrainPath(end: InsightHistory.lastCompletedDay(for: day.date), history: history, tint: tint)
+        }
+        if kind == .sleep, let night = day.sleep, night.asleep > 0 {
+            sleepPhases(night)
+        }
+        RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
     }
 
     @ViewBuilder
