@@ -47,49 +47,45 @@ struct RingDetailView: View {
         .padding(.vertical, Space.s3)
 
         // Die gemessene Dauer steht immer da; der Bedarf nur, wenn er aus Messungen berechnet werden kann.
-        if kind == .sleep, !FormaApp.probeHidden.contains("summary"), let night = day.sleep, night.asleep > 0 {
+        if kind == .sleep, let night = day.sleep, night.asleep > 0 {
             sleepSummary(night: night, need: snapshot.sleepNeed)
         }
-        if kind == .sleep, !FormaApp.probeHidden.contains("plan") {
+        if kind == .sleep {
             SleepPlanCard()
         }
-        if !(kind == .sleep && FormaApp.probeHidden.contains("metrics")) {
-            VStack(alignment: .leading, spacing: Space.s2) {
-                HStack {
-                    DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
-                    Spacer()
-                    Menu {
-                        Picker("Kacheldesign", selection: $layout) {
-                            ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
-                        }
-                    } label: {
-                        Image(systemName: "rectangle.grid.2x2")
-                            .font(.formaCaptionStrong)
-                            .frame(width: 44, height: 44)
+        VStack(alignment: .leading, spacing: Space.s2) {
+            HStack {
+                DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
+                Spacer()
+                Menu {
+                    Picker("Kacheldesign", selection: $layout) {
+                        ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
                     }
-                    .accessibilityLabel("Kacheldesign")
-                    .accessibilityIdentifier("ring.metric.layout")
+                } label: {
+                    Image(systemName: "rectangle.grid.2x2")
+                        .font(.formaCaptionStrong)
+                        .frame(width: 44, height: 44)
                 }
-                let columns = layout == .columns && !typeSize.isAccessibilitySize
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: columns ? 2 : 1),
-                          spacing: Space.s2) {
-                    ForEach(metrics(tint: tint)) { metric in
-                        RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history, compact: columns)
-                    }
+                .accessibilityLabel("Kacheldesign")
+                .accessibilityIdentifier("ring.metric.layout")
+            }
+            let columns = layout == .columns && !typeSize.isAccessibilitySize
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: columns ? 2 : 1),
+                      spacing: Space.s2) {
+                ForEach(metrics(tint: tint)) { metric in
+                    RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history, compact: columns)
                 }
             }
         }
-        if kind == .sleep, !FormaApp.probeHidden.contains("consistency") {
+        if kind == .sleep {
             RingSleepConsistency(end: day.date, history: history)
         } else if kind == .strain {
             RingStrainPath(end: InsightHistory.lastCompletedDay(for: day.date), history: history, tint: tint)
         }
-        if kind == .sleep, !FormaApp.probeHidden.contains("phases"), let night = day.sleep, night.asleep > 0 {
+        if kind == .sleep, let night = day.sleep, night.asleep > 0 {
             sleepPhases(night)
         }
-        if !(kind == .sleep && FormaApp.probeHidden.contains("trend")) {
-            RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
-        }
+        RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
     }
 
     @ViewBuilder
