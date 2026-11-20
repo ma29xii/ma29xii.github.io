@@ -131,6 +131,11 @@ final class ScreenTour: XCTestCase {
         let track = el("plus.track")
         XCTAssertTrue(track.waitForExistence(timeout: 4))
         shot("30 Plus-Menü")
+        // Zweiter Tipp auf den Plus-Knopf (jetzt X) schließt das Menü wieder.
+        plus.tap()
+        XCTAssertTrue(track.waitForNonExistence(timeout: 3), "Plus-Menü schließt sich beim zweiten Tipp nicht.")
+        plus.tap()
+        XCTAssertTrue(track.waitForExistence(timeout: 4))
         tab("Food")
         XCTAssertTrue(app.navigationBars["Food"].waitForExistence(timeout: 4))
         XCTAssertFalse(track.exists, "Beim Wechsel zu Food schließt sich das Plus-Menü.")
