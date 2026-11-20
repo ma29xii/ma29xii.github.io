@@ -37,7 +37,7 @@ struct WeeklyRecapLink: View {
     /// Größte Verbesserung der Woche als Untertitel, sonst nur „Deine Woche“.
     static func highlight(_ rows: [WeeklyInsight.Row]) -> String {
         let best = rows.compactMap { row -> (WeeklyInsight.Row, Double)? in
-            guard row.metric.higherIsBetter, let change = row.change, change >= 1 else { return nil }
+            guard row.metric.higherIsBetter, let change = row.change, change.rounded() >= 1 else { return nil }
             return (row, change)
         }.max { $0.1 < $1.1 }
         guard let row = best?.0 else { return "Deine Woche" }
@@ -97,13 +97,31 @@ struct WeeklyRecapStory: View {
                 background(for: current)
                 VStack(alignment: .leading, spacing: Space.s4) {
                     header(pages: pages)
-                    Spacer(minLength: 0)
-                    content(current)
-                        .id(current)
-                        .transition(reduceMotion ? .opacity
-                                    : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                                  removal: .opacity))
-                    Spacer(minLength: 0)
+                    // Gesten nur auf der Story-Fläche, nicht auf Schließen/Fertig.
+                    VStack(alignment: .leading, spacing: 0) {
+                        Spacer(minLength: 0)
+                        content(current)
+                            .id(current)
+                            .transition(reduceMotion ? .opacity
+                                        : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                                      removal: .opacity))
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .gesture(SpatialTapGesture().onEnded { value in
+                        step(value.location.x > proxy.size.width * 0.33 ? 1 : -1, count: pages.count)
+                    })
+                    .simultaneousGesture(DragGesture(minimumDistance: 20)
+                        .onChanged { value in
+                            if value.translation.height > abs(value.translation.width) { drag = value.translation.height }
+                        }
+                        .onEnded { value in
+                            let down = value.translation.height > abs(value.translation.width)
+                            if down && value.translation.height > 120 { dismiss() }
+                            withAnimation(.spring(duration: 0.3)) { drag = 0 }
+                        })
+                    .onLongPressGesture(minimumDuration: 0.2, perform: {}, onPressingChanged: { paused = $0 })
                     if current == .summary {
                         Button { dismiss() } label: {
                             Text("Fertig")
@@ -120,17 +138,6 @@ struct WeeklyRecapStory: View {
                 .padding(.vertical, Space.s4)
             }
             .offset(y: max(0, drag))
-            .contentShape(Rectangle())
-            .gesture(SpatialTapGesture().onEnded { value in
-                step(value.location.x > proxy.size.width * 0.33 ? 1 : -1, count: pages.count)
-            })
-            .simultaneousGesture(DragGesture(minimumDistance: 20)
-                .onChanged { drag = $0.translation.height }
-                .onEnded { value in
-                    if value.translation.height > 120 { dismiss() }
-                    withAnimation(.spring(duration: 0.3)) { drag = 0 }
-                })
-            .onLongPressGesture(minimumDuration: 0.2, perform: {}, onPressingChanged: { paused = $0 })
         }
         .background(Theme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -216,6 +223,7 @@ struct WeeklyRecapStory: View {
             VStack(alignment: .leading, spacing: Space.s3) {
                 Text("Deine\nWoche")
                     .font(.system(size: 64, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.textPrimary)
                 Text("\(dayCount) Tage · \(rows.filter { $0.current != nil }.count) Werte")
                     .font(.formaHeadline)
@@ -270,7 +278,7 @@ struct WeeklyRecapStory: View {
                 if row.change != nil { ChangeBadge(row: row, compact: false) }
             }
             VStack(spacing: Space.s3) {
-                comparison("Diese Woche", value: current, metric: row.metric, scale: scale, highlighted: true)
+                comparison("Rückblick", value: current, metric: row.metric, scale: scale, highlighted: true)
                 if let previous = row.previous {
                     comparison("Vorwoche", value: previous, metric: row.metric, scale: scale, highlighted: false)
                 }
@@ -306,10 +314,11 @@ private struct ChangeBadge: View {
     let compact: Bool
 
     var body: some View {
-        let change = row.change ?? 0
-        let color: Color = abs(change) < 1 || !row.metric.directional ? Theme.textSecondary
+        // Dieselbe Rundung wie im Text: ±0 % heißt gleich.
+        let change = (row.change ?? 0).rounded()
+        let color: Color = change == 0 || !row.metric.directional ? Theme.textSecondary
             : (change > 0) == row.metric.higherIsBetter ? Theme.younger : Theme.older
-        let icon = abs(change) < 1 ? "equal" : (change > 0 ? "arrow.up.right" : "arrow.down.right")
+        let icon = change == 0 ? "equal" : (change > 0 ? "arrow.up.right" : "arrow.down.right")
         HStack(spacing: Space.s1) {
             Image(systemName: icon).font(.caption.weight(.bold))
             if !compact { Text(row.changeText).font(.formaValue) }

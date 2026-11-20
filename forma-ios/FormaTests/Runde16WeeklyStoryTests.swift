@@ -12,6 +12,9 @@ final class Runde16WeeklyStoryTests: XCTestCase {
         XCTAssertEqual(row(.sleep, 27_000, 25_000).changeText, "+8 %")
         XCTAssertEqual(row(.hrv, 45, 50).changeText, "−10 %")
         XCTAssertEqual(row(.steps, 8_010, 8_000).changeText, "±0 %")
+        // Grenzfall: +0,6 % wird wie im Text auf +1 % gerundet und zählt als Verbesserung.
+        XCTAssertEqual(row(.steps, 8_050, 8_000).changeText, "+1 %")
+        XCTAssertEqual(WeeklyRecapLink.highlight([row(.steps, 8_050, 8_000)]), "Schritte +1 %")
         XCTAssertNil(row(.recovery, 60, nil).change)
         XCTAssertNil(row(.recovery, 60, 0).change)
         XCTAssertEqual(row(.recovery, 60, nil).changeText, "–")
