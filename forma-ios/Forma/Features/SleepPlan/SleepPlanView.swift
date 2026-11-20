@@ -266,7 +266,6 @@ struct SleepPlanSummary: View {
             .padding(Space.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .environment(\.cardTint, Theme.sleep)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(SleepPlanTimes.spoken(window, wake: wake))

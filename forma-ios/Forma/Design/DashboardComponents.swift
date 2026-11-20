@@ -11,7 +11,8 @@ extension View {
 
 /// Ruhige Inhaltskarte (Radius 20) für Today und die Ring-Details.
 extension EnvironmentValues {
-    /// Einheitlicher Farbhauch für Karten (Maxi F5-06): gleiche Stärke und Richtung auf allen Kacheln.
+    /// Einheitlicher Farbhauch für Karten (Maxi F5-06/F6): eine Farbe aus dem gewählten Design, überall gleich.
+    /// `.clear` schaltet ihn für einzelne Karten ab.
     @Entry var cardTint: Color? = nil
 }
 
@@ -28,8 +29,9 @@ struct DashboardCard<Content: View>: View {
             .background {
                 ZStack {
                     Theme.card
-                    if let tint {
-                        LinearGradient(colors: [tint.opacity(0.12), tint.opacity(0.02)],
+                    let hue = tint ?? Theme.accent
+                    if hue != .clear {
+                        LinearGradient(colors: [hue.opacity(0.10), hue.opacity(0.02)],
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     }
                 }
