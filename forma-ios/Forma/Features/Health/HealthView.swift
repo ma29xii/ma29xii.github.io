@@ -25,6 +25,7 @@ enum HealthTile: String, TileKind {
 struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
+    @State private var editingTiles = false
 
     var body: some View {
         let age = bodyAgeOutcome(hub: hub, sessions: sessions)
@@ -53,8 +54,9 @@ struct HealthView: View {
                     }
 
                     HealthMonitor(snapshot: snapshot)
+                        .environment(\.tilesEditing, editingTiles)
 
-                    InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
+                    InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health", editing: $editingTiles) { kind in
                         AnyView(tile(kind))
                     }
                 }

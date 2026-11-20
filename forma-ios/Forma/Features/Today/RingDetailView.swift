@@ -5,6 +5,7 @@ struct RingDetailView: View {
     @Environment(DataHub.self) private var hub
     @AppStorage("forma.tiles.ring.layout") private var layout = MeasurementTileLayout.cards
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var editingLayout = false
     let kind: RingKind
     let snapshot: DashboardDay
     let history: [DayMetrics]
@@ -57,28 +58,29 @@ struct RingDetailView: View {
         let measured = metrics(tint: tint).filter { $0.value(day: day, history: snapshot.history) != nil }
         if !measured.isEmpty {
         VStack(alignment: .leading, spacing: Space.s2) {
-            HStack {
-                DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
-                Spacer()
-                Menu {
-                    Picker("Kacheldesign", selection: $layout) {
-                        ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
-                    }
-                } label: {
-                    Image(systemName: "rectangle.grid.2x2")
-                        .font(.formaCaptionStrong)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Kacheldesign")
-                .accessibilityIdentifier("ring.metric.layout")
-            }
-            let columns = layout == .columns && !typeSize.isAccessibilitySize
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: columns ? 2 : 1),
+            DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
+            if editingLayout { TileLayoutToggle(layout: $layout) }
+            // Balken: Kapseln wie im Health Monitor, vier nebeneinander, bei großer Schrift zwei.
+            let columns = layout == .columns
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
+                                     count: columns ? (typeSize.isAccessibilitySize ? 2 : 4) : 1),
                       spacing: Space.s2) {
-                ForEach(measured) { metric in
-                    RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history, compact: columns)
+                ForEach(Array(measured.enumerated()), id: \.element.id) { index, metric in
+                    RingMetricCard(metric: metric, day: day, recent: snapshot.history, history: history,
+                                   compact: columns, order: index)
                 }
             }
+            Button {
+                withAnimation(.smooth(duration: 0.24)) { editingLayout.toggle() }
+            } label: {
+                Text(editingLayout ? "Fertig" : "Anpassen")
+                    .font(.formaCaptionStrong)
+                    .frame(minHeight: 44)
+                    .padding(.horizontal, Space.s3)
+            }
+            .buttonStyle(.glass)
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("ring.metric.edit")
         }
         }
         if kind == .sleep {
@@ -177,10 +179,10 @@ struct RingDetailView: View {
 
     private func strainMetrics(tint: Color) -> [RingMetric] {
         [
-            RingMetric(id: "workouts", title: "Trainingszeit", icon: "stopwatch", tint: tint, formatted: Format.duration) { day, _ in
+            RingMetric(id: "workouts", title: "Trainingszeit", icon: "stopwatch", tint: tint, isDuration: true, formatted: Format.duration) { day, _ in
                 DashboardDay.workoutTime(day)
             },
-            RingMetric(id: "strength", title: "Krafttraining", icon: "dumbbell", tint: tint, formatted: Format.duration) { day, _ in
+            RingMetric(id: "strength", title: "Krafttraining", icon: "dumbbell", tint: tint, isDuration: true, formatted: Format.duration) { day, _ in
                 DashboardDay.workoutTime(day, strengthOnly: true)
             },
             RingMetric(kind: .steps, icon: "figure.walk", tint: tint),
@@ -289,6 +291,8 @@ private struct RingMetric: Identifiable {
     let tint: Color
     var range: ClosedRange<Double>? = nil
     var series: MetricSeries? = nil
+    /// Dauer in Sekunden, in der Kapsel als „1:23“ mit „Std.“.
+    var isDuration = false
     let formatted: (Double) -> String
     let measurement: (DayMetrics, [DayMetrics]) -> Double?
 
@@ -304,6 +308,14 @@ private struct RingMetric: Identifiable {
 
     func value(day: DayMetrics, history: [DayMetrics]) -> Double? {
         measurement(day, history).flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    /// Zahl und Einheit getrennt für die Kapsel („62 bpm“ → „62“, „bpm“).
+    func capsule(_ value: Double) -> (number: String, unit: String) {
+        if isDuration { return (RingDetailView.clock(value), "Std.") }
+        let text = formatted(value)
+        guard let space = text.firstIndex(of: " ") else { return (text, "") }
+        return (String(text[..<space]), String(text[text.index(after: space)...]))
     }
 
     func status(_ value: Double?) -> String? {
@@ -327,6 +339,7 @@ private struct RingMetricCard: View {
     let recent: [DayMetrics]
     let history: [DayMetrics]
     let compact: Bool
+    var order = 0
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -347,6 +360,9 @@ private struct RingMetricCard: View {
                 }
             }
         } label: {
+            if compact {
+                capsule(value: value)
+            } else {
             DashboardCard {
                 HStack(alignment: .center, spacing: Space.s3) {
                     VStack(alignment: .leading, spacing: Space.s1) {
@@ -360,17 +376,13 @@ private struct RingMetricCard: View {
                         if let status { statusLabel(status, value: value) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if !typeSize.isAccessibilitySize, !compact {
+                    if !typeSize.isAccessibilitySize {
                         let points = metric.points(in: domain, endingAt: day, history: recent)
                         if !points.isEmpty {
                             RingMetricSparkline(points: points, domain: domain, usual: metric.range, tint: metric.tint)
                                 .frame(width: 94, height: 38)
                                 .accessibilityHidden(true)
                         }
-                    } else if compact {
-                        MetricScale(value: scaleValue(value), tint: metric.tint, axis: .vertical)
-                            .frame(width: 16, height: 44)
-                            .accessibilityHidden(true)
                     }
                 }
                 .padding(.horizontal, Space.s4)
@@ -378,11 +390,21 @@ private struct RingMetricCard: View {
                 .frame(minHeight: 72)
                 .contentShape(Rectangle())
             }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(metric.title)
         .accessibilityValue([text, status].compactMap { $0 }.joined(separator: ", "))
         .accessibilityIdentifier("ring.metric." + metric.id)
+    }
+
+    /// Werte mit eigenem Bereich zeigen den Bereichsbalken, Prozentwerte füllen von unten.
+    private func capsule(value: Double?) -> some View {
+        let parts = value.map(metric.capsule) ?? ("–", "")
+        let outside = value.map { metric.range?.contains($0) == false } ?? false
+        let absolute = metric.id == "recovery" || metric.id.hasPrefix("sleep.")
+        return VitalCapsule(value: parts.0, unit: parts.1, icon: metric.icon, scale: scaleValue(value),
+                            tint: outside ? Theme.strain : metric.tint, fromBottom: absolute, order: order)
     }
 
     private func scaleValue(_ value: Double?) -> Double? {

@@ -1,19 +1,29 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    /// Wahr, solange der Bildschirm im Anpassen-Modus ist (für Teile außerhalb des Stapels).
+    @Entry var tilesEditing = false
+}
+
 /// Bearbeiten auf demselben Bildschirm. Training nutzt weiterhin seinen eigenen Einstieg.
 struct InlineTileStack<Kind: TileKind, Content: View>: View {
     private let storageKey: String
     private let content: (Kind) -> Content
+    private let sharedEditing: Binding<Bool>?
     @AppStorage private var raw: String
-    @State private var editing = false
+    @State private var ownEditing = false
     @State private var dropTarget: Kind?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(storageKey: String, @ViewBuilder content: @escaping (Kind) -> Content) {
+    /// `editing`: optional von außen, wenn andere Teile des Bildschirms den Modus mitbekommen sollen.
+    init(storageKey: String, editing: Binding<Bool>? = nil, @ViewBuilder content: @escaping (Kind) -> Content) {
         self.storageKey = storageKey
         self.content = content
+        sharedEditing = editing
         _raw = AppStorage(wrappedValue: "", storageKey)
     }
+
+    private var editing: Bool { sharedEditing?.wrappedValue ?? ownEditing }
 
     private var arrangement: TileArrangement<Kind> { TileArrangement(storage: raw) }
 
@@ -75,6 +85,8 @@ struct InlineTileStack<Kind: TileKind, Content: View>: View {
                 Text(kind.title).font(.formaCaptionStrong)
                     .padding(.leading, Space.s2)
                 Spacer(minLength: Space.s2)
+                // Karten ↔ Balken gibt es nur hier, nicht in der normalen Ansicht.
+                if kind.rawValue == "healthMonitor" { StoredTileLayoutToggle(key: HealthMonitor.layoutKey) }
                 Image(systemName: "line.3.horizontal")
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
@@ -127,6 +139,6 @@ struct InlineTileStack<Kind: TileKind, Content: View>: View {
 
     private func setEditing(_ value: Bool) {
         dropTarget = nil
-        editing = value
+        if let sharedEditing { sharedEditing.wrappedValue = value } else { ownEditing = value }
     }
 }

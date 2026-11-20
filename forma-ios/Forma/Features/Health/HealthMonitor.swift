@@ -5,11 +5,43 @@ enum MeasurementTileLayout: String, CaseIterable, Identifiable {
 
     var id: Self { self }
     var title: String { self == .cards ? "Karten" : "Balken" }
+    var symbol: String { self == .cards ? "rectangle.grid.1x2" : "rectangle.split.3x1" }
+}
+
+/// Karten ↔ Balken. Erscheint nur im Anpassen-Modus; ein Tipp wechselt das Design.
+struct TileLayoutToggle: View {
+    @Binding var layout: MeasurementTileLayout
+
+    var body: some View {
+        Button {
+            layout = layout == .cards ? .columns : .cards
+        } label: {
+            Label(layout.title, systemImage: layout.symbol)
+                .font(.formaCaptionStrong)
+                .frame(minHeight: 44)
+                .padding(.horizontal, Space.s2)
+        }
+        .buttonStyle(.glass)
+        .accessibilityLabel("Kacheldesign")
+        .accessibilityValue(layout.title)
+        .accessibilityIdentifier("tiles.layout")
+    }
+}
+
+/// Dasselbe mit gespeicherter Wahl, für die Kopfzeile im Bearbeitungsmodus.
+struct StoredTileLayoutToggle: View {
+    @AppStorage private var layout: MeasurementTileLayout
+
+    init(key: String) { _layout = AppStorage(wrappedValue: .cards, key) }
+
+    var body: some View { TileLayoutToggle(layout: $layout) }
 }
 
 /// Tageswerte und persönlicher Bereich. Jede Kachel führt direkt zum zugehörigen Verlauf.
 struct HealthMonitor: View {
-    @AppStorage("forma.tiles.vitals.layout") private var layout = MeasurementTileLayout.cards
+    static let layoutKey = "forma.tiles.vitals.layout"
+    @AppStorage(HealthMonitor.layoutKey) private var layout = MeasurementTileLayout.cards
+    @Environment(\.tilesEditing) private var editing
     @State private var showOverview = false
     let snapshot: DashboardDay
 
@@ -20,22 +52,15 @@ struct HealthMonitor: View {
         let items = [MetricKind.respiratoryRate, .restingHR, .hrv, .spo2, .skinTemperature]
             .compactMap { byID[$0.rawValue] } + [MonitorReading(sleepOf: snapshot)]
         VStack(alignment: .leading, spacing: Space.s2) {
-            HStack {
-                Spacer()
-                Menu {
-                    Picker("Kacheldesign", selection: $layout) {
-                        ForEach(MeasurementTileLayout.allCases) { style in Text(style.title).tag(style) }
-                    }
-                    Button("Messübersicht", systemImage: "heart.text.square") { showOverview = true }
-                        .accessibilityIdentifier("health.monitor")
-                } label: {
-                    Image(systemName: "rectangle.grid.2x2")
-                        .font(.formaCaptionStrong)
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Vitalwerte-Kacheldesign")
-                .accessibilityIdentifier("health.monitor.layout")
+            Button { showOverview = true } label: {
+                DashboardHeading(title: "Health Monitor")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Health Monitor, Messübersicht")
+            .accessibilityIdentifier("health.monitor")
+            if editing { TileLayoutToggle(layout: $layout) }
             HealthVitalGrid(readings: items, layout: layout)
         }
         .sheet(isPresented: $showOverview) {
@@ -51,13 +76,15 @@ private struct HealthVitalGrid: View {
     let readings: [MonitorReading]
     var layout: MeasurementTileLayout = .cards
 
-    private var showsColumns: Bool { layout == .columns && !typeSize.isAccessibilitySize }
-
     var body: some View {
-        if showsColumns {
-            // Balken: alle Werte in einer Reihe (Maxi F5-03).
-            HStack(spacing: 6) {
-                ForEach(readings) { reading in link(reading) { VitalPill(reading: reading) } }
+        if layout == .columns {
+            // Balken: sechs einzelne Kapseln in einer Reihe, ab Bedienungshilfe-Schrift 3 × 2.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
+                                     count: typeSize.isAccessibilitySize ? 3 : 6),
+                      spacing: Space.s2) {
+                ForEach(Array(readings.enumerated()), id: \.element.id) { index, reading in
+                    link(reading) { VitalPill(reading: reading, order: index) }
+                }
             }
         } else {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s2),
@@ -113,70 +140,103 @@ private struct HealthVitalGrid: View {
     }
 }
 
-/// Hohe Kapsel: senkrechter Bereichsbalken mit Punkt, darunter Wert, Einheit und Symbol.
 private struct VitalPill: View {
     let reading: MonitorReading
+    var order = 0
+
+    var body: some View {
+        VitalCapsule(value: reading.valueText, unit: reading.unitText, icon: reading.icon,
+                     scale: reading.scaleValue, tint: reading.inRange == false ? Theme.strain : reading.tint,
+                     order: order)
+    }
+}
+
+/// Hohe Kapsel: dunkler Schacht mit Bereichsbalken und Punkt, darunter Wert, Einheit und Symbol.
+/// Die mittlere Hälfte der Skala (25–75) ist der persönliche Bereich, die Striche oben und unten liegen außerhalb.
+struct VitalCapsule: View {
+    let value: String
+    let unit: String
+    let icon: String
+    /// 0–100 oder nil ohne Messung.
+    let scale: Double?
+    let tint: Color
+    /// Balken wächst vom unteren Strich bis zum Punkt (für Prozentwerte ohne eigenen Bereich).
+    var fromBottom = false
+    var order = 0
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var arrived = false
 
     var body: some View {
         VStack(spacing: Space.s1) {
             gauge
-                .frame(width: 26, height: 84)
-                .padding(.bottom, Space.s2)
+                .frame(height: 96)
+                .padding(.bottom, Space.s1)
                 .accessibilityHidden(true)
-            Text(reading.valueText)
-                .font(.system(.headline, design: .rounded, weight: .bold).monospacedDigit())
+            Text(value)
+                .font(.system(.headline, design: .rounded, weight: .heavy).monospacedDigit())
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.55)
-            Text(reading.unitText)
-                .font(.system(.caption, design: .rounded, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Image(systemName: reading.icon)
-                .font(.footnote.weight(.semibold))
+                .minimumScaleFactor(0.5)
+            Text(unit.isEmpty ? " " : unit)
+                .font(.system(.caption, design: .rounded, weight: .bold))
                 .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.textQuaternary)
                 .padding(.top, Space.s1)
         }
         .padding(.vertical, Space.s3)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity)
-        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Theme.cardRaised, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 1)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .onAppear {
+            guard !arrived else { return }
+            if reduceMotion { arrived = true } else {
+                withAnimation(.smooth(duration: 0.8).delay(0.06 * Double(order))) { arrived = true }
+            }
+        }
     }
 
-    /// Mittlere Hälfte der Skala = persönlicher Bereich, Striche oben und unten = außerhalb.
     private var gauge: some View {
         GeometryReader { proxy in
-            let inset: CGFloat = 12
+            let width = proxy.size.width
+            let inset: CGFloat = 16
             let span = proxy.size.height - 2 * inset
-            let fillTint = reading.inRange == false ? Theme.strain : reading.tint
+            let shaft = RoundedRectangle(cornerRadius: width * 0.46, style: .continuous)
             ZStack {
-                Capsule().fill(Color.black.opacity(0.28))
+                shaft.fill(Color.black.opacity(0.34))
+                shaft.strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                 VStack {
-                    Capsule().fill(Theme.textQuaternary).frame(width: 12, height: 4)
+                    Capsule().fill(tint.opacity(0.32)).frame(width: width * 0.3, height: 4)
                     Spacer()
-                    Capsule().fill(Theme.textQuaternary).frame(width: 12, height: 4)
+                    Capsule().fill(tint.opacity(0.32)).frame(width: width * 0.3, height: 4)
                 }
-                .padding(.vertical, 4)
-                if let value = reading.scaleValue {
-                    let position = inset + span * (1 - value / 100)
-                    let top = min(position, inset + span * 0.25)
-                    let bottom = max(position, inset + span * 0.75)
+                .padding(.vertical, 7)
+                if let scale {
+                    // Beim Erscheinen gleitet der Punkt aus der Mitte an seinen Platz.
+                    let shown = arrived ? scale : 50
+                    let position = inset + span * (1 - shown / 100)
+                    let top = fromBottom ? position : min(position, inset + span * 0.25)
+                    let bottom = fromBottom ? inset + span : max(position, inset + span * 0.75)
+                    let dot = min(22, width * 0.44)
                     Capsule()
-                        .fill(LinearGradient(colors: [fillTint.opacity(0.95), fillTint.opacity(0.6)],
+                        .fill(LinearGradient(colors: [tint.opacity(0.95), tint.opacity(0.62)],
                                              startPoint: .top, endPoint: .bottom))
-                        .frame(width: 10, height: max(10, bottom - top))
-                        .position(x: proxy.size.width / 2, y: (top + bottom) / 2)
+                        .frame(width: width * 0.4, height: max(dot, bottom - top))
+                        .position(x: width / 2, y: (top + bottom) / 2)
                     Circle()
-                        .fill(fillTint)
-                        .overlay { Circle().strokeBorder(Theme.cardRaised, lineWidth: 3) }
-                        .frame(width: 16, height: 16)
-                        .shadow(color: fillTint.opacity(0.7), radius: 6)
-                        .position(x: proxy.size.width / 2, y: position)
+                        .fill(tint)
+                        .overlay { Circle().strokeBorder(Color(white: 0.17), lineWidth: 4) }
+                        .frame(width: dot, height: dot)
+                        .shadow(color: tint.opacity(0.75), radius: 7)
+                        .position(x: width / 2, y: position)
                 }
             }
         }

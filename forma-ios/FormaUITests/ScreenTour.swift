@@ -83,6 +83,19 @@ final class ScreenTour: XCTestCase {
         back()
     }
 
+    /// Anpassen öffnen, Karten ↔ Balken des Health Monitors umschalten, Anpassen beenden.
+    private func toggleVitalsLayout() -> Bool {
+        let edit = el("tiles.edit")
+        guard reveal(edit) else { return false }
+        edit.tap()
+        let toggle = el("tiles.layout")
+        for _ in 0..<12 where !(toggle.exists && toggle.isHittable) { app.swipeDown() }
+        let found = toggle.exists && toggle.isHittable
+        if found { toggle.tap() }
+        finishEditing()
+        return found
+    }
+
     private func finishEditing() {
         let done = app.buttons["tiles.done"]
         if done.exists && done.isHittable {
@@ -173,17 +186,14 @@ final class ScreenTour: XCTestCase {
         XCTAssertTrue(app.buttons["ring.recovery"].waitForExistence(timeout: 6))
         shot("01 Today")
 
-        // Vitalwerte als Balken in einer Reihe (F5-03), danach zurück zu Karten.
-        let layout = el("health.monitor.layout")
-        if reveal(layout) {
-            layout.tap()
-            if tapButton(beginningWith: "Balken", timeout: 3) {
-                sleep(1)
-                shot("01b Vitalwerte Balken")
-                layout.tap()
-                _ = tapButton(beginningWith: "Karten", timeout: 3)
-            }
-            app.swipeDown(); app.swipeDown()
+        // Vitalwerte als Balken (F6-02): Umstellen nur im Anpassen-Modus, danach zurück zu Karten.
+        if toggleVitalsLayout() {
+            let bars = el("health.monitor.metric.respiratoryRate")
+            if reveal(bars) { shot("01b Vitalwerte Balken") }
+            _ = toggleVitalsLayout()
+            for _ in 0..<8 { app.swipeDown() }
+        } else {
+            XCTFail("Der Umschalter Karten/Balken fehlt im Anpassen-Modus")
         }
 
         // Today v2: Kopf mit Recovery-Bogen und Strain/Sleep-Kapseln, keine Reiter, kein Datumsschalter.
