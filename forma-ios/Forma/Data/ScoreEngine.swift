@@ -116,12 +116,16 @@ enum ScoreEngine {
         let rec = recovery(today: today, history: history, sleepScore: sleepValue)
         let hour = Double(Calendar.forma.component(.hour, from: now))
         let dayFatigue = max(0, hour - 8) * 1.4
-        let energy = Int((Double(rec) * 0.65 + Double(sleepValue) * 0.35 - Double(strainValue) * 0.3 - dayFatigue).rounded()).clamped(3, 100)
         var stress = 1.2 + Double(strainValue) / 120
         if let rhr = today.restingHR, let b = baseline(for: \.restingHR, today: today, history: history) { stress += 0.3 * clampZ(b.z(rhr)) }
         if let hrv = today.hrv, let b = baseline(for: \.hrv, today: today, history: history) { stress -= 0.2 * clampZ(b.z(hrv)) }
+        let stressValue = min(3, max(0, stress))
+        // Wie Bevels Energy Bank: Morgenladung aus Recovery und Schlaf, Belastung, Tageszeit und erhöhter Stress zehren.
+        let stressDrain = max(0, stressValue - 1.2) * 6
+        let energy = Int((Double(rec) * 0.65 + Double(sleepValue) * 0.35 - Double(strainValue) * 0.3 - dayFatigue - stressDrain)
+            .rounded()).clamped(3, 100)
         return DayScores(recovery: rec, sleep: sleepValue, strain: strainValue, target: target(recovery: rec),
-                         energy: energy, stress: min(3, max(0, stress)), sleepNeed: need, sleepDebt: debt)
+                         energy: energy, stress: stressValue, sleepNeed: need, sleepDebt: debt)
     }
 
     private static func clamp(_ x: Double) -> Double { min(1, max(0, x)) }
