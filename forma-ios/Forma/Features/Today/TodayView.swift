@@ -70,6 +70,16 @@ struct TodayView: View {
         switch kind {
         case .coach:
             return AnyView(coachLine(snapshot))
+        case .readiness:
+            return AnyView(ReadinessTile(snapshot: snapshot))
+        case .bodySignals:
+            return AnyView(BodySignalsTile(snapshot: snapshot, history: hub.dashboardHistory(recent: recent)))
+        case .sleepDebt:
+            return AnyView(SleepDebtTile(snapshot: snapshot))
+        case .calmTime:
+            return AnyView(CalmTimeTile(signals: signals, history: hub.dashboardHistory(recent: recent)))
+        case .streak:
+            return AnyView(StreakTile(today: snapshot.day.date, history: hub.dashboardHistory(recent: recent)))
         case .healthMonitor:
             return AnyView(HealthMonitor(snapshot: snapshot))
         case .stress:

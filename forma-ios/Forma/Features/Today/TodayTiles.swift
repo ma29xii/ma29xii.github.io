@@ -42,13 +42,19 @@ struct StepsDetail: View {
 
 /// Karten unter dem Today-Kopf. Kopf und Kennzahlen (mit Schritten) bleiben immer sichtbar.
 enum TodayTile: String, TileKind {
-    case coach, healthMonitor, stress, energy, food, weekly, metrics, sleepPlan, hydration
+    case coach, readiness, bodySignals, healthMonitor, stress, energy, food, weekly, metrics, sleepPlan, hydration
+    case sleepDebt, calmTime, streak
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .coach: "Coach"
+        case .readiness: "Bereit für"
+        case .bodySignals: "Körpersignale"
+        case .sleepDebt: "Schlafschuld"
+        case .calmTime: "Erholte Zeit"
+        case .streak: "Serie"
         case .healthMonitor: "Health Monitor"
         case .stress: "Stress Monitor"
         case .energy: "Energie"
@@ -62,6 +68,11 @@ enum TodayTile: String, TileKind {
     var systemImage: String {
         switch self {
         case .coach: "sparkle"
+        case .readiness: "figure.run"
+        case .bodySignals: "thermometer.medium"
+        case .sleepDebt: "bed.double"
+        case .calmTime: "leaf"
+        case .streak: "flame"
         case .healthMonitor: "heart.text.square"
         case .stress: "gauge.with.dots.needle.33percent"
         case .energy: "bolt.fill"
@@ -73,6 +84,8 @@ enum TodayTile: String, TileKind {
         }
     }
     var summary: String { title }
+    /// Die neuen schlauen Kacheln sind bis auf „Bereit für“ und „Körpersignale“ zunächst ausgeblendet.
+    static var defaultHidden: Set<Self> { [.sleepDebt, .calmTime, .streak] }
     static var requiredVisible: Set<Self> { [.metrics] }
     static func storedKinds(for id: String) -> [Self] { Self(rawValue: id).map { [$0] } ?? [] }
 }
