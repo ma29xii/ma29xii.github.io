@@ -9,9 +9,11 @@ final class PlusCoachTests: XCTestCase {
         let ids = PlusAction.allCases.map(\.accessibilityID)
         XCTAssertEqual(Set(ids).count, ids.count)
         XCTAssertEqual(PlusAction.tiles.map(\.accessibilityID),
-                       ["plus.track", "plus.plan", "plus.training", "plus.water", "plus.fasting", "plus.weight"])
+                       ["plus.track", "plus.water", "plus.weight", "plus.mood", "plus.caffeine",
+                        "plus.training", "plus.fasting", "plus.plan", "plus.breathe", "plus.sleepPlan", "plus.askCoach"])
         XCTAssertEqual(PlusAction.tiles.map(\.title),
-                       ["Nährwerte tracken", "Essen planen", "Fitness", "Wasser", "Fasten", "Gewicht"])
+                       ["Nährwerte tracken", "Wasser", "Gewicht", "Stimmung", "Koffein",
+                        "Fitness", "Fasten", "Essen planen", "Atmen", "Schlafplan", "Coach fragen"])
         XCTAssertFalse(PlusAction.tiles.contains(.scan), "Scanner und Schnellstart sind nur intern")
         XCTAssertFalse(PlusAction.tiles.contains(.quickTraining))
         XCTAssertTrue(PlusAction.allCases.allSatisfy { !$0.systemImage.isEmpty })

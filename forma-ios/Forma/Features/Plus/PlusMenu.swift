@@ -5,14 +5,18 @@ import SwiftData
 enum PlusAction: String, CaseIterable, Identifiable, Sendable {
     /// Sichtbare Kacheln.
     case track, plan, training, water, fasting, weight
+    /// Neu in F6: Erfassen (Stimmung, Koffein) und Jetzt (Atmen, Schlafplan, Coach).
+    case mood, caffeine, breathe, sleepPlan, askCoach
     /// Nur intern (Siri, Steuerelement): Scanner direkt öffnen und Training sofort starten.
     case scan, quickTraining
 
     var id: String { rawValue }
     var accessibilityID: String { "plus." + rawValue }
 
-    /// Reihenfolge der Kacheln im Menü: zwei Reihen mit je drei.
-    static let tiles: [PlusAction] = [.track, .plan, .training, .water, .fasting, .weight]
+    /// Gruppen im Menü, je im Raster mit drei Spalten.
+    static let capture: [PlusAction] = [.track, .water, .weight, .mood, .caffeine]
+    static let now: [PlusAction] = [.training, .fasting, .plan, .breathe, .sleepPlan, .askCoach]
+    static let tiles: [PlusAction] = capture + now
 
     var title: String {
         switch self {
@@ -22,6 +26,11 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         case .water: "Wasser"
         case .fasting: "Fasten"
         case .weight: "Gewicht"
+        case .mood: "Stimmung"
+        case .caffeine: "Koffein"
+        case .breathe: "Atmen"
+        case .sleepPlan: "Schlafplan"
+        case .askCoach: "Coach fragen"
         case .scan: "Essen scannen"
         case .quickTraining: "Training starten"
         }
@@ -35,6 +44,11 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         case .water: "drop"
         case .fasting: "timer"
         case .weight: "scalemass"
+        case .mood: "face.smiling"
+        case .caffeine: "cup.and.saucer"
+        case .breathe: "wind"
+        case .sleepPlan: "bed.double"
+        case .askCoach: "bubble.left"
         case .scan: "barcode.viewfinder"
         }
     }
@@ -48,6 +62,11 @@ enum PlusAction: String, CaseIterable, Identifiable, Sendable {
         case .water: Theme.strain
         case .fasting: Theme.warning
         case .weight: Theme.older
+        case .mood: Theme.recoveryMid
+        case .caffeine: Theme.warning
+        case .breathe: Theme.strain
+        case .sleepPlan: Theme.sleep
+        case .askCoach: Theme.accent
         }
     }
 }
@@ -62,23 +81,41 @@ enum PlusLogic {
 
 // MARK: - Menü
 
-/// Kleine Kacheln in einer Glasfläche. Sie wächst aus der Ecke des Plus-Knopfs nach oben.
+/// Kleine Kacheln in einer Glasfläche, in zwei Gruppen: „Erfassen“ und „Jetzt“.
+/// Sie wächst aus der Ecke des Plus-Knopfs nach oben; die Kacheln springen gestaffelt auf.
 struct PlusMenuPanel: View {
     let onSelect: (PlusAction) -> Void
+    @State private var visible = false
     private let columns = Array(repeating: GridItem(.flexible(), spacing: Space.s2), count: 3)
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: Space.s2) {
-            ForEach(PlusAction.tiles) { action in
-                Button { onSelect(action) } label: { tile(action) }
-                    .buttonStyle(PlusTileStyle())
-                    .accessibilityIdentifier(action.accessibilityID)
-            }
+        VStack(alignment: .leading, spacing: Space.s3) {
+            group("Erfassen", PlusAction.capture, first: 0)
+            group("Jetzt", PlusAction.now, first: PlusAction.capture.count)
         }
         .padding(Space.s3)
         .frame(maxWidth: 330)
         .glassEffect(.regular, in: .rect(cornerRadius: 30, style: .continuous))
         .foregroundStyle(Theme.textPrimary)
+        .onAppear { visible = true }
+    }
+
+    /// `first` ist die Position der ersten Kachel der Gruppe im ganzen Menü (für die Staffelung).
+    private func group(_ title: String, _ actions: [PlusAction], first: Int) -> some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text(title)
+                .formaLabelStyle()
+                .padding(.horizontal, Space.s1)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: columns, spacing: Space.s2) {
+                ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                    Button { onSelect(action) } label: { tile(action) }
+                        .buttonStyle(FormaPressStyle(scale: 0.94))
+                        .formaPop(index: first + index, visible: visible)
+                        .accessibilityIdentifier(action.accessibilityID)
+                }
+            }
+        }
     }
 
     private func tile(_ action: PlusAction) -> some View {
@@ -99,15 +136,6 @@ struct PlusMenuPanel: View {
         .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.plate))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.plateEdge, lineWidth: 0.75))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
-private struct PlusTileStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
     }
 }
 
@@ -142,7 +170,7 @@ private struct PlusMenuOverlay: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-        .animation(reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.34), value: app.showPlus)
+        .animation(reduceMotion ? FormaMotion.calm : FormaMotion.pop, value: app.showPlus)
         .sensoryFeedback(.impact(weight: .light), trigger: app.showPlus)
         .allowsHitTesting(app.showPlus)
     }
@@ -189,6 +217,11 @@ private struct PlusFlow: ViewModifier {
                 case .water: PlusFood.water()
                 case .fasting: PlusFood.fasting()
                 case .weight: PlusFood.weight()
+                case .mood: PlusMoodSheet()
+                case .caffeine: PlusCaffeineSheet()
+                case .breathe: BreathingSession()
+                case .sleepPlan: PlusSleepPlanSheet()
+                case .askCoach: EmptyView()
                 case .quickTraining: EmptyView()
                 }
             }
@@ -196,7 +229,11 @@ private struct PlusFlow: ViewModifier {
 
     private func choose(_ action: PlusAction) {
         app.showPlus = false
-        if action == .quickTraining { startTraining() } else { destination = action }
+        switch action {
+        case .quickTraining: startTraining()
+        case .askCoach: app.selectTab(.coach)
+        default: destination = action
+        }
     }
 
     /// Übernimmt eine wartende Anfrage von Siri, Kurzbefehl oder Steuerelement.

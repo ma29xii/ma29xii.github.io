@@ -150,7 +150,8 @@ final class ScreenTour: XCTestCase {
         shot("31 Food")
         app.swipeUp(); shot("31b Food unten"); app.swipeDown(); app.swipeDown()
         for (title, name) in [("Nährwerte tracken", "33 Nährwerte tracken"), ("Essen planen", "32 Essen planen"),
-                              ("Wasser", "34 Wasser"), ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht")] {
+                              ("Wasser", "34 Wasser"), ("Fasten", "35 Fasten"), ("Gewicht", "36 Gewicht"),
+                              ("Stimmung", "36b Stimmung"), ("Koffein", "36c Koffein"), ("Schlafplan", "36d Schlafplan")] {
             guard openPlus(title) else { dismissSheet(); continue }
             shot(name)
             if title == "Essen planen" {

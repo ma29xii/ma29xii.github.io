@@ -42,6 +42,7 @@ struct DashboardCard<Content: View>: View {
             .scrollTransition(.interactive, axis: .vertical) { card, phase in
                 card.opacity(calm || phase != .bottomTrailing ? 1 : 0.90)
             }
+            .formaAppear()
     }
 }
 
