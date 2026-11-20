@@ -30,14 +30,9 @@ enum CoachNotifier {
     }
 
     /// Fragt nur auf ausdrückliche Aktion des Nutzers nach der Erlaubnis (Codex R-02-26).
-    static func requestPermission() async {
-        guard !FormaApp.isUITest else { return }
-        // Die Aufrufer lesen anschließend den Systemstatus. Hier warten wir nur auf den Abschluss.
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
-                continuation.resume()
-            }
-        }
+    static func requestPermission() async -> Bool {
+        guard !FormaApp.isUITest else { return false }
+        return (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
     }
 
     nonisolated static func authorizationStatus() async -> UNAuthorizationStatus {

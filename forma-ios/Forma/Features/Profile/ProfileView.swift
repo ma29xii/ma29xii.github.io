@@ -59,7 +59,7 @@ struct ProfileView: View {
                     if notificationStatus == .notDetermined {
                         Button {
                             Task {
-                                await CoachNotifier.requestPermission()
+                                _ = await CoachNotifier.requestPermission()
                                 notificationStatus = await CoachNotifier.authorizationStatus()
                             }
                         } label: {

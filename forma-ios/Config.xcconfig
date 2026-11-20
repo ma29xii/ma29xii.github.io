@@ -1,3 +1,3 @@
 // Öffentliche Google-OAuth-Client-ID vom Typ iOS und das angezeigte iOS-URL-Schema.
-GOOGLE_CLIENT_ID =
-GOOGLE_REDIRECT_SCHEME = com.ma29xii.forma.oauth-disabled
+GOOGLE_CLIENT_ID = 451252245927-1dsen9cri6p981i6pfdu53b5qgifc2m8.apps.googleusercontent.com
+GOOGLE_REDIRECT_SCHEME = com.googleusercontent.apps.451252245927-1dsen9cri6p981i6pfdu53b5qgifc2m8

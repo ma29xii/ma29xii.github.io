@@ -175,7 +175,7 @@ private struct FoodWaterContent: View {
         if enabled {
             Task {
                 guard reminds else { return }
-                await CoachNotifier.requestPermission()
+                _ = await CoachNotifier.requestPermission()
                 syncWidget()
             }
         } else {
