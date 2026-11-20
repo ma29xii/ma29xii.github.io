@@ -11,8 +11,6 @@ struct ProfileView: View {
     @AppStorage("forma.birthYear") private var birthYear = 0
     @AppStorage("forma.sex") private var sexRaw = BiologicalSex.unknown.rawValue
     @AppStorage("forma.bodyWeightKg") private var weightKg = 0.0
-    /// Außerhalb 0–1439 heißt „nicht gesetzt“ (dann gilt die Standard-Weckzeit); 00:00 ist ein gültiger Wert.
-    @AppStorage(CoachNotifier.wakeKey) private var wakeStored = -1
     @AppStorage(BackgroundRefresh.plannedKey) private var refreshPlanned = 0.0
     @AppStorage(BackgroundRefresh.errorKey) private var refreshError = ""
     @AppStorage(BackgroundRefresh.attemptKey) private var refreshAttempt = 0.0
@@ -25,6 +23,7 @@ struct ProfileView: View {
     @State private var confirmDisconnect = false
     @State private var showBody = false
     @State private var showAchievements = false
+    @State private var showSleepPlan = false
 
     var body: some View {
         NavigationStack {
@@ -74,9 +73,10 @@ struct ProfileView: View {
                                         detail: ProfileText.notifications(notificationStatus), external: true)
                         }
                     }
-                    DatePicker("Weckzeit", selection: wakeTime, displayedComponents: .hourAndMinute)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("profile.wake")
+                    Button { showSleepPlan = true } label: {
+                        SettingsRow(title: "Schlafplan", systemImage: "moon.stars")
+                    }
+                    .accessibilityIdentifier("profile.wake")
                 } header: {
                     Text("Mitteilungen").formaLabelStyle()
                 }
@@ -93,6 +93,10 @@ struct ProfileView: View {
             .navigationDestination(isPresented: $showBody) { BodyProfileView() }
             .navigationDestination(isPresented: $showAchievements) {
                 AchievementsView(healthScope: hub.achievementHealthScope, isSample: hub.isSample)
+            }
+            .navigationDestination(isPresented: $showSleepPlan) {
+                SleepPlanView(store: FoodSettings.store(isSample: hub.isSample))
+                    .id(hub.isSample)
             }
             .formaScreen()
             .refreshable { await hub.syncAndNotify(background: false) }
@@ -171,21 +175,6 @@ struct ProfileView: View {
         }
         .accessibilityHint("Gibt diese Freigabe zurück")
         .accessibilityIdentifier(id)
-    }
-
-    /// Weckzeit als Uhrzeit. Gespeichert werden Minuten nach Mitternacht.
-    private var wakeTime: Binding<Date> {
-        Binding(
-            get: {
-                let minutes = CoachNotifier.wakeMinutes
-                return Calendar.forma.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
-            },
-            set: { date in
-                let parts = Calendar.forma.dateComponents([.hour, .minute], from: date)
-                wakeStored = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
-                Task { await CoachNotifier.scheduleBedtimeReminder(hub) }
-            }
-        )
     }
 
     private var bodySummary: String? {

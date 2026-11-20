@@ -37,6 +37,11 @@ enum CoachEngine {
             CoachEngine.measuredSleepNeed(scores, strainAvailable: strainAvailable, history: history)
         }
 
+        func sleepWindow(sleepNeed: TimeInterval, now: Date = .now) -> SleepPlanner.Window? {
+            let plan = SleepPlanner.load(in: FoodSettings.store(isSample: isSample))
+            return plan.nextWindow(after: now, sleepNeed: sleepNeed)
+        }
+
         var stepGoalToday: Int? {
             StepGoal.target(on: today.date, history: history, recovery: recoveryAvailable ? scores.recovery : nil,
                             sleepScore: sleepScore, sleepDebt: sleepDebt,
@@ -85,7 +90,8 @@ enum CoachEngine {
             return "Für heute fehlen Herzwerte mit Vergleich. Ich gebe dir erst eine Empfehlung, wenn Messwerte da sind – trag deine Uhr auch nachts."
         }
         if c.trainedToday {
-            let sleepLine = c.sleepNeed.map { _ in "Geh gegen \(bedtime(s)) ins Bett." } ?? "Schlafbedarf: keine Messung."
+            let sleepLine = c.sleepNeed.flatMap { c.sleepWindow(sleepNeed: $0) }
+                .map { "Geh gegen \(Format.clock($0.bed)) ins Bett." } ?? "Schlafbedarf: keine Messung."
             // Gleiche Logik wie der Zielbogen am Belastungsring (Codex R-01-05).
             if s.strain < s.target.lowerBound {
                 return "Gut trainiert. Bis zur Untergrenze deines Zielbereichs fehlen noch \(s.target.lowerBound - s.strain) Punkte – etwas lockere Bewegung reicht."
@@ -96,8 +102,10 @@ enum CoachEngine {
             return "Heute warst du über deinem Zielbereich. Mach morgen eher locker. \(sleepLine)"
         }
         if c.hour >= 20 {
-            guard let need = c.sleepNeed else { return "Schlafbedarf: keine Messung." }
-            return "Für morgen zählt jetzt der Schlaf: ins Bett gegen \(bedtime(s)), dann holst du \(Format.duration(need)) Schlaf."
+            guard let need = c.sleepNeed, let window = c.sleepWindow(sleepNeed: need) else {
+                return "Schlafbedarf: keine Messung."
+            }
+            return "Für morgen zählt jetzt der Schlaf: ins Bett gegen \(Format.clock(window.bed)), dann holst du \(Format.duration(need)) Schlaf."
         }
         let hrvPart: String
         if let d = c.hrvDelta, abs(d) >= 2 {
@@ -116,17 +124,6 @@ enum CoachEngine {
         default:
             return "\(hrvPart). Dein Körper braucht heute Ruhe – lieber locker bewegen und früh schlafen."
         }
-    }
-
-    /// Gleiche Berechnung wie die Erinnerung (Codex R-02-08), Weckzeit aus dem Profil.
-    static func bedtime(_ s: DayScores, now: Date = .now) -> String {
-        guard let plan = CoachNotifier.bedtimePlan(sleepNeed: s.sleepNeed, now: now) else { return "–" }
-        return Format.clock(plan.bed)
-    }
-
-    static func wakeTime(now: Date = .now) -> String {
-        let m = CoachNotifier.wakeMinutes
-        return String(format: "%d:%02d", m / 60, m % 60)
     }
 
     /// Vorschlag zur Trainingsanpassung (Maxi muss bestätigen).
@@ -206,7 +203,9 @@ enum CoachEngine {
             return c.sleepDuration.map { "Du hast \(Format.duration($0)) geschlafen. Für deinen Schlafbedarf fehlen Vergleichsdaten." }
                 ?? "Schlafbedarf: keine Messung."
         }
-        return "Geschätzter Bedarf heute Nacht: \(Format.duration(need)) (inklusive Schlafschuld). Bei Wecker \(wakeTime()) heißt das: gegen \(bedtime(c.scores)) ins Bett. Die Weckzeit stellst du im Profil ein."
+        let summary = "Geschätzter Bedarf heute Nacht: \(Format.duration(need)) (inklusive Schlafschuld)."
+        guard let window = c.sleepWindow(sleepNeed: need) else { return summary }
+        return "\(summary) Bei Wecker \(Format.clock(window.wake)) geh gegen \(Format.clock(window.bed)) ins Bett. Die Weckzeit änderst du im Schlafplan."
     }
 
     /// Vollständiger lokaler Entwurf für bestehende Aufrufer. CoachProviders filtert vor dem Versand.

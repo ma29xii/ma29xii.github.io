@@ -13,7 +13,7 @@ enum CoachNotifier {
     static let morningKey = "forma.coach.morning"       // Einstellung an/aus
     static let bedtimeKey = "forma.coach.bedtime"       // Einstellung an/aus
     static let detailsKey = "forma.coach.showValues"    // Werte in der Mitteilung zeigen (Standard: aus)
-    nonisolated static let wakeKey = "forma.wakeMinutes"            // Weckzeit in Minuten nach Mitternacht
+    nonisolated static let wakeKey = SleepPlanner.legacyWakeKey
     private static var morningReportsInFlight: Set<String> = []
 
     static var morningEnabled: Bool { UserDefaults.standard.object(forKey: morningKey) as? Bool ?? true }
@@ -26,10 +26,7 @@ enum CoachNotifier {
     nonisolated static var wakeMinutes: Int { wakeMinutes(in: .standard) }
 
     nonisolated static func wakeMinutes(in defaults: UserDefaults) -> Int {
-        guard let value = defaults.object(forKey: wakeKey) as? Int, (0..<(24 * 60)).contains(value) else {
-            return 6 * 60 + 55
-        }
-        return value
+        SleepPlanner.legacyWakeMinutes(in: defaults) ?? SleepPlanner.defaultWorkdayWake
     }
 
     /// Fragt nur auf ausdrückliche Aktion des Nutzers nach der Erlaubnis (Codex R-02-26).
@@ -129,15 +126,15 @@ enum CoachNotifier {
         }
     }
 
-    /// Auch bei Änderungen der Weckzeit aus dem Profil aufrufbar.
+    /// Aktualisiert die geplante Mitteilung, wenn sich der Wochenplan ändert.
     static func scheduleBedtimeReminder(_ hub: DataHub, now: Date = .now) async {
         let generation = hub.generation
-        let issue = await reconcileBedtime(hub, generation: generation, now: now)
+        let issue = await reconcileBedtime(hub, generation: generation, now: now, planChanged: true)
         hub.reportNotificationIssue(issue, generation: generation)
     }
 
     static func reconcileBedtime(
-        _ hub: DataHub, generation: Int, now: Date = .now, confirmedBySync: Bool = false,
+        _ hub: DataHub, generation: Int, now: Date = .now, confirmedBySync: Bool = false, planChanged: Bool = false,
         defaults: UserDefaults = .standard, authorization: @MainActor () async -> UNAuthorizationStatus = { await authorizationStatus() },
         remove: @MainActor ([String]) -> Void = removeBedtimeRequests
     ) async -> String? {
@@ -153,15 +150,17 @@ enum CoachNotifier {
         guard bedtimeRevision == token, hub.canScheduleCoach(generation), enabled() else { return nil }
         if status == .denied { removeBedtimeReminder(defaults: defaults, remove: remove) }
         guard status == .authorized else { return nil }
-        guard let need = CoachEngine.measuredSleepNeed(hub.scores, strainAvailable: hub.availability.strain, history: hub.history) else {
-            if confirmedBySync && hub.bedtimeBasisIsConfirmedMissing {
+        guard let need = hub.measuredSleepNeed else {
+            if planChanged || (confirmedBySync && hub.bedtimeBasisIsConfirmedMissing) {
                 removeBedtimeReminder(defaults: defaults, remove: remove)
             }
             return nil
         }
-        guard let plan = bedtimePlan(sleepNeed: need, now: now) else { return nil }
-        let remind = plan.bed.addingTimeInterval(-30 * 60)
-        guard remind > now.addingTimeInterval(60) else { return nil }
+        guard let plan = SleepPlanner.load(in: defaults).nextWindow(after: now, sleepNeed: need),
+              plan.reminder > now.addingTimeInterval(60) else {
+            if planChanged { removeBedtimeReminder(defaults: defaults, remove: remove) }
+            return nil
+        }
         let content = UNMutableNotificationContent()
         content.title = "In 30 Minuten Schlafenszeit"
         content.body = showValues
@@ -172,7 +171,7 @@ enum CoachNotifier {
         let id = "forma.bedtime." + token.uuidString
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = .gmt
-        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: remind)
+        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.reminder)
         components.timeZone = utc.timeZone
         return await replaceBedtimeReminder(id: id, defaults: defaults, isCurrent: {
             bedtimeRevision == token && hub.canScheduleCoach(generation) && enabled()
@@ -244,7 +243,7 @@ enum CoachNotifier {
         defaults.removeObject(forKey: stagedBedtimeIDsKey)
     }
 
-    /// Eine Quelle für Weckzeit und Bettzeit – UI und Mitteilung zeigen dieselbe Uhrzeit (Codex R-02-08).
+    /// Frühere Tagesberechnung mit festem Wecker und zehn Minuten Einschlafpuffer.
     /// Nächster Wecker = nächste Weckzeit, die mindestens 3 Stunden in der Zukunft liegt (nach Mitternacht also heute früh).
     nonisolated static func bedtimePlan(sleepNeed: TimeInterval, now: Date = .now, wakeMinutes: Int? = nil,
                                         calendar: Calendar = .forma) -> (wake: Date, bed: Date)? {

@@ -26,6 +26,7 @@ struct SleepPlanner: Codable, Equatable, Sendable {
     struct Window: Equatable, Sendable {
         let bed: Date
         let wake: Date
+        var reminder: Date { bed.addingTimeInterval(-30 * 60) }
 
         /// Gemeinsame 24-Stunden-Achse ab 18 Uhr, damit Mitternacht in einem Balken liegt.
         func timelineSegments(calendar: Calendar) -> [Range<Double>] {
@@ -41,15 +42,17 @@ struct SleepPlanner: Codable, Equatable, Sendable {
     }
 
     static let storageKey = "forma.sleepPlan"
+    static let legacyWakeKey = "forma.wakeMinutes"
+    static let defaultWorkdayWake = 6 * 60 + 55
     private static let minutesPerDay = 24 * 60
 
     private(set) var workdayWake: Int
     private(set) var freeDayWake: Int
     var workdays: Set<Weekday>
 
-    init(workdayWake: Int = 6 * 60 + 55, freeDayWake: Int = 8 * 60,
+    init(workdayWake: Int = SleepPlanner.defaultWorkdayWake, freeDayWake: Int = 8 * 60,
          workdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]) {
-        self.workdayWake = Self.validWake(workdayWake) ? workdayWake : 6 * 60 + 55
+        self.workdayWake = Self.validWake(workdayWake) ? workdayWake : Self.defaultWorkdayWake
         self.freeDayWake = Self.validWake(freeDayWake) ? freeDayWake : 8 * 60
         self.workdays = workdays
     }
@@ -75,8 +78,18 @@ struct SleepPlanner: Codable, Equatable, Sendable {
         return plan
     }
 
-    static func sleepNeed(today: DayMetrics, history: [DayMetrics]) -> TimeInterval {
-        ScoreEngine.sleepNeed(strain: ScoreEngine.strain(today), debt: ScoreEngine.sleepDebt(history: history))
+    static func legacyWakeMinutes(in store: UserDefaults) -> Int? {
+        guard let minutes = store.object(forKey: legacyWakeKey) as? Int, validWake(minutes) else { return nil }
+        return minutes
+    }
+
+    static func fallback(in store: UserDefaults) -> Self {
+        guard let minutes = legacyWakeMinutes(in: store) else { return Self() }
+        return Self(workdayWake: minutes, freeDayWake: minutes)
+    }
+
+    static func load(in store: UserDefaults) -> Self {
+        restore(store.data(forKey: storageKey) ?? Data(), fallback: fallback(in: store))
     }
 
     private static func validWake(_ minutes: Int) -> Bool { (0..<minutesPerDay).contains(minutes) }
@@ -87,24 +100,35 @@ struct SleepPlanner: Codable, Equatable, Sendable {
     }
 
     /// Der Wochentag gehört zum Aufwachen. Die Dauer wird auch an Zeitumstellungen real abgezogen.
-    func window(wakingOn date: Date, sleepNeed: TimeInterval, calendar: Calendar = .forma) -> Window? {
-        guard sleepNeed.isFinite, sleepNeed > 0, sleepNeed < 14 * 3600,
-              let weekday = Weekday(rawValue: calendar.component(.weekday, from: date)) else { return nil }
+    func window(wakingOn date: Date, sleepNeed: TimeInterval?, calendar: Calendar = .forma) -> Window? {
+        makeWindow(wake: wakeDate(wakingOn: date, calendar: calendar), sleepNeed: sleepNeed)
+    }
+
+    func nextWindow(after now: Date, sleepNeed: TimeInterval?, calendar: Calendar = .forma) -> Window? {
+        makeWindow(wake: nextWake(after: now, calendar: calendar), sleepNeed: sleepNeed)
+    }
+
+    private func makeWindow(wake: Date?, sleepNeed: TimeInterval?) -> Window? {
+        guard let wake, let sleepNeed, sleepNeed.isFinite, sleepNeed > 0, sleepNeed < 14 * 3600 else { return nil }
+        return Window(bed: wake.addingTimeInterval(-sleepNeed), wake: wake)
+    }
+
+    func wakeDate(wakingOn date: Date, calendar: Calendar = .forma) -> Date? {
+        guard let weekday = Weekday(rawValue: calendar.component(.weekday, from: date)) else { return nil }
         let day = calendar.startOfDay(for: date)
         let minutes = wakeMinutes(for: weekday)
         guard let wake = calendar.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: day,
                                        matchingPolicy: .nextTime, repeatedTimePolicy: .first),
               calendar.isDate(wake, inSameDayAs: day) else { return nil }
-        return Window(bed: wake.addingTimeInterval(-sleepNeed), wake: wake)
+        return wake
     }
 
-    func nextWindow(after now: Date, sleepNeed: TimeInterval, calendar: Calendar = .forma) -> Window? {
+    func nextWake(after now: Date, calendar: Calendar = .forma) -> Date? {
         let today = calendar.startOfDay(for: now)
         for offset in 0...2 {
             guard let day = calendar.startOfDay(offsetBy: offset, from: today),
-                  let night = window(wakingOn: day, sleepNeed: sleepNeed, calendar: calendar),
-                  night.wake > now else { continue }
-            return night
+                  let wake = wakeDate(wakingOn: day, calendar: calendar), wake > now else { continue }
+            return wake
         }
         return nil
     }

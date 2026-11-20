@@ -1,11 +1,19 @@
 import SwiftUI
 
 struct SleepPlanView: View {
-    @Binding var savedPlan: Data
+    @AppStorage private var savedPlan: Data
     let fallback: SleepPlanner
-    let sleepNeed: TimeInterval
+    @Environment(DataHub.self) private var hub
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var editing: WakeSelection? = nil
+    @State private var pendingReminder: Task<Void, Never>?
+
+    init(store: UserDefaults) {
+        _savedPlan = AppStorage(wrappedValue: Data(), SleepPlanner.storageKey, store: store)
+        fallback = SleepPlanner.fallback(in: store)
+    }
+
+    private var sleepNeed: TimeInterval? { hub.measuredSleepNeed }
 
     private var plan: SleepPlanner {
         get { SleepPlanner.restore(savedPlan, fallback: fallback) }
@@ -19,10 +27,11 @@ struct SleepPlanView: View {
             let calendar = Calendar.forma
             let plan = self.plan
             let next = plan.nextWindow(after: context.date, sleepNeed: sleepNeed, calendar: calendar)
-            let dates = SleepPlanner.week(containing: next?.wake ?? context.date, calendar: calendar)
+            let wake = next?.wake ?? plan.nextWake(after: context.date, calendar: calendar)
+            let dates = SleepPlanner.week(containing: wake ?? context.date, calendar: calendar)
 
             InsightPage(title: "Schlafplan") {
-                SleepPlanSummary(title: "Nächste Nacht", window: next, calendar: calendar)
+                SleepPlanSummary(title: "Nächste Nacht", window: next, calendar: calendar, wake: wake)
                 VStack(alignment: .leading, spacing: Space.s2) {
                     DashboardHeading(title: "Woche")
                     DashboardCard {
@@ -31,7 +40,7 @@ struct SleepPlanView: View {
                         }
                         ForEach(dates, id: \.self) { date in
                             if let day = SleepPlanner.Weekday(rawValue: calendar.component(.weekday, from: date)) {
-                                let isNext = next.map { calendar.isDate($0.wake, inSameDayAs: date) } ?? false
+                                let isNext = wake.map { calendar.isDate($0, inSameDayAs: date) } ?? false
                                 dayRow(WakeSelection(day: day, date: date), plan: plan, isNext: isNext, calendar: calendar)
                                 if date != dates.last { RowDivider() }
                             }
@@ -44,6 +53,16 @@ struct SleepPlanView: View {
         }
         .sheet(item: $editing) { selection in
             SleepPlanWakeEditor(selection: selection, savedPlan: $savedPlan, fallback: fallback, sleepNeed: sleepNeed)
+        }
+        .onChange(of: plan) { _, _ in
+            guard !hub.isSample else { return }
+            pendingReminder?.cancel()
+            pendingReminder = Task {
+                do { try await Task.sleep(for: .milliseconds(250)) }
+                catch { return }
+                guard !hub.isSample else { return }
+                await CoachNotifier.scheduleBedtimeReminder(hub)
+            }
         }
     }
 
@@ -61,6 +80,7 @@ struct SleepPlanView: View {
 
     private func dayRow(_ selection: WakeSelection, plan: SleepPlanner, isNext: Bool, calendar: Calendar) -> some View {
         let window = plan.window(wakingOn: selection.date, sleepNeed: sleepNeed, calendar: calendar)
+        let wake = window?.wake ?? plan.wakeDate(wakingOn: selection.date, calendar: calendar)
         let group = plan.workdays.contains(selection.day) ? "Arbeitstag" : "Freier Tag"
         let status = isNext ? "Nächste Nacht, \(group)" : group
         return Button {
@@ -69,12 +89,12 @@ struct SleepPlanView: View {
             VStack(alignment: .leading, spacing: Space.s2) {
                 if typeSize.isAccessibilitySize {
                     dayLabel(selection.day.title, isNext: isNext)
-                    SleepPlanTimes(window: window)
+                    SleepPlanTimes(window: window, wake: wake)
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
                         dayLabel(selection.day.title, isNext: isNext)
                         Spacer(minLength: Space.s1)
-                        SleepPlanTimes(window: window)
+                        SleepPlanTimes(window: window, wake: wake)
                     }
                 }
                 SleepPlanBar(window: window, calendar: calendar)
@@ -89,7 +109,7 @@ struct SleepPlanView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(selection.day.title)
-        .accessibilityValue("\(status), \(SleepPlanTimes.spoken(window))")
+        .accessibilityValue("\(status), \(SleepPlanTimes.spoken(window, wake: wake))")
         .accessibilityHint("Weckzeit bearbeiten")
     }
 
@@ -164,7 +184,7 @@ private struct SleepPlanWakeEditor: View {
     let selection: WakeSelection
     @Binding var savedPlan: Data
     let fallback: SleepPlanner
-    let sleepNeed: TimeInterval
+    let sleepNeed: TimeInterval?
     @Environment(\.dismiss) private var dismiss
 
     // Das Rad bearbeitet eine Uhrzeit für die ganze Gruppe, auch wenn sie am konkreten Tag ausfällt.
@@ -190,11 +210,12 @@ private struct SleepPlanWakeEditor: View {
     var body: some View {
         let calendar = Calendar.forma
         let window = plan.window(wakingOn: selection.date, sleepNeed: sleepNeed, calendar: calendar)
+        let wake = window?.wake ?? plan.wakeDate(wakingOn: selection.date, calendar: calendar)
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.gap) {
                     SleepPlanSummary(title: plan.workdays.contains(selection.day) ? "Arbeitstage" : "Freie Tage",
-                                     window: window, calendar: calendar)
+                                     window: window, calendar: calendar, wake: wake)
                     DatePicker("Weckzeit", selection: wakeTime, displayedComponents: .hourAndMinute)
                         .datePickerStyle(.wheel)
                         .labelsHidden()
@@ -222,6 +243,7 @@ struct SleepPlanSummary: View {
     let title: String
     let window: SleepPlanner.Window?
     let calendar: Calendar
+    let wake: Date?
 
     var body: some View {
         DashboardCard {
@@ -249,11 +271,11 @@ struct SleepPlanSummary: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue(SleepPlanTimes.spoken(window))
+        .accessibilityValue(SleepPlanTimes.spoken(window, wake: wake))
     }
 
     private var bedtime: some View { time("Bettzeit", icon: "moon.fill", date: window?.bed) }
-    private var wakeTime: some View { time("Weckzeit", icon: "alarm", date: window?.wake) }
+    private var wakeTime: some View { time("Weckzeit", icon: "alarm", date: wake) }
 
     private func time(_ label: String, icon: String, date: Date?) -> some View {
         VStack(alignment: .leading, spacing: Space.s1) {
@@ -269,18 +291,23 @@ struct SleepPlanSummary: View {
 
 struct SleepPlanTimes: View {
     let window: SleepPlanner.Window?
+    let wake: Date?
 
     var body: some View {
         if let window {
             Text("\(Self.clock(window.bed)) · \(Self.clock(window.wake))")
                 .monospacedDigit()
+        } else if let wake {
+            Text(Self.clock(wake)).monospacedDigit()
         } else {
             Text("–")
         }
     }
 
-    nonisolated static func spoken(_ window: SleepPlanner.Window?) -> String {
-        guard let window else { return "Keine Bettzeit berechnet" }
+    nonisolated static func spoken(_ window: SleepPlanner.Window?, wake: Date?) -> String {
+        guard let window else {
+            return wake.map { "Weckzeit \(clock($0)), keine Bettzeit berechnet" } ?? "Keine Bettzeit berechnet"
+        }
         return "Bettzeit \(clock(window.bed)), Weckzeit \(clock(window.wake))"
     }
 

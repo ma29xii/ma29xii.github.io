@@ -534,6 +534,10 @@ final class DataHub {
     }
 
     var scores: DayScores { ScoreEngine.scores(today: today, history: history) }
+
+    var measuredSleepNeed: TimeInterval? {
+        CoachEngine.measuredSleepNeed(scores, strainAvailable: availability.strain, history: history)
+    }
     var ringScores: DayScores { scores }
 
     var yesterdayScores: DayScores? {

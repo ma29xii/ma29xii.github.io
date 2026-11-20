@@ -10,7 +10,9 @@ final class Runde12SleepPlanTests: XCTestCase {
                                          segments: [], reportedAsleep: 6 * 3600))
         }
 
-        XCTAssertEqual(SleepPlanner.sleepNeed(today: today, history: history), 30834)
+        let scores = ScoreEngine.scores(today: today, history: history)
+        XCTAssertEqual(CoachEngine.measuredSleepNeed(scores, strainAvailable: true, history: history), 30834)
+        XCTAssertNil(CoachEngine.measuredSleepNeed(scores, strainAvailable: false, history: history))
     }
 
     func testWorkdayAssignmentUsesTheDayOfTheWakeTime() throws {
@@ -108,6 +110,35 @@ final class Runde12SleepPlanTests: XCTestCase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar
+    }
+
+    func testStoredScheduleUsesWakeDayForReminder() throws {
+        let suite = "SleepPlannerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let plan = SleepPlanner(workdayWake: 7 * 60, freeDayWake: 9 * 60)
+        defaults.set(try XCTUnwrap(plan.encoded()), forKey: SleepPlanner.storageKey)
+        let stored = SleepPlanner.load(in: defaults)
+        let friday = date(11, 20, 22)
+        let sunday = date(11, 22, 22)
+        let weekend = try XCTUnwrap(stored.nextWindow(after: friday, sleepNeed: 8 * 3600, calendar: calendar))
+        let weekday = try XCTUnwrap(stored.nextWindow(after: sunday, sleepNeed: 8 * 3600, calendar: calendar))
+        XCTAssertEqual(weekend.wake, date(11, 21, 9))
+        XCTAssertEqual(weekend.reminder, date(11, 21, 0, 30))
+        XCTAssertEqual(weekday.wake, date(11, 23, 7))
+        XCTAssertEqual(weekday.reminder, date(11, 22, 22, 30))
+        XCTAssertEqual(stored.nextWake(after: friday, calendar: calendar), weekend.wake)
+    }
+
+    func testLegacyMidnightSurvivesOnWorkdaysAndDaysOff() throws {
+        let suite = "SleepPlannerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(SleepPlanner.load(in: defaults), SleepPlanner())
+        defaults.set(0, forKey: CoachNotifier.wakeKey)
+        let migrated = SleepPlanner.load(in: defaults)
+        XCTAssertEqual(migrated.wakeMinutes(for: .monday), 0)
+        XCTAssertEqual(migrated.wakeMinutes(for: .saturday), 0)
     }
 
     private func date(_ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0) -> Date {

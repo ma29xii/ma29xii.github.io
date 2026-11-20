@@ -34,7 +34,7 @@ struct RingDetailView: View {
                 sleepSummary(night: night, need: snapshot.sleepNeed)
             }
             if kind == .sleep {
-                SleepPlanCard(day: day, history: snapshot.history)
+                SleepPlanCard()
             }
             VStack(alignment: .leading, spacing: Space.s2) {
                 DashboardHeading(title: kind == .recovery ? "Erholung im Detail" : "Beiträge")
