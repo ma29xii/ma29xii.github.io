@@ -3,6 +3,51 @@ import XCTest
 @testable import Forma
 
 final class Fix03Tests: XCTestCase {
+    @MainActor
+    func testConnectingImportsRealMeasurementsBeforeReturningFromEitherSource() async throws {
+        for source in [DataSourceKind.google, .sample] {
+            let fixture = try HubFixture()
+            defer { fixture.cleanup() }
+            fixture.defaults.set(source.rawValue, forKey: "forma.source")
+            fixture.google.accountID = nil
+            fixture.google.steps = 321
+            let hub = fixture.makeHub()
+
+            await hub.connectGoogle()
+
+            XCTAssertFalse(hub.isSample)
+            XCTAssertEqual(hub.today.steps, 321)
+            XCTAssertEqual(hub.lastGoogleCheck, fixture.now)
+            XCTAssertTrue(hub.hasGoogleMeasurementsForToday)
+            XCTAssertFalse(hub.isLoading)
+            XCTAssertNil(hub.lastBackgroundAttempt)
+            XCTAssertEqual(fixture.confirmedSleep.count, 1)
+        }
+    }
+
+    @MainActor
+    func testConnectingDoesNotReportMeasurementsAfterAnEmptyOrRejectedImport() async throws {
+        let fixture = try HubFixture()
+        defer { fixture.cleanup() }
+        fixture.google.accountID = nil
+        fixture.google.importError = .http(403)
+        let hub = fixture.makeHub()
+
+        await hub.connectGoogle()
+
+        XCTAssertEqual(hub.google, .connected(lastSync: nil))
+        XCTAssertNil(hub.lastGoogleCheck)
+        XCTAssertFalse(hub.hasGoogleMeasurementsForToday)
+        XCTAssertTrue(hub.todayDataNotice?.contains("403") == true)
+
+        fixture.google.importError = nil
+        await hub.refresh()
+
+        XCTAssertEqual(hub.lastGoogleCheck, fixture.now)
+        XCTAssertFalse(hub.hasGoogleMeasurementsForToday)
+        XCTAssertTrue(hub.todayDataNotice?.contains("keine Messungen") == true)
+    }
+
     private let watch = GoogleMetricOrigin(family: .appleWatch, device: "Watch")
 
     func testEnergyOnlyHourSurvivesWithoutInventingStepsOrStress() throws {

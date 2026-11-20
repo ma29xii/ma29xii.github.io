@@ -12,7 +12,7 @@ struct OnboardingView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 40
 
     var body: some View {
-        let status = GoogleStatus(hub.google)
+        let status = GoogleStatus(hub.google, refreshing: !hub.isSample && hub.isLoading)
         // ScrollView, damit bei großer Schrift nichts abgeschnitten wird; auf großen Bildschirmen füllt der Inhalt die Höhe.
         GeometryReader { proxy in
         ScrollView {
@@ -36,7 +36,7 @@ struct OnboardingView: View {
                     } label: {
                         HStack(spacing: Space.s2) {
                             if status.isBusy { ProgressView().tint(Theme.onSelection) }
-                            Text("Mit Google Health verbinden")
+                            Text(status.isBusy ? status.title : "Mit Google Health verbinden")
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())

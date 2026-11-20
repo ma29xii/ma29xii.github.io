@@ -22,7 +22,7 @@ enum GoogleRevocation: Equatable, Sendable {
 
 enum GoogleHealthError: LocalizedError, Equatable, Sendable {
     case notConfigured, cancelled, invalidCallback, incompleteConsent, reauthorize
-    case notLinked, noConnection, keychain(OSStatus), invalidResponse, http(Int), rateLimited(Date)
+    case notLinked, noConnection, keychain(OSStatus), invalidResponse, http(Int), rateLimited(Date), unreachable
     case loginRevocationUnconfirmed(String)
 
     var errorDescription: String? {
@@ -36,8 +36,10 @@ enum GoogleHealthError: LocalizedError, Equatable, Sendable {
         case .noConnection: "Verbinde Google Health im Profil."
         case .keychain: "Der iPhone-Schlüsselbund ist gerade nicht verfügbar. Entsperre dein iPhone und versuche es erneut."
         case .invalidResponse: "Google Health hat unlesbare Daten geliefert."
+        case .http(403): "Google Health hat den Messdatenabruf abgelehnt (403)."
         case .http(let status): "Google Health antwortet mit Fehler \(status)."
         case .rateLimited(let until): "Google Health begrenzt den Abruf. Neuer Versuch ab \(Format.clock(until))."
+        case .unreachable: "Google Health ist gerade nicht erreichbar. Versuch es erneut."
         case .loginRevocationUnconfirmed(let reason): "\(reason) \(GoogleRevocation.unconfirmed.notice)"
         }
     }
@@ -102,6 +104,7 @@ final class GoogleHealthService: GoogleHealthImporting {
         var failed: Set<MetricSeries>
         /// Bei einem Schrittfehler kann Energie trotzdem gegen die gespeicherte Schrittquelle ausgewählt werden.
         var unpairedEnergy: [GoogleHealthPoint]? = nil
+        var issue: GoogleHealthError? = nil
     }
 
     private struct Configuration {
@@ -261,7 +264,9 @@ final class GoogleHealthService: GoogleHealthImporting {
         let kinds = GoogleHealthKind.dailyImport + (includePulse ? [.pulse] : [])
         let activityLookback = from.addingTimeInterval(-3600)
         let measuredUntil = min(until, .now)
-        let imported = try await withThrowingTaskGroup(of: (GoogleHealthKind, [GoogleHealthPoint]?).self) { group in
+        let (imported, failures) = try await withThrowingTaskGroup(
+            of: (GoogleHealthKind, Result<[GoogleHealthPoint], GoogleHealthError>).self
+        ) { group in
             for kind in kinds {
                 group.addTask { [self] in
                     let start = switch kind {
@@ -274,33 +279,40 @@ final class GoogleHealthService: GoogleHealthImporting {
                     default: until
                     }
                     do {
-                        return (kind, try await points(kind, from: start, until: end,
-                                                       calendar: calendar, generation: generation))
+                        return (kind, .success(try await points(kind, from: start, until: end,
+                                                                calendar: calendar, generation: generation)))
                     } catch let error as GoogleHealthError {
                         switch error {
                         case .reauthorize, .incompleteConsent, .notLinked, .noConnection, .keychain: throw error
-                        default: return (kind, nil)
+                        default: return (kind, .failure(error))
                         }
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        return (kind, nil)
+                        try Task.checkCancellation()
+                        return (kind, .failure(.unreachable))
                     }
                 }
             }
             var values: [GoogleHealthKind: [GoogleHealthPoint]] = [:]
-            for try await (kind, points) in group { values[kind] = points }
-            return values
+            var failures: [GoogleHealthKind: GoogleHealthError] = [:]
+            for try await (kind, outcome) in group {
+                switch outcome {
+                case .success(let points): values[kind] = points
+                case .failure(let error): failures[kind] = error
+                }
+            }
+            return (values, failures)
         }
         try check(generation)
-        let result = await Task.detached(priority: .utility) {
+        let issue = kinds.compactMap { failures[$0] }.first
+        if imported.isEmpty, let issue { throw issue }
+        var result = await Task.detached(priority: .utility) {
             Self.makeImport(imported, from: from, until: until, measuredUntil: measuredUntil,
                             calendar: calendar, kinds: kinds)
         }.value
         try check(generation)
-        if result.failed.count == MetricSeries.allCases.count, let limitedUntil, limitedUntil > .now {
-            throw GoogleHealthError.rateLimited(limitedUntil)
-        }
+        result.issue = issue
         return result
     }
 

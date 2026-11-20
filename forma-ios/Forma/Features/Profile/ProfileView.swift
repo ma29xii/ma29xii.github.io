@@ -241,7 +241,7 @@ struct ProfileView: View {
     // MARK: Datenquelle
 
     private var sourceSection: some View {
-        let status = GoogleStatus(hub.google)
+        let status = GoogleStatus(hub.google, refreshing: !hub.isSample && hub.isLoading)
         return Section {
             HStack(spacing: Space.s3) {
                 Image(systemName: "heart.text.square.fill")
@@ -258,7 +258,7 @@ struct ProfileView: View {
                     }
                 }
                 Spacer(minLength: Space.s2)
-                if status.isBusy || hub.isLoading { ProgressView() }
+                if status.isBusy { ProgressView() }
             }
             .frame(minHeight: 52)
             .accessibilityElement(children: .combine)
@@ -274,24 +274,43 @@ struct ProfileView: View {
                     .foregroundStyle(status.tone == .problem ? Theme.warning : Theme.textSecondary)
             }
 
-            if case .connected = hub.google, let plan = ProfileText.backgroundPlan(
-                planned: refreshPlanned > 0 ? Date(timeIntervalSince1970: refreshPlanned) : nil,
-                error: refreshError,
-                attempt: refreshAttempt > 0 ? Date(timeIntervalSince1970: refreshAttempt) : nil) {
-                Text(plan.text)
-                    .font(.formaCaption)
-                    .foregroundStyle(plan.isProblem ? Theme.warning : Theme.textSecondary)
-                    .accessibilityIdentifier("profile.refresh.plan")
-            }
-
             switch hub.google {
             case .connected:
+                if !hub.isSample, !hub.isLoading, let lastCheck = hub.lastGoogleCheck,
+                   lastCheck != hub.lastUpdate || !hub.hasGoogleMeasurementsForToday {
+                    VStack(alignment: .leading, spacing: Space.s1) {
+                        if lastCheck != hub.lastUpdate {
+                            Text("Letzter Abruf · \(ProfileText.stamp(lastCheck, now: .now))")
+                        }
+                        if !hub.hasGoogleMeasurementsForToday {
+                            Text("Für heute sind noch keine Messwerte verfügbar.")
+                        }
+                    }
+                    .font(.formaCaption)
+                    .foregroundStyle(Theme.textSecondary)
+                }
                 Button {
-                    Task { await hub.syncAndNotify(background: false) }
+                    if hub.isSample {
+                        hub.preferredSource = .google
+                    } else {
+                        Task { await hub.refresh() }
+                    }
                 } label: {
-                    Label("Jetzt aktualisieren", systemImage: "arrow.triangle.2.circlepath")
+                    Label(hub.isSample ? "Echte Daten anzeigen" : "Jetzt aktualisieren",
+                          systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(hub.isLoading)
+                if let plan = ProfileText.backgroundPlan(
+                    planned: refreshPlanned > 0 ? Date(timeIntervalSince1970: refreshPlanned) : nil,
+                    error: refreshError,
+                    attempt: refreshAttempt > 0 ? Date(timeIntervalSince1970: refreshAttempt) : nil) {
+                    DisclosureGroup("Hintergrundaktualisierung") {
+                        Text(plan.text)
+                            .font(.formaCaption)
+                            .foregroundStyle(plan.isProblem ? Theme.warning : Theme.textSecondary)
+                            .accessibilityIdentifier("profile.refresh.plan")
+                    }
+                }
                 Button("Google Health trennen", role: .destructive) { confirmDisconnect = true }
             case .disconnected, .failed:
                 Button {
@@ -341,7 +360,7 @@ struct GoogleStatus: Equatable {
     let tone: Tone
     var isBusy: Bool { tone == .busy }
 
-    init(_ connection: GoogleConnection, now: Date = .now) {
+    init(_ connection: GoogleConnection, now: Date = .now, refreshing: Bool = false) {
         switch connection {
         case .notConfigured:
             title = "Vorschau-Version"
@@ -353,8 +372,9 @@ struct GoogleStatus: Equatable {
             title = "Verbinde …"
             tone = .busy
         case .connected(let lastSync):
-            title = lastSync.map { "Verbunden · \(ProfileText.stamp($0, now: now))" } ?? "Verbunden"
-            tone = .good
+            title = refreshing ? "Rufe Messwerte ab …"
+                : lastSync.map { "Verbunden · \(ProfileText.stamp($0, now: now))" } ?? "Verbunden"
+            tone = refreshing ? .busy : .good
         case .failed(let message):
             title = "Verbindung unterbrochen"
             detail = message

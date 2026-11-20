@@ -70,6 +70,13 @@ final class DataHub {
     private(set) var generation = 0
     private(set) var seriesFreshness: [MetricSeries: SeriesFreshness] = [:]
     private var latestRecentCheck: Date?
+    var lastGoogleCheck: Date? { latestRecentCheck }
+    var hasGoogleMeasurementsForToday: Bool {
+        guard !isSample else { return false }
+        let today = CivilDay(now(), in: calendar())
+        return seriesFreshness.values.contains { $0.latestMeasurementDay == today }
+            || hours.contains { $0.heartRate != nil }
+    }
     private var recentFailed: Set<MetricSeries> = []
     private var recentPulseFailed = false
     private var connectionGeneration = 0
@@ -85,7 +92,7 @@ final class DataHub {
             if !isUITest { defaults.set(preferredSource.rawValue, forKey: "forma.source") }
             invalidateRefresh()
             showPreferredSource(invalidateWidgetTimeline: true)
-            Task { await syncAndNotify(background: false) }
+            if !loginInFlight { Task { await syncAndNotify(background: false) } }
         }
     }
 
@@ -193,11 +200,11 @@ final class DataHub {
         loginInFlight = true
         connecting = true
         connectionFailure = nil
-        defer {
-            loginInFlight = false
-            if connectionGeneration == generation { connecting = false }
-        }
         do {
+            defer {
+                loginInFlight = false
+                if connectionGeneration == generation { connecting = false }
+            }
             try await googleService.connect()
             guard connectionGeneration == generation else { return }
             accountID = googleService.accountID
@@ -205,11 +212,8 @@ final class DataHub {
             revocationAttempt = nil
             setRevocationStatus(nil)
             localCopyNote = nil
-            connecting = false
             if preferredSource != .google {
                 preferredSource = .google
-            } else {
-                Task { await syncAndNotify(background: false) }
             }
         } catch GoogleHealthError.cancelled {
             // Ein geschlossener Anmeldedialog lässt sich erneut öffnen.
@@ -221,6 +225,8 @@ final class DataHub {
             guard connectionGeneration == generation else { return }
             connectionFailure = Self.message(for: error)
         }
+        guard connectionGeneration == generation, accountID != nil else { return }
+        await refresh()
     }
 
     func disconnectGoogle() {
@@ -327,6 +333,7 @@ final class DataHub {
 
     var todayDataNotice: String? {
         if isSample { return nil }
+        if isLoading && !hasGoogleMeasurementsForToday { return "Lade deine Daten …" }
         if let warning = syncWarning ?? localCopyNote ?? revocationStatus?.notice { return warning }
         if let day = longDays.last, day.date == calendar().startOfDay(for: now()), SyncStore.hasData(day) { return nil }
         if isLoading { return "Lade deine Daten …" }
@@ -335,7 +342,9 @@ final class DataHub {
         case .disconnected: return "Verbinde Google Health im Profil."
         case .connecting: return "Google Health wird verbunden …"
         case .failed(let message): return message
-        case .connected: return "Google Health hat für heute noch keine Messungen geliefert."
+        case .connected:
+            return lastGoogleCheck == nil ? "Warte auf den ersten Abruf von Google Health."
+                : "Google Health hat für heute noch keine Messungen geliefert."
         }
     }
 
@@ -825,7 +834,7 @@ final class DataHub {
         let confirmedDays = new.filter { day in confirmed.contains(where: { day.hasMeasurement(for: $0) }) }
         let pulseFailed = updatesCurrent && imported.pulses == nil
         if confirmed.isEmpty && imported.pulses == nil {
-            if updatesCurrent { syncWarning = partialNotice(failed, pulseFailed: pulseFailed) }
+            if updatesCurrent { syncWarning = partialNotice(failed, pulseFailed: pulseFailed, issue: imported.issue) }
             return .unchanged
         }
         let days: [DayMetrics]
@@ -876,7 +885,7 @@ final class DataHub {
             latestRecentCheck = checkTime
             recentFailed = failed
             recentPulseFailed = pulseFailed
-            syncWarning = failed.isEmpty && !pulseFailed ? nil : partialNotice(failed, pulseFailed: pulseFailed)
+            syncWarning = failed.isEmpty && !pulseFailed ? nil : partialNotice(failed, pulseFailed: pulseFailed, issue: imported.issue)
         }
         return failed.isEmpty && !pulseFailed ? .updated : .partial(failed)
     }
@@ -922,9 +931,10 @@ final class DataHub {
         return result.filter { $0.key >= cutoff && $0.key < limit }
     }
 
-    private func partialNotice(_ failed: Set<MetricSeries>, pulseFailed: Bool) -> String {
+    private func partialNotice(_ failed: Set<MetricSeries>, pulseFailed: Bool, issue: GoogleHealthError? = nil) -> String {
         let titles = (failed.map(\.title) + (pulseFailed ? ["Tagespuls"] : [])).sorted().joined(separator: ", ")
-        return "Ein Teil der Daten konnte gerade nicht geladen werden. Letzter Stand für \(titles)."
+        let reason = issue?.errorDescription ?? "Ein Teil der Daten konnte gerade nicht geladen werden."
+        return "\(reason) Betroffen: \(titles)."
     }
 
     private static func message(for error: any Error) -> String {
