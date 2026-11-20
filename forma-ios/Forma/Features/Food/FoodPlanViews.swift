@@ -40,9 +40,17 @@ private struct PlanDay: Identifiable {
 struct FoodPlanView: View {
     /// `true` als eigenes Blatt (mit Schließen-Knopf), `false` zum Einschieben in einen NavigationStack.
     var standalone = true
+    /// Vom Coach-Chip „Essensplan für morgen“: erstellt beim Öffnen sofort den Plan für morgen.
+    var planTomorrow = false
     var body: some View {
-        FoodStandalone(standalone) { FoodPlanContent() }
+        FoodStandalone(standalone) { FoodPlanContent(planTomorrow: planTomorrow) }
     }
+}
+
+/// Auftrag an den Coach: neuer Plan ab einem Tag oder ein einzelnes Gericht ersetzen.
+private enum PlanJob: Equatable {
+    case create(start: Date, days: Int)
+    case replace(UUID)
 }
 
 private struct FoodPlanContent: View {
@@ -51,11 +59,27 @@ private struct FoodPlanContent: View {
         var id: String { rawValue }
     }
 
+    let planTomorrow: Bool
     @Environment(\.modelContext) private var context
+    @Environment(DataHub.self) private var hub: DataHub?
     @Query(sort: \FoodPlanItem.createdAt) private var items: [FoodPlanItem]
+    @AppStorage(MealPlanSettings.mealsKey) private var mealsPerDay = MealPlanSettings.defaultMeals
+    @AppStorage(CoachProviders.consentKey) private var externalConsent = false
+    @AppStorage("forma.birthYear") private var birthYear = 0
+    @AppStorage("forma.sex") private var sex = BiologicalSex.unknown.rawValue
+    @AppStorage(FoodSettings.bodyWeightKey) private var weight = 0.0
+    @AppStorage(FoodGoal.heightKey) private var height = 0.0
+    @AppStorage(FoodSettings.proteinGoalKey) private var proteinGoal = 0.0
+    @AppStorage(FoodSettings.carbsGoalKey) private var carbsGoal = 0.0
     @State private var mode = Mode.plan
     @State private var adding: PlanDay?
     @State private var saveError = false
+    @State private var busy = false
+    @State private var notice: String?
+    @State private var pendingJob: PlanJob?
+    @State private var autostarted = false
+
+    init(planTomorrow: Bool) { self.planTomorrow = planTomorrow }
 
     var body: some View {
         let entries = items.compactMap { $0.entry }
@@ -88,6 +112,105 @@ private struct FoodPlanContent: View {
         } message: {
             Text("Der Plan konnte nicht gespeichert werden. Versuch es noch einmal.")
         }
+        .confirmationDialog("Plan vom Online-Coach erstellen?",
+                            isPresented: Binding(get: { pendingJob != nil }, set: { if !$0 { pendingJob = nil } }),
+                            titleVisibility: .visible) {
+            Button("Senden und merken") {
+                externalConsent = true
+                if let job = pendingJob { pendingJob = nil; Task { await run(job, online: true) } }
+            }
+            Button("Lokal erstellen") {
+                if let job = pendingJob { pendingJob = nil; Task { await run(job, online: false) } }
+            }
+            Button("Abbrechen", role: .cancel) { pendingJob = nil }
+        } message: {
+            Text("Gesendet werden nur dein Kalorien- und Makroziel, die Zahl der Mahlzeiten und Namen schon geplanter Gerichte. Keine Messwerte, keine Fotos.")
+        }
+        .task {
+            guard planTomorrow, !autostarted else { return }
+            autostarted = true
+            let tomorrow = Calendar.forma.date(byAdding: .day, value: 1, to: Calendar.forma.startOfDay(for: .now)) ?? .now
+            start(.create(start: tomorrow, days: 1))
+        }
+    }
+
+    // MARK: Coach
+
+    private var goal: FoodGoal {
+        FoodGoal.forDay(.now, birthYear: birthYear, weight: weight, height: height, sex: sex, activeEnergy: nil)
+    }
+
+    private func start(_ job: PlanJob) {
+        guard !busy else { return }
+        let source = MealPlanLogic.source(isSample: hub?.isSample ?? false, isUITest: FormaApp.isUITest,
+                                          hasKey: CoachProviders.hasConfiguredKey, consent: CoachProviders.allowsExternalData())
+        switch source {
+        case .local: Task { await run(job, online: false) }
+        case .online: Task { await run(job, online: true) }
+        case .askConsent: pendingJob = job
+        }
+    }
+
+    @MainActor
+    private func run(_ job: PlanJob, online: Bool) async {
+        busy = true
+        notice = nil
+        defer { busy = false }
+        let meals = MealPlanSettings.clamp(mealsPerDay)
+        let target = goal.target
+        let protein = proteinGoal > 0 ? proteinGoal : goal.proteinGrams
+        let carbs = carbsGoal > 0 ? carbsGoal : goal.carbGrams
+        switch job {
+        case let .create(start, days):
+            let request = MealPlanRequest(days: days, meals: meals, kcal: target, protein: protein, carbs: carbs)
+            let result = await MealPlanLogic.plan(request, online: online)
+            do {
+                try MealPlanStore.apply(result.days, from: start, meals: meals, existing: items, in: context)
+                if result.usedOnline {
+                    notice = "Plan vom Coach erstellt."
+                } else if online {
+                    notice = "Coach nicht erreichbar, Plan aus der eingebauten Rezeptliste."
+                }
+            } catch { saveError = true }
+        case let .replace(uid):
+            guard let old = items.first(where: { $0.uid == uid }) else { return }
+            let kcal = old.entry?.kcal ?? target
+            let share = target > 0 ? kcal / target : 1
+            let request = MealPlanRequest(days: 1, meals: 1, kcal: kcal, protein: protein * share, carbs: carbs * share,
+                                          avoid: items.compactMap { $0.product?.name })
+            let result = await MealPlanLogic.plan(request, online: online)
+            guard let dish = result.days.first?.first, let current = items.first(where: { $0.uid == uid }) else { return }
+            do { try MealPlanStore.replace(current, with: dish, in: context) } catch { saveError = true }
+        }
+    }
+
+    private var coachSection: some View {
+        Section {
+            Picker("Mahlzeiten pro Tag", selection: Binding(get: { MealPlanSettings.clamp(mealsPerDay) }, set: { mealsPerDay = $0 })) {
+                ForEach(Array(MealPlanSettings.range), id: \.self) { Text(MealPlanSettings.title($0)).tag($0) }
+            }
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("plan.meals")
+            Button {
+                start(.create(start: .now, days: MealPlanLogic.defaultDays(meals: MealPlanSettings.clamp(mealsPerDay))))
+            } label: {
+                HStack(spacing: Space.s2) {
+                    if busy { ProgressView() }
+                    Text(busy ? "Coach plant …" : "Plan erstellen")
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(busy)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("plan.create")
+        } header: {
+            Text("Coach").formaLabelStyle()
+        } footer: {
+            if let notice { Text(notice) }
+        }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: Plan
@@ -95,6 +218,7 @@ private struct FoodPlanContent: View {
     @ViewBuilder private func planSections(_ entries: [FoodPlanEntry]) -> some View {
         let now = Date.now
         let overdue = FoodPlanLogic.overdue(entries, today: now)
+        coachSection
         if !overdue.isEmpty {
             Section {
                 ForEach(overdue) { entry in row(entry, showDay: true) }
@@ -146,14 +270,34 @@ private struct FoodPlanContent: View {
 
     private func row(_ entry: FoodPlanEntry, showDay: Bool) -> some View {
         let now = Date.now
+        let isCoach = !entry.logged && MealPlanLogic.isCoachDish(entry.product)
         return HStack(spacing: Space.s3) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.product.name).font(.formaRowTitle).lineLimit(2)
                 Text((showDay ? FoodPlanText.dayTitle(entry.day, now: now) + " · " : "") + FoodPlanText.detail(for: entry))
                     .font(.formaCaption)
                     .foregroundStyle(Theme.textSecondary)
+                if isCoach, let ingredients = entry.product.brand {
+                    Text(ingredients)
+                        .font(.formaCaption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(2)
+                }
             }
             Spacer(minLength: Space.s2)
+            if isCoach {
+                Button { start(.replace(entry.id)) } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .accessibilityLabel("\(entry.product.name) neu vorschlagen")
+                .accessibilityIdentifier("plan.regenerate")
+            }
             if entry.logged {
                 Label("Eingetragen", systemImage: "checkmark.circle.fill")
                     .font(.formaCaption)
@@ -171,6 +315,12 @@ private struct FoodPlanContent: View {
         .frame(minHeight: 44)
         .swipeActions {
             Button(role: .destructive) { delete(entry) } label: { Label("Löschen", systemImage: "trash") }
+        }
+        .swipeActions(edge: .leading) {
+            if isCoach {
+                Button { start(.replace(entry.id)) } label: { Label("Neu vorschlagen", systemImage: "arrow.triangle.2.circlepath") }
+                    .tint(Theme.accent)
+            }
         }
     }
 

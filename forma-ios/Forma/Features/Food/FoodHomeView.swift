@@ -33,7 +33,7 @@ struct FoodHomeView: View {
     private func updateDay() { today = Date.now.startOfDay }
 }
 
-private enum FoodHomeRoute: Hashable, Identifiable {
+enum FoodHomeRoute: Hashable, Identifiable {
     case water, fasting, weight, plan, goals
     var id: Self { self }
 }
@@ -44,6 +44,7 @@ private struct FoodHomeContent: View {
     @Query private var entries: [FoodEntry]
     @Query private var water: [FoodWaterEntry]
     @Query private var planned: [FoodPlanItem]
+    @Query private var upcoming: [FoodPlanItem]
     @Query(sort: \FoodFast.start, order: .reverse) private var fasts: [FoodFast]
     @Query(sort: \FoodWeightEntry.date, order: .reverse) private var weights: [FoodWeightEntry]
     @Environment(\.modelContext) private var context
@@ -70,6 +71,7 @@ private struct FoodHomeContent: View {
                          sort: \FoodEntry.date, order: .reverse)
         _water = Query(filter: #Predicate<FoodWaterEntry> { $0.date >= day && $0.date < end })
         _planned = Query(filter: #Predicate<FoodPlanItem> { $0.day >= day && $0.day < end })
+        _upcoming = Query(filter: #Predicate<FoodPlanItem> { $0.day >= day && $0.loggedAt == nil })
     }
 
     private var goal: FoodGoal {
@@ -117,7 +119,7 @@ private struct FoodHomeContent: View {
                         .listRowBackground(Color.clear)
                 }
 
-                Section { actionTiles(planOpen: planOpen) }
+                Section { actionTiles() }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
@@ -167,59 +169,20 @@ private struct FoodHomeContent: View {
         .accessibilityValue("\(FoodAmountText.text(values)) von \(FoodText.number(goal)) Gramm")
     }
 
-    /// Wasser, Fasten, Plan und Gewicht als gleich hohe Kacheln, zwei pro Reihe.
-    private func actionTiles(planOpen: Int) -> some View {
+    /// „Heute“ mit Wasser und Fasten, darunter das nächste geplante Gericht und das Gewicht.
+    private func actionTiles() -> some View {
         let drunk = water.reduce(0) { $0 + $1.milliliters }
         let waterTarget = FoodSettings.waterRange.contains(waterGoal) ? waterGoal : FoodSettings.defaultWaterMl
         let active = fasts.first { $0.end == nil }
-        let columns = Array(repeating: GridItem(.flexible(), spacing: Space.gap),
-                            count: typeSize.isAccessibilitySize ? 1 : 2)
-        return LazyVGrid(columns: columns, spacing: Space.gap) {
-            tile("Wasser", icon: "drop.fill", tint: Theme.strain,
-                 value: drunk > 0 ? FoodText.liters(drunk) : nil,
-                 progress: drunk / waterTarget, destination: .water)
-            TimelineView(.everyMinute) { tick in
-                let state = active.map { FoodTracking.fast(start: $0.start, end: nil, hours: $0.targetHours, now: tick.date) }
-                tile("Fasten", icon: "timer", tint: Theme.warning,
-                     value: state.map { FoodText.clock($0.elapsed) },
-                     progress: state?.fraction,
-                     destination: .fasting)
-            }
-            tile("Plan", icon: "calendar", tint: Theme.sleep,
-                 value: planOpen > 0 ? "\(planOpen) offen" : nil, progress: nil, destination: .plan)
-            tile("Gewicht", icon: "scalemass.fill", tint: Theme.older,
-                 value: weights.first.map { "\(FoodText.number($0.kilograms, digits: 1)) kg" },
-                 progress: nil, destination: .weight)
-        }
-    }
-
-    private func tile(_ title: String, icon: String, tint: Color, value: String?,
-                      progress: Double?, destination: FoodHomeRoute) -> some View {
-        Button { route = destination } label: {
-            DashboardCard {
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    Label(title, systemImage: icon)
-                        .font(.formaCaptionStrong)
-                        .foregroundStyle(tint)
-                    Spacer(minLength: 0)
-                    Text(value ?? "–")
-                        .font(.formaNumber)
-                        .foregroundStyle(value == nil ? Theme.textTertiary : Theme.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    // Gleiche Höhe für alle Kacheln: ohne Fortschritt bleibt die Linie unsichtbar.
-                    ProgressLine(fraction: progress ?? 0, color: tint, height: 3)
-                        .opacity(progress == nil ? 0 : 1)
-                        .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: progress ?? 0)
-                }
-                .padding(Space.s4)
-                .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
-            }
-            .contentShape(.rect(cornerRadius: Radius.plate))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue(value ?? "Kein Eintrag")
+        return FoodHomeBottom(
+            waterMl: drunk, waterTarget: waterTarget,
+            fast: active.map { (start: $0.start, hours: $0.targetHours) },
+            nextPlanned: FoodHomeCardsText.nextPlanned(upcoming.compactMap { $0.entry }, today: day),
+            latestWeight: weights.first?.kilograms,
+            previousWeight: weights.dropFirst().first?.kilograms,
+            open: { route = $0 }
+        )
+        .id(ringEntrance)
     }
 
     private func mealSection(_ meal: FoodMeal) -> some View {

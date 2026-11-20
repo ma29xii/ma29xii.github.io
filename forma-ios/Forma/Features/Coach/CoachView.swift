@@ -19,6 +19,7 @@ struct CoachView: View {
     @AppStorage(CoachProviders.photoConsentKey) private var photoConsent = false
     @State private var photosLoading = false
     @State private var pendingConsentText: String?
+    @State private var showMealPlan = false
     @State private var claudeTask: Task<Void, Never>?
     /// Fotos für die nächste Nachricht und die Fotos der bisherigen Nachrichten (nur Vorschau, nur im Speicher).
     @State private var attachments: [CoachPhoto] = []
@@ -88,6 +89,7 @@ struct CoachView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
+            .sheet(isPresented: $showMealPlan) { FoodPlanView(planTomorrow: true) }
             .formaScreen()
             .navigationTitle("Coach")
             .toolbar {
@@ -196,6 +198,18 @@ struct CoachView: View {
                     .buttonStyle(.plain)
                     .disabled(thinking)
                 }
+                Button { showMealPlan = true } label: {
+                    Text("Essensplan für morgen")
+                        .font(.formaCaptionStrong)
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, Space.s4)
+                        .frame(minHeight: 44)
+                        .background(Capsule().fill(Theme.card))
+                        .overlay(Capsule().strokeBorder(Theme.hairline, lineWidth: 0.75))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("coach.mealplan")
             }
             .padding(.horizontal, Space.page)
         }

@@ -300,6 +300,23 @@ enum CoachProviders {
         }
     }
 
+    /// Strukturierte JSON-Antwort ohne Bild (zum Beispiel Essensplan). Gleiche Einwilligungsprüfung und Rückfallkette.
+    static func structuredReply<Result: Sendable>(
+        system: String, user: String, schema: String, anthropicKey: String?, openAIKey: String?,
+        maySend: @escaping @Sendable () -> Bool, send: @escaping Transport, parse: (String) throws -> Result
+    ) async throws -> Result {
+        try checkConsent(maySend)
+        let prompt = Prompt(system: system, messages: [["role": "user", "content": user]],
+                            images: [], model: .sonnet, jsonSchema: schema)
+        return try await requestReply(
+            prompt, anthropicKey: anthropicKey, openAIKey: openAIKey, photoAccess: nil,
+            maySend: maySend, send: send
+        ) { blocks in
+            guard blocks.count == 1, let json = blocks.first else { throw ReplyError.invalidResponse }
+            return try parse(json)
+        }
+    }
+
     private struct Prompt {
         let system: String
         let messages: [[String: String]]
