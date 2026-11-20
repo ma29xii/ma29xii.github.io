@@ -66,6 +66,7 @@ private struct FoodWaterContent: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var app
     @AppStorage(FoodSettings.waterGoalKey) private var goal = FoodSettings.defaultWaterMl
+    @AppStorage(WaterReminderNotifications.enabledKey) private var reminds = false
     @Query private var entries: [FoodWaterEntry]
     @State private var saveError = false
 
@@ -142,6 +143,12 @@ private struct FoodWaterContent: View {
                         .frame(minHeight: 44)
                         .padding(.horizontal, Space.s4)
                         .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
+
+                        Toggle("Erinnern", isOn: Binding(get: { reminds }, set: setReminder))
+                            .font(.formaBody)
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, Space.s4)
+                            .background(Theme.card, in: .rect(cornerRadius: Radius.plate))
                     }
                 }
                 .padding(.horizontal, Space.page)
@@ -154,13 +161,26 @@ private struct FoodWaterContent: View {
                 Button("OK", role: .cancel) {}
             }
             // Widget und Kontrollzentrum zeigen denselben Tagesstand.
-            .onChange(of: entries.count) { _, _ in syncWidget() }
             .onChange(of: goal) { _, _ in syncWidget() }
         }
     }
 
     private func syncWidget() {
         WaterWidgetSync.sync(in: context, enabled: !app.isDemo)
+    }
+
+    private func setReminder(_ enabled: Bool) {
+        reminds = enabled
+        guard !app.isDemo, !FormaApp.isUITest else { return }
+        if enabled {
+            Task {
+                guard reminds else { return }
+                _ = await CoachNotifier.requestPermission()
+                syncWidget()
+            }
+        } else {
+            syncWidget()
+        }
     }
 
     private func tapGlass(_ index: Int) {
@@ -178,7 +198,12 @@ private struct FoodWaterContent: View {
     }
 
     private func change(_ block: () -> Void) {
-        do { try FoodEntry.saveChange(in: context, block) } catch { saveError = true }
+        do {
+            try FoodEntry.saveChange(in: context, block)
+            syncWidget()
+        } catch {
+            saveError = true
+        }
     }
 }
 

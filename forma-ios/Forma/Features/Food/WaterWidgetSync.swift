@@ -16,6 +16,7 @@ enum WaterWidgetSync {
                      now: Date = .now, calendar: Calendar = .autoupdatingCurrent,
                      defaults: UserDefaults = .standard) {
         guard enabled, !FormaApp.isUITest else { return }
+        var importedEvents: [WaterWidgetEvent]?
         do {
             let pending = try store.pendingEntries()
             if !pending.isEmpty {
@@ -33,6 +34,11 @@ enum WaterWidgetSync {
                     }
                 }
             }
+            importedEvents = pending
+        } catch {
+            // App Group nicht erreichbar oder Import fehlgeschlagen: später erneut versuchen.
+        }
+        do {
             guard let day = calendar.dateInterval(of: .day, for: now) else { return }
             let start = day.start
             let end = day.end
@@ -41,6 +47,9 @@ enum WaterWidgetSync {
             let total = today.reduce(0) { $0 + $1.milliliters }
             let stored = defaults.double(forKey: FoodSettings.waterGoalKey)
             let goal = WaterWidgetStore.goalRange.contains(stored) ? stored : WaterWidgetStore.defaultGoalMilliliters
+            WaterReminderNotifications.refresh(goal: goal, total: total, measuredAt: now,
+                                               calendar: calendar, defaults: defaults)
+            guard let pending = importedEvents else { return }
             try store.publish(milliliters: total, goalMilliliters: goal, including: pending, at: now, calendar: calendar)
             try store.acknowledge(pending)
             WidgetCenter.shared.reloadTimelines(ofKind: WaterWidgetStore.widgetKind)
