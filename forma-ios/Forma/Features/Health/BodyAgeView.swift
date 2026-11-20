@@ -79,14 +79,9 @@ struct HealthAgeHero: View {
     }
 
     var body: some View {
-        VStack(spacing: Space.s2) {
-            Text(BodyAgeText.week(ending: .now))
-                .formaLabelStyle()
-                .accessibilityRemoveTraits(.isHeader)
-            HealthAgeDial(bodyAge: result?.bodyAge, difference: result?.difference,
-                          decimals: result.map(BodyAgeText.decimals) ?? 0,
-                          approximate: result?.ageIsApproximate ?? false)
-        }
+        HealthAgeDial(bodyAge: result?.bodyAge, difference: result?.difference,
+                      decimals: result.map(BodyAgeText.decimals) ?? 0,
+                      approximate: result?.ageIsApproximate ?? false)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
@@ -557,13 +552,8 @@ struct BodyAgeDetailView: View {
                 if hub.isSample { SampleDataBadge() }
                 if case .ready(let result) = outcome {
                     // Nur heute: alle Karten darunter beziehen sich auf denselben Stand (Gegenprüfung 05 #5).
-                    VStack(spacing: Space.s2) {
-                        Text(BodyAgeText.week(ending: .now))
-                            .formaLabelStyle()
-                            .accessibilityRemoveTraits(.isHeader)
-                        HealthAgeDial(bodyAge: result.bodyAge, difference: result.difference,
-                                      decimals: BodyAgeText.decimals(result), approximate: result.ageIsApproximate)
-                    }
+                    HealthAgeDial(bodyAge: result.bodyAge, difference: result.difference,
+                                  decimals: BodyAgeText.decimals(result), approximate: result.ageIsApproximate)
                     .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Health Age")

@@ -78,6 +78,8 @@ struct CoachView: View {
                     .padding(.horizontal, Space.page)
                     .padding(.bottom, Space.s5)
                 }
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
                 .scrollDismissesKeyboard(.interactively)
                 .refreshable { await hub.syncAndNotify(background: false) }
                 .onChange(of: messages.count) { _, _ in
@@ -248,18 +250,25 @@ struct CoachView: View {
                 .padding(.horizontal, Space.page)
             }
             CoachPhotoStrip(photos: $attachments)
-            HStack(spacing: Space.s2) {
+            HStack(alignment: .bottom, spacing: Space.s2) {
                 CoachPhotoButton(photos: $attachments, isLoading: $photosLoading)
                 TextField("Frag deinen Coach", text: $input, axis: .vertical)
+                    .font(.formaBody)
                     .lineLimit(1...4)
                     .focused($inputFocused)
+                    .textFieldStyle(.plain)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
-                    .submitLabel(.send)
-                    .onSubmit { send(input) }
+                    .padding(.vertical, 11)
+                    .frame(minHeight: 44)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 22))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22)
+                            .strokeBorder(Theme.hairline, lineWidth: 0.75)
+                            .allowsHitTesting(false)
+                    }
+                    .accessibilityIdentifier("coach.input")
                 Button { send(input) } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 36, height: 36)
+                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onSelection).frame(width: 44, height: 44)
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)

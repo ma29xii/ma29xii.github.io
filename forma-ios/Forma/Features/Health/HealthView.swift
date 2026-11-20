@@ -21,7 +21,7 @@ enum HealthTile: String, TileKind {
     }
 }
 
-/// Health: oben nur Health Age (Details nach Antippen), direkt darunter die Biomarker, dann der Health Monitor.
+/// Health Age, Vitalwerte und Biomarker mit direktem Zugang zu ihren Details.
 struct HealthView: View {
     @Environment(DataHub.self) private var hub
     @Query(sort: \WorkoutSession.start, order: .reverse) private var sessions: [WorkoutSession]
@@ -52,15 +52,10 @@ struct HealthView: View {
                             .accessibilityIdentifier("health.age")
                     }
 
-                    ExperimentTile()
                     HealthMonitor(snapshot: snapshot)
 
-                    // Biomarker zuletzt: so steht „Anpassen“ ganz unten auf der Seite.
-                    VStack(alignment: .leading, spacing: Space.s2) {
-                        DashboardHeading(title: "Biomarker")
-                        InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
-                            AnyView(tile(kind))
-                        }
+                    InlineTileStack<HealthTile, AnyView>(storageKey: "forma.tiles.health") { kind in
+                        AnyView(tile(kind))
                     }
                 }
                 .padding(.horizontal, Space.page)

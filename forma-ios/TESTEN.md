@@ -92,7 +92,7 @@ Wenn etwas hakt, notiere Testnummer und was du siehst, z. B. **T-05 – Anmeldun
 
 - **T-59** Sleep-Detail mit Beispieldaten → Karte „Schlafplan“ → Weckzeit für Arbeitstage und freie Tage ändern → Bettzeitfenster verschiebt sich sofort mit.
 - **T-60** Profil → Schlafplan → gleiche Werte wie im Sleep-Detail.
-- **T-61** Coach öffnen, Einstiegsfrage tippen → Antwort auf Deutsch, Denken-Anzeige während des Wartens, kein Maskottchen.
+- **T-61** Coach öffnen, eine Nachricht mit Absatz schreiben, daneben in den Chat tippen → Die Tastatur schließt sich und der Entwurf bleibt erhalten. Über den Senden-Knopf abschicken → Antwort auf Deutsch.
 - **T-62** Coach mit Beispieldaten fragen „Wie viele Schritte sollte ich heute gehen?“ → Er nennt das heutige Schrittziel.
 - **T-63** Ohne Internet und ohne Online-Freigabe fragen → Antwort kommt lokal vom iPhone.
 - **T-64** Foto im Chat hinzufügen und vor dem Senden entfernen → Vorschau erscheint und verschwindet.
