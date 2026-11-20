@@ -246,7 +246,7 @@ struct ThemePicker: View {
                     }
                     .padding(8)
                 }
-                .frame(width: 68, height: 92)
+                .frame(width: 76, height: 92)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -255,9 +255,9 @@ struct ThemePicker: View {
                 Text(theme.title)
                     .font(.formaMicro)
                     .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                    .lineLimit(1)
+                    .fixedSize()
             }
-            .frame(minWidth: 68, minHeight: 44)
+            .frame(minWidth: 76, minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

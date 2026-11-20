@@ -23,6 +23,8 @@ struct ProfileView: View {
     @State private var photoError: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var confirmDisconnect = false
+    @State private var showBody = false
+    @State private var showAchievements = false
 
     var body: some View {
         NavigationStack {
@@ -30,13 +32,12 @@ struct ProfileView: View {
                 photoSection
 
                 Section {
-                    NavigationLink { BodyProfileView() } label: {
+                    // Button statt NavigationLink: die Liste zeichnet sonst automatisch einen Pfeil.
+                    Button { showBody = true } label: {
                         SettingsRow(title: "Body", systemImage: "figure.stand")
                     }
                     .accessibilityIdentifier("Body")
-                    NavigationLink {
-                        AchievementsView(healthScope: hub.achievementHealthScope, isSample: hub.isSample)
-                    } label: {
+                    Button { showAchievements = true } label: {
                         SettingsRow(title: "Erfolge", systemImage: "seal")
                     }
                     .accessibilityIdentifier("profile.achievements")
@@ -88,6 +89,10 @@ struct ProfileView: View {
                         .foregroundStyle(Theme.textTertiary)
                         .frame(maxWidth: .infinity)
                 }
+            }
+            .navigationDestination(isPresented: $showBody) { BodyProfileView() }
+            .navigationDestination(isPresented: $showAchievements) {
+                AchievementsView(healthScope: hub.achievementHealthScope, isSample: hub.isSample)
             }
             .formaScreen()
             .refreshable { await hub.syncAndNotify(background: false) }
