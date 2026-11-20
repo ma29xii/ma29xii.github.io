@@ -45,6 +45,19 @@ enum TodayTile: String, TileKind {
     case coach, healthMonitor, stress, energy, food, weekly, metrics, sleepPlan, hydration
 
     var id: String { rawValue }
+
+    /// Farbhauch der Kachel, gleiche Stärke für alle (F5-06).
+    var cardTint: Color {
+        switch self {
+        case .coach, .weekly: Theme.accent
+        case .healthMonitor: Theme.younger
+        case .stress, .food: Theme.warning
+        case .energy: Theme.recoveryHigh
+        case .metrics: Theme.strain
+        case .sleepPlan: Theme.sleep
+        case .hydration: Color(hex: 0x4DC4FF)
+        }
+    }
     var title: String {
         switch self {
         case .coach: "Coach"

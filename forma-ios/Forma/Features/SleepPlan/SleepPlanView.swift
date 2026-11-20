@@ -265,10 +265,8 @@ struct SleepPlanSummary: View {
             }
             .padding(Space.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(alignment: .leading) {
-                LinearGradient(colors: [Theme.sleep.opacity(0.13), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
         }
+        .environment(\.cardTint, Theme.sleep)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(SleepPlanTimes.spoken(window, wake: wake))

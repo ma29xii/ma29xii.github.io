@@ -51,7 +51,8 @@ struct TodayView: View {
                     }
                     .padding(.bottom, Space.s2)
                 InlineTileStack<TodayTile, AnyView>(storageKey: "forma.tiles.today.v2") { kind in
-                    tile(kind, snapshot: snapshot, recent: recent, hours: hours, signals: signals, period: period)
+                    AnyView(tile(kind, snapshot: snapshot, recent: recent, hours: hours, signals: signals, period: period)
+                        .environment(\.cardTint, kind.cardTint))
                 }
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: period)

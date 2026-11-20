@@ -10,8 +10,14 @@ extension View {
 }
 
 /// Ruhige Inhaltskarte (Radius 20) für Today und die Ring-Details.
+extension EnvironmentValues {
+    /// Einheitlicher Farbhauch für Karten (Maxi F5-06): gleiche Stärke und Richtung auf allen Kacheln.
+    @Entry var cardTint: Color? = nil
+}
+
 struct DashboardCard<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.cardTint) private var tint
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -19,7 +25,16 @@ struct DashboardCard<Content: View>: View {
         let calm = reduceMotion
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.card, in: shape)
+            .background {
+                ZStack {
+                    Theme.card
+                    if let tint {
+                        LinearGradient(colors: [tint.opacity(0.12), tint.opacity(0.02)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                    }
+                }
+                .clipShape(shape)
+            }
             .overlay { shape.strokeBorder(Theme.hairline, lineWidth: 0.75).allowsHitTesting(false) }
             .clipShape(shape)
             .scrollTransition(.interactive, axis: .vertical) { card, phase in
