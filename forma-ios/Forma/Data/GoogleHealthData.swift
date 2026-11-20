@@ -4,14 +4,20 @@ import Foundation
 
 struct GoogleMetricOrigin: Hashable, Codable, Sendable {
     enum Family: String, Codable, Sendable {
-        case fitbit, appleWatch
+        case fitbit, appleWatch, googleWearable
     }
 
     var family: Family
     /// Google v4 veröffentlicht hier das Modell, keine Seriennummer.
     var device: String?
 
-    var title: String { family == .fitbit ? "Fitbit" : "Apple Watch" }
+    var title: String {
+        switch family {
+        case .fitbit: "Fitbit"
+        case .appleWatch: "Apple Watch"
+        case .googleWearable: "Google Health"
+        }
+    }
 }
 
 enum GoogleHealthTime {
@@ -119,7 +125,7 @@ struct GoogleHealthPage: Sendable {
     var nextPageToken: String?
     let hasRows: Bool
 
-    static func decode(_ data: Data, kind: GoogleHealthKind) throws -> Self {
+    static func decode(_ data: Data, kind: GoogleHealthKind, reconciledWearables: Bool = false) throws -> Self {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw GoogleHealthError.invalidResponse
         }
@@ -132,13 +138,20 @@ struct GoogleHealthPage: Sendable {
             entries = []
         }
         if let token = json["nextPageToken"], !(token is String) { throw GoogleHealthError.invalidResponse }
-        return Self(points: try entries.compactMap { try point($0, kind: kind) },
+        return Self(points: try entries.compactMap { try point($0, kind: kind, reconciledWearables: reconciledWearables) },
                     nextPageToken: json["nextPageToken"] as? String, hasRows: !entries.isEmpty)
     }
 
-    private static func point(_ entry: [String: Any], kind: GoogleHealthKind) throws -> GoogleHealthPoint? {
+    private static func point(_ entry: [String: Any], kind: GoogleHealthKind,
+                              reconciledWearables: Bool) throws -> GoogleHealthPoint? {
         guard let payload = entry[kind.jsonKey] as? [String: Any] else { throw GoogleHealthError.invalidResponse }
-        guard let source = try origin(entry["dataSource"]) else { return nil }
+        let source: GoogleMetricOrigin
+        if reconciledWearables {
+            source = GoogleMetricOrigin(family: .googleWearable, device: nil)
+        } else {
+            guard let rawSource = try origin(entry["dataSource"]) else { return nil }
+            source = rawSource
+        }
         switch kind {
         case .steps, .energy:
             let key = kind == .steps ? "count" : "kcal"
@@ -153,7 +166,7 @@ struct GoogleHealthPage: Sendable {
             }
             let metadata = payload["metadata"] as? [String: Any]
             guard payload["metadata"] == nil || metadata != nil else { throw GoogleHealthError.invalidResponse }
-            let main = try sleepFlag(metadata?["mainSleep"])
+            let main = try sleepFlag(metadata?["mainSleep"] ?? metadata?["main"])
             let nap = try sleepFlag(metadata?["nap"])
             let updated = date(payload["updateTime"])
             guard payload["updateTime"] == nil || updated != nil else { throw GoogleHealthError.invalidResponse }
@@ -237,12 +250,14 @@ struct GoogleHealthPage: Sendable {
     }
 
     private static func origin(_ value: Any?) throws -> GoogleMetricOrigin? {
+        guard let value else { return nil }
         guard let raw = value as? [String: Any],
-              let platform = raw["platform"] as? String, !platform.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              platform != "PLATFORM_UNSPECIFIED",
+              raw["platform"] == nil || raw["platform"] is String,
               raw["recordingMethod"] == nil || raw["recordingMethod"] is String else {
             throw GoogleHealthError.invalidResponse
         }
+        guard let platform = raw["platform"] as? String, !platform.isEmpty,
+              platform != "PLATFORM_UNSPECIFIED" else { return nil }
         if raw["recordingMethod"] as? String == "MANUAL" { return nil }
         let device = raw["device"] as? [String: Any]
         guard raw["device"] == nil || device != nil,
@@ -259,7 +274,6 @@ struct GoogleHealthPage: Sendable {
                   model?.localizedCaseInsensitiveContains("pixel watch") != true else { return nil }
             return .init(family: .fitbit, device: model)
         case "HEALTH_KIT":
-            guard model != nil || form != nil else { throw GoogleHealthError.invalidResponse }
             guard model?.localizedCaseInsensitiveContains("apple watch") == true
                     || (manufacturer == "apple" && form == "WATCH") else { return nil }
             return .init(family: .appleWatch, device: model)

@@ -3,6 +3,71 @@ import XCTest
 @testable import Forma
 
 final class GoogleHealthTests: XCTestCase {
+    @MainActor
+    func testGoogleWearablesRecoverStepsWhenRawRowsHaveNoSource() async throws {
+        let start = "2026-11-20T09:00:00Z"
+        let end = "2026-11-20T09:01:00Z"
+        let point = """
+        {"steps":{"count":"130","interval":{"startTime":"\(start)","endTime":"\(end)"}}}
+        """
+        var reconciledRequests: [Bool] = []
+        let points = try await GoogleHealthService.readWithWearableFallback(.steps) { reconciled, _ in
+            reconciledRequests.append(reconciled)
+            return Data("{\"dataPoints\":[\(point)]}".utf8)
+        }
+
+        XCTAssertEqual(reconciledRequests, [false, true])
+        guard case .amount(let count, _, _, let source) = try XCTUnwrap(points.first) else {
+            return XCTFail("Schritte fehlen")
+        }
+        XCTAssertEqual(points.count, 1)
+        XCTAssertEqual(count, 130)
+        XCTAssertEqual(source.family, .googleWearable)
+    }
+
+    @MainActor
+    func testRawWearableStepsAreUsedWithoutAddingReconciledSteps() async throws {
+        var reconciledRequests: [Bool] = []
+        let points = try await GoogleHealthService.readWithWearableFallback(.steps) { reconciled, _ in
+            reconciledRequests.append(reconciled)
+            return Data("""
+            {"dataPoints":[
+              {"steps":{"count":"5","interval":{"startTime":"2026-11-20T09:01:00Z","endTime":"2026-11-20T09:02:00Z"}}},
+              {"dataSource":{"platform":"FITBIT"},
+               "steps":{"count":"130","interval":{"startTime":"2026-11-20T09:00:00Z","endTime":"2026-11-20T09:01:00Z"}}}
+            ]}
+            """.utf8)
+        }
+
+        XCTAssertEqual(reconciledRequests, [false])
+        guard case .amount(let count, _, _, let source) = try XCTUnwrap(points.first) else {
+            return XCTFail("Fitbit-Schritte fehlen")
+        }
+        XCTAssertEqual(points.count, 1)
+        XCTAssertEqual(count, 130)
+        XCTAssertEqual(source.family, .fitbit)
+    }
+
+    @MainActor
+    func testReconciledSleepAcceptsGoogleMainFlag() async throws {
+        let points = try await GoogleHealthService.readWithWearableFallback(.sleep) { reconciled, _ in
+            guard reconciled else { return Data("{}".utf8) }
+            return Data("""
+            {"dataPoints":[{"sleep":{
+              "interval":{"startTime":"2026-11-19T22:00:00Z","endTime":"2026-11-20T06:00:00Z"},
+              "metadata":{"main":true},"summary":{"minutesAsleep":"407"}
+            }}]}
+            """.utf8)
+        }
+
+        guard case .sleep(let night, let main, _, _, let source) = try XCTUnwrap(points.first) else {
+            return XCTFail("Hauptschlaf fehlt")
+        }
+        XCTAssertTrue(main)
+        XCTAssertEqual(night.asleep, 407 * 60)
+        XCTAssertEqual(source.family, .googleWearable)
+    }
+
     func testParsesSleepStagesAndChoosesFitbitMainNight() throws {
         let page = try GoogleHealthPage.decode(Data("""
         {"dataPoints":[

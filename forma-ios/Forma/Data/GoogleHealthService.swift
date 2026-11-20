@@ -22,7 +22,7 @@ enum GoogleRevocation: Equatable, Sendable {
 
 enum GoogleHealthError: LocalizedError, Equatable, Sendable {
     case notConfigured, cancelled, invalidCallback, incompleteConsent, reauthorize
-    case notLinked, noConnection, keychain(OSStatus), invalidResponse, http(Int), rateLimited(Date), unreachable
+    case notLinked, noConnection, keychain(OSStatus), invalidResponse, unsupportedSource, http(Int), rateLimited(Date), unreachable
     case loginRevocationUnconfirmed(String)
 
     var errorDescription: String? {
@@ -36,6 +36,7 @@ enum GoogleHealthError: LocalizedError, Equatable, Sendable {
         case .noConnection: "Verbinde Google Health im Profil."
         case .keychain: "Der iPhone-Schlüsselbund ist gerade nicht verfügbar. Entsperre dein iPhone und versuche es erneut."
         case .invalidResponse: "Google Health hat unlesbare Daten geliefert."
+        case .unsupportedSource: "Google Health hat für diese Messung keine Daten von einer unterstützten Quelle geliefert."
         case .http(403): "Google Health hat den Messdatenabruf abgelehnt (403)."
         case .http(let status): "Google Health antwortet mit Fehler \(status)."
         case .rateLimited(let until): "Google Health begrenzt den Abruf. Neuer Versuch ab \(Format.clock(until))."
@@ -339,34 +340,59 @@ final class GoogleHealthService: GoogleHealthImporting {
     private func points(_ kind: GoogleHealthKind, from: Date, until: Date, calendar: Calendar,
                         generation: Int) async throws -> [GoogleHealthPoint] {
         guard from < until else { return [] }
-        let query = [
-            URLQueryItem(name: "filter", value: kind.filter(from: from, until: until, calendar: calendar)),
-            URLQueryItem(name: "pageSize", value: kind == .sleep || kind == .exercise ? "25" : "10000")
-        ]
-        let result = try await Self.readPoints(kind) { pageToken in
-            try check(generation)
-            let pageQuery = query + (pageToken.map { [URLQueryItem(name: "pageToken", value: $0)] } ?? [])
-            let path = "dataTypes/\(kind.rawValue)/dataPoints"
-            let bearer = try await accessToken(generation: generation)
-            let data: Data
-            do {
-                data = try await request(path: path, query: pageQuery, bearer: bearer, generation: generation)
-            } catch GoogleHealthError.http(401) {
-                let renewed = try await accessToken(generation: generation, rejected: bearer)
-                do {
-                    data = try await request(path: path, query: pageQuery, bearer: renewed, generation: generation)
-                } catch GoogleHealthError.http(401) {
-                    throw GoogleHealthError.reauthorize
-                }
-            }
-            try check(generation)
-            return data
+        let result = try await Self.readWithWearableFallback(kind) { reconciled, pageToken in
+            try await requestPoints(kind, from: from, until: until, calendar: calendar,
+                                    reconciled: reconciled, pageToken: pageToken, generation: generation)
         }
         try check(generation)
         return result
     }
 
-    static func readPoints(_ kind: GoogleHealthKind,
+    private func requestPoints(_ kind: GoogleHealthKind, from: Date, until: Date, calendar: Calendar,
+                               reconciled: Bool, pageToken: String?, generation: Int) async throws -> Data {
+        try check(generation)
+        let query = [
+            URLQueryItem(name: "filter", value: kind.filter(from: from, until: until, calendar: calendar)),
+            URLQueryItem(name: "pageSize", value: kind == .sleep || kind == .exercise ? "25" : "10000")
+        ]
+        var pageQuery = query
+        if let pageToken { pageQuery.append(URLQueryItem(name: "pageToken", value: pageToken)) }
+        if reconciled {
+            pageQuery.append(URLQueryItem(name: "dataSourceFamily", value: "users/me/dataSourceFamilies/google-wearables"))
+        }
+        let path = "dataTypes/\(kind.rawValue)/dataPoints" + (reconciled ? ":reconcile" : "")
+        let bearer = try await accessToken(generation: generation)
+        do {
+            return try await request(path: path, query: pageQuery, bearer: bearer, generation: generation)
+        } catch GoogleHealthError.http(401) {
+            let renewed = try await accessToken(generation: generation, rejected: bearer)
+            do {
+                return try await request(path: path, query: pageQuery, bearer: renewed, generation: generation)
+            } catch GoogleHealthError.http(401) {
+                throw GoogleHealthError.reauthorize
+            }
+        }
+    }
+
+    static func readWithWearableFallback(
+        _ kind: GoogleHealthKind,
+        fetch: @MainActor (Bool, String?) async throws -> Data
+    ) async throws -> [GoogleHealthPoint] {
+        let supportsFallback = kind == .steps || kind == .sleep
+        var hadUnsupportedSource = false
+        do {
+            let raw = try await readPoints(kind) { try await fetch(false, $0) }
+            if !raw.isEmpty || !supportsFallback { return raw }
+        } catch GoogleHealthError.unsupportedSource where supportsFallback {
+            hadUnsupportedSource = true
+        }
+        // Der Google-Wearables-Stream ersetzt die leeren Rohdaten für diesen Zeitraum.
+        let result = try await readPoints(kind, reconciledWearables: true) { try await fetch(true, $0) }
+        if hadUnsupportedSource && result.isEmpty { throw GoogleHealthError.unsupportedSource }
+        return result
+    }
+
+    static func readPoints(_ kind: GoogleHealthKind, reconciledWearables: Bool = false,
                            fetch: @MainActor (String?) async throws -> Data) async throws -> [GoogleHealthPoint] {
         var result: [GoogleHealthPoint] = []
         var pageToken: String?
@@ -374,7 +400,9 @@ final class GoogleHealthService: GoogleHealthImporting {
         var hasRows = false
         repeat {
             let data = try await fetch(pageToken)
-            let page = try await Task.detached(priority: .utility) { try GoogleHealthPage.decode(data, kind: kind) }.value
+            let page = try await Task.detached(priority: .utility) {
+                try GoogleHealthPage.decode(data, kind: kind, reconciledWearables: reconciledWearables)
+            }.value
             try Task.checkCancellation()
             result.append(contentsOf: page.points)
             hasRows = hasRows || page.hasRows
@@ -384,7 +412,7 @@ final class GoogleHealthService: GoogleHealthImporting {
             }
         } while pageToken != nil
         // Eine Reihe ohne auswertbare Zeilen bestätigt Leerstand nur, wenn Google keine Zeilen geliefert hat.
-        guard !hasRows || !result.isEmpty else { throw GoogleHealthError.invalidResponse }
+        guard !hasRows || !result.isEmpty else { throw GoogleHealthError.unsupportedSource }
         return result
     }
 
