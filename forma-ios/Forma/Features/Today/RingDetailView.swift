@@ -70,17 +70,6 @@ struct RingDetailView: View {
                                    compact: columns, order: index)
                 }
             }
-            Button {
-                withAnimation(.smooth(duration: 0.24)) { editingLayout.toggle() }
-            } label: {
-                Text(editingLayout ? "Fertig" : "Anpassen")
-                    .font(.formaCaptionStrong)
-                    .frame(minHeight: 44)
-                    .padding(.horizontal, Space.s3)
-            }
-            .buttonStyle(.glass)
-            .frame(maxWidth: .infinity)
-            .accessibilityIdentifier("ring.metric.edit")
         }
         }
         if kind == .sleep {
@@ -92,6 +81,18 @@ struct RingDetailView: View {
             sleepPhases(night)
         }
         RingTrendChart(kind: kind, anchor: day.date, days: history, color: tint)
+        // „Anpassen“ immer ganz unten (Designregel 5).
+        Button {
+            withAnimation(.smooth(duration: 0.24)) { editingLayout.toggle() }
+        } label: {
+            Text(editingLayout ? "Fertig" : "Anpassen")
+                .font(.formaCaptionStrong)
+                .frame(minHeight: 44)
+                .padding(.horizontal, Space.s3)
+        }
+        .buttonStyle(.glass)
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("ring.metric.edit")
     }
 
     @ViewBuilder
