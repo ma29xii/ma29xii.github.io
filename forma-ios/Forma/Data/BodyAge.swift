@@ -231,6 +231,41 @@ enum BodyAge {
         return age + shift
     }
 
+    enum AdjustableFactor: String, CaseIterable, Hashable, Sendable {
+        case sleep, steps, strength
+        case restingHR = "rhr"
+
+        fileprivate func years(at value: Double) -> Double {
+            let logHazard: Double
+            switch self {
+            case .sleep:
+                if value < 7 { logHazard = log(1.12) * min(1, 7 - value) }
+                else if value > 8 { logHazard = log(1.30) * min(1, value - 8) }
+                else { logHazard = 0 }
+            case .steps:
+                logHazard = BodyAge.stepsLogHazard(value) - BodyAge.stepsLogHazard(7000)
+            case .strength:
+                logHazard = log(0.86) * min(1, value / 30)
+            case .restingHR:
+                logHazard = log(1.09) * (value - 65) / 10
+            }
+            return BodyAge.clamp(BodyAge.yearsPerLogHazard * logHazard, 4)
+        }
+    }
+
+    /// Die Änderungen beziehen sich auf die vorhandenen Mittelwerte. Schlaf wird in Minuten angegeben.
+    static func projectedAge(_ baseline: Result, changes: [AdjustableFactor: Double]) -> Double {
+        guard changes.values.contains(where: { $0 != 0 }) else { return baseline.bodyAge }
+        let sum = baseline.factors.reduce(0.0) { sum, factor in
+            guard let metric = AdjustableFactor(rawValue: factor.id), let change = changes[metric], change != 0 else {
+                return sum + factor.years
+            }
+            let delta = metric == .sleep ? change / 60 : change
+            return sum + metric.years(at: max(0, factor.value + delta))
+        }
+        return combine(age: baseline.age, sum: sum)
+    }
+
     private static func hasData(_ d: DayMetrics) -> Bool {
         (d.steps ?? 0) > 500 || d.sleep != nil || d.restingHR != nil
     }
@@ -269,13 +304,12 @@ enum BodyAge {
         // 2. Ruhepuls.
         let rhrValues = days.compactMap(\.restingHR)
         if rhrValues.count >= 7, let rhr = mean(rhrValues) {
-            let years = clamp(yearsPerLogHazard * log(1.09) * (rhr - 65) / 10, 4)
             result.append(Factor(
                 id: "rhr", title: "Ruhepuls", systemImage: "heart",
                 valueText: "\(Format.number(rhr)) bpm im Mittel", referenceText: "Vergleichswert: 65 bpm (Annahme von Health)",
                 value: rhr, displayRange: 35...105, referenceRange: 65...65,
                 coverage: "\(rhrValues.count) von \(days.count) Tagen",
-                years: years,
+                years: AdjustableFactor.restingHR.years(at: rhr),
                 explanation: "In großen Studien war je 10 Schläge pro Minute mehr Ruhepuls mit etwa 9 % höherem Sterberisiko verbunden. Annahmen von Health: 65 bpm als Vergleichswert und ein linearer Verlauf, begrenzt auf ±4 Jahre.",
                 source: "Zhang et al., CMAJ 2016 · Referenz 65 bpm ist eine Annahme für Erwachsene"))
         } else {
@@ -285,13 +319,12 @@ enum BodyAge {
         // 3. Schritte (Tage unter 500 Schritten gelten als „Uhr nicht getragen“).
         let stepValues = days.compactMap(\.steps).filter { $0 > 500 }
         if stepValues.count >= 7, let steps = mean(stepValues) {
-            let years = clamp(yearsPerLogHazard * (stepsLogHazard(steps) - stepsLogHazard(7000)), 4)
             result.append(Factor(
                 id: "steps", title: "Schritte", systemImage: "figure.walk",
                 valueText: "\(Format.number(steps)) pro Tag", referenceText: "Vergleichswert: 7.000 pro Tag (Annahme von Health)",
                 value: steps, displayRange: 0...15_000, referenceRange: 7_000...7_000,
                 coverage: "\(stepValues.count) von \(days.count) Tagen",
-                years: years,
+                years: AdjustableFactor.steps.years(at: steps),
                 explanation: "In Studien ging mehr Gehen mit geringerem Risiko einher, mit abflachendem Nutzen: unter 60 Jahren bei etwa 8.000 bis 10.000 Schritten. Annahmen von Health: gemittelte Kurve über alle Altersgruppen, Tage unter 500 Schritten gelten als „Uhr nicht getragen“, Begrenzung auf ±4 Jahre.",
                 source: "Paluch et al., Lancet Public Health 2022 · Referenz 7.000 ist eine Annahme"))
         } else {
@@ -301,16 +334,12 @@ enum BodyAge {
         // 4. Schlafdauer (Nächte unter 3 Stunden gelten als unvollständig gemessen).
         let sleepHours = days.compactMap { $0.sleep?.asleep }.filter { $0 > 3 * 3600 }.map { $0 / 3600 }
         if sleepHours.count >= 7, let hours = mean(sleepHours) {
-            let logHazard: Double
-            if hours < 7 { logHazard = log(1.12) * min(1, 7 - hours) }
-            else if hours > 8 { logHazard = log(1.30) * min(1, hours - 8) }
-            else { logHazard = 0 }
             result.append(Factor(
                 id: "sleep", title: "Schlafdauer", systemImage: "moon",
                 valueText: "\(Format.duration(hours * 3600)) im Mittel", referenceText: "Vergleichsbereich: 7–8 h (Annahme von Health)",
                 value: hours, displayRange: 4...11, referenceRange: 7...8,
                 coverage: "\(sleepHours.count) von \(days.count) Nächten",
-                years: clamp(yearsPerLogHazard * logHazard, 4),
+                years: AdjustableFactor.sleep.years(at: hours),
                 explanation: "In Studien war kurzer Schlaf mit etwa 12 % und sehr langer Schlaf mit etwa 30 % höherem Risiko verbunden. Beim langen Schlaf kann eine Erkrankung die Ursache sein, nicht der Schlaf selbst. Annahme von Health: gleitender Übergang zwischen 6 und 7 h bzw. 8 und 9 h.",
                 source: "Cappuccio et al., Sleep 2010"))
         } else {
@@ -318,7 +347,6 @@ enum BodyAge {
         }
 
         // 5. Krafttraining pro Woche (Forma-Trainings und Krafttrainings aus Google Health).
-        let strengthLogHazard = log(0.86) * min(1, strengthPerWeek / 30)
         if !hasStrengthRecord {
             missing.append("Krafttraining – noch nichts aufgezeichnet (Training in dieser App oder in Google Health)")
         } else {
@@ -327,7 +355,7 @@ enum BodyAge {
                 valueText: "\(Format.number(strengthPerWeek)) min pro Woche", referenceText: "Vergleich: kein Krafttraining",
                 value: strengthPerWeek, displayRange: 0...120, referenceRange: 0...0,
                 coverage: "Trainings aus dieser App und aus Google Health",
-                years: clamp(yearsPerLogHazard * strengthLogHazard, 4),
+                years: AdjustableFactor.strength.years(at: strengthPerWeek),
                 explanation: "In Studien gingen 30 bis 60 Minuten Krafttraining pro Woche mit 10 bis 17 % geringerem Risiko einher. Annahmen von Health: 14 % ab 30 min/Woche. Health wertet deine erfassten Trainingsminuten aus.",
                 source: "Momma et al., Br J Sports Med 2022"))
         }

@@ -65,6 +65,61 @@ extension WeeklyInsight {
 
 // MARK: - Story
 
+struct RecapStoryHeader: View {
+    let title: String
+    let identifier: String
+    let page: Int
+    let count: Int
+    let progress: Double
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            HStack(spacing: Space.s1) {
+                ForEach(0..<count, id: \.self) { index in
+                    let fill = index < page ? 1 : (index == page ? progress : 0)
+                    GeometryReader { bar in
+                        Capsule().fill(Theme.textPrimary.opacity(0.22))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(Theme.textPrimary).frame(width: bar.size.width * fill)
+                            }
+                    }
+                    .frame(height: 3)
+                }
+            }
+            .accessibilityHidden(true)
+            HStack {
+                Text(title)
+                    .formaLabelStyle()
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityValue("Seite \(page + 1) von \(count)")
+                    .accessibilityIdentifier(identifier + ".story")
+                Spacer()
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(Theme.plate, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Schließen")
+                .accessibilityIdentifier(identifier + ".close")
+            }
+        }
+    }
+}
+
+struct RecapStoryBackdrop: View {
+    let tint: Color
+
+    var body: some View {
+        RadialGradient(colors: [tint.opacity(0.38), tint.opacity(0.08), .clear],
+                       center: .top, startRadius: 0, endRadius: 520)
+            .ignoresSafeArea()
+    }
+}
+
 /// Vollbild-Story: Seiten laufen automatisch weiter, rechts tippen = weiter, links = zurück, halten = Pause.
 struct WeeklyRecapStory: View {
     let rows: [WeeklyInsight.Row]
@@ -98,7 +153,8 @@ struct WeeklyRecapStory: View {
             ZStack {
                 background(for: current)
                 VStack(alignment: .leading, spacing: Space.s4) {
-                    header(pages: pages)
+                    RecapStoryHeader(title: "Wochenrückblick", identifier: "weekly", page: page, count: pages.count,
+                                     progress: autoAdvance ? progress : 1, close: { dismiss() })
                     // Gesten nur auf der Story-Fläche, nicht auf Schließen/Fertig.
                     VStack(alignment: .leading, spacing: 0) {
                         Spacer(minLength: 0)
@@ -188,48 +244,12 @@ struct WeeklyRecapStory: View {
 
     // MARK: Aufbau
 
-    private func header(pages: [Page]) -> some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
-            HStack(spacing: Space.s1) {
-                ForEach(pages.indices, id: \.self) { index in
-                    let fill = index < page ? 1 : (index == page ? (autoAdvance ? progress : 1) : 0)
-                    GeometryReader { bar in
-                        Capsule().fill(Theme.textPrimary.opacity(0.22))
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(Theme.textPrimary).frame(width: bar.size.width * fill)
-                            }
-                    }
-                    .frame(height: 3)
-                }
-            }
-            .accessibilityHidden(true)
-            HStack {
-                Text("Wochenrückblick")
-                    .formaLabelStyle()
-                    .accessibilityIdentifier("weekly.story")
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Theme.textPrimary)
-                        .frame(width: 44, height: 44)
-                        .background(Theme.plate, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Schließen")
-                .accessibilityIdentifier("weekly.close")
-            }
-        }
-    }
-
     private func background(for page: Page) -> some View {
         let tint: Color = switch page {
         case .intro, .summary: Theme.accent
         case .metric(let metric): metric.tint
         }
-        return RadialGradient(colors: [tint.opacity(0.38), tint.opacity(0.08), .clear],
-                              center: .top, startRadius: 0, endRadius: 520)
-            .ignoresSafeArea()
+        return RecapStoryBackdrop(tint: tint)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: page)
     }
 

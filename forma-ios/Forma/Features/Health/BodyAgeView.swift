@@ -620,6 +620,10 @@ struct BodyAgeDetailView: View {
 
                     HealthAgeSections(outcome: outcome, trend: trend)
 
+                    if result.factors.contains(where: { BodyAge.AdjustableFactor(rawValue: $0.id) != nil }) {
+                        HealthAgeWhatIfLink(result: result)
+                    }
+
                     VStack(alignment: .leading, spacing: Space.s2) {
                         DashboardHeading(title: "Datengrundlage")
                         DashboardCard {

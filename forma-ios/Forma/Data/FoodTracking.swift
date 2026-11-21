@@ -227,16 +227,20 @@ enum FoodTracking {
         return result
     }
 
-    /// Am häufigsten eingetragene Lebensmittel, bei Gleichstand das zuletzt gegessene zuerst; nur ab zwei Einträgen.
-    static func frequent(_ entries: [FoodEntry], limit: Int = 8) -> [FoodEntry] {
+    /// Am häufigsten eingetragene Lebensmittel, bei Gleichstand das zuletzt gegessene zuerst.
+    static func frequent(_ entries: [FoodEntry], limit: Int = 8, minimumCount: Int = 2) -> [FoodEntry] {
         let groups = Dictionary(grouping: entries, by: \.productKey)
         return groups.values
-            .filter { $0.count >= 2 }
+            .filter { $0.count >= minimumCount }
             .compactMap { group -> (count: Int, latest: FoodEntry)? in
                 guard let latest = group.max(by: { $0.date < $1.date }) else { return nil }
                 return (count: group.count, latest: latest)
             }
-            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.latest.date > $1.latest.date }
+            .sorted { a, b in
+                if a.count != b.count { return a.count > b.count }
+                if a.latest.date != b.latest.date { return a.latest.date > b.latest.date }
+                return a.latest.productKey < b.latest.productKey
+            }
             .prefix(limit)
             .map { $0.latest }
     }

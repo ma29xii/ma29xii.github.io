@@ -3,9 +3,11 @@ import SwiftUI
 struct TodayView: View {
     @Environment(DataHub.self) private var hub
     @Environment(AppState.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var ringEntrance = 0
+    @State private var briefing: MorningBriefing?
     /// Gemessene Breite des Kopfs; der Recovery-Bogen richtet sich danach.
     @State private var headerWidth: CGFloat = 358
 
@@ -27,6 +29,31 @@ struct TodayView: View {
         .onChange(of: app.selectedTab, initial: true) { _, tab in
             if tab == .today, !reduceMotion { ringEntrance += 1 }
         }
+        .onChange(of: canOpenMorningBriefing, initial: true) { _, canOpen in
+            guard canOpen, briefing == nil else { return }
+            let now = Date.now
+            let shown = briefingStore?.string(forKey: MorningBriefing.shownDayKey) ?? ""
+            if MorningBriefing.shouldOpen(at: now, shownDay: shown) {
+                briefing = MorningBriefing(day: now.startOfDay)
+            }
+        }
+        .fullScreenCover(item: $briefing) { briefing in
+            MorningBriefingStory(day: briefing.day)
+                .onAppear {
+                    guard !FormaApp.isUITest else { return }
+                    briefingStore?.set(MorningBriefing.dayKey(at: briefing.day), forKey: MorningBriefing.shownDayKey)
+                }
+        }
+    }
+
+    private var canOpenMorningBriefing: Bool {
+        !FormaApp.isUITest && app.launchReady && scenePhase == .active && app.selectedTab == .today
+            && !app.showProfile && !app.showPlus && !app.trainingHomeOpen && app.liveWorkout == nil
+            && !app.isWorkoutSummaryActive
+    }
+
+    private var briefingStore: UserDefaults? {
+        hub.isSample ? UserDefaults(suiteName: "forma.preview.morningBriefing") : .standard
     }
 
     private func dashboard(at now: Date) -> some View {
@@ -92,6 +119,8 @@ struct TodayView: View {
             // Nur im Zeitfenster Sonntagabend bis Montagmittag; sonst nimmt die Karte keinen Platz ein.
             guard let period else { return AnyView(EmptyView()) }
             return AnyView(WeeklyRecapLink(period: period).transition(.opacity))
+        case .morningBriefing:
+            return AnyView(MorningBriefingTile { briefing = MorningBriefing(day: Date.now.startOfDay) })
         case .metrics:
             return AnyView(steps(snapshot, hours: hours))
         case .sleepPlan:

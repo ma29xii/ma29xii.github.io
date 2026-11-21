@@ -133,6 +133,9 @@ private struct FoodHomeContent: View {
                 .formaAppear(index: 1)
                 .foodRow(top: 0, bottom: Space.s5)
 
+            FoodRepeatChips(day: day, log: repeatEntry)
+                .foodRow()
+
             if items.isEmpty {
                 Text("Noch nichts erfasst")
                     .font(.formaBody)
@@ -281,6 +284,14 @@ private struct FoodHomeContent: View {
 
     private func confirm(_ item: FoodPlanItem) {
         do { try FoodPlanStore.log([item], in: context) } catch { saveError = true }
+    }
+
+    private func repeatEntry(_ entry: FoodEntry) {
+        do {
+            try FoodEntry.saveChange(in: context) { context.insert(FoodEntry(repeating: entry, at: .now)) }
+        } catch {
+            saveError = true
+        }
     }
 
     private func remove(_ item: FoodPlanItem) {

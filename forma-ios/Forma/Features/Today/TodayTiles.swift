@@ -44,6 +44,7 @@ struct StepsDetail: View {
 enum TodayTile: String, TileKind {
     case coach, readiness, bodySignals, healthMonitor, stress, energy, food, weekly, metrics, sleepPlan, hydration
     case sleepDebt, calmTime, streak
+    case morningBriefing
 
     var id: String { rawValue }
 
@@ -60,6 +61,7 @@ enum TodayTile: String, TileKind {
         case .energy: "Energie"
         case .food: "Heutiges Essen"
         case .weekly: "Wochenrückblick"
+        case .morningBriefing: "Morgen-Briefing"
         case .metrics: "Schritte"
         case .sleepPlan: "Schlafplan"
         case .hydration: "Wasser"
@@ -78,6 +80,7 @@ enum TodayTile: String, TileKind {
         case .energy: "bolt.fill"
         case .food: "fork.knife"
         case .weekly: "calendar"
+        case .morningBriefing: "sunrise.fill"
         case .metrics: "figure.walk"
         case .sleepPlan: "moon.stars"
         case .hydration: "drop.fill"

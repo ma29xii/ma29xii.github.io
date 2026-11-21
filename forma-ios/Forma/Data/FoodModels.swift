@@ -136,6 +136,25 @@ final class FoodEntry {
         self.productSnapshot = try? JSONEncoder().encode(product)
     }
 
+    /// Menge, Einheit, Mahlzeit und bereits erfasste Nährwerte unverändert übernehmen.
+    init(repeating entry: FoodEntry, at date: Date) {
+        self.date = date
+        self.mealRaw = entry.mealRaw
+        self.name = entry.name
+        self.brand = entry.brand
+        self.amount = entry.amount
+        self.unit = entry.unit
+        self.energy = entry.energy
+        self.protein = entry.protein
+        self.carbohydrates = entry.carbohydrates
+        self.sugar = entry.sugar
+        self.fat = entry.fat
+        self.saturatedFat = entry.saturatedFat
+        self.fiber = entry.fiber
+        self.salt = entry.salt
+        self.productSnapshot = entry.productSnapshot
+    }
+
     /// Gleiche Lebensmittel erkennen, auch bei Einträgen ohne Produkt-Snapshot.
     var productKey: String { (name + "|" + (brand ?? "")).lowercased() }
 
